@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sed -n '300,650p' /tmp/api2_full.txt)"
+    ]
+  }
+}

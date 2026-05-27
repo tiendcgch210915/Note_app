@@ -1,0 +1,15 @@
+targets:
+  $default:
+    builders:
+      drift_dev|preparing_builder:
+        options:
+          sql:
+            dialects:
+              - sqlite
+      drift_dev|drift_builder:
+        options:
+          sql:
+            dialects:
+              - sqlite
+          named_parameters: true
+          scoped_dart_components: true
