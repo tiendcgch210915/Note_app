@@ -26,8 +26,8 @@ class HabitLog {
   }
 
   Map<String, dynamic> toJson() => {
-        'log_date': formatDateOnly(logDate),
-        'completed': completed,
-        'note': note,
-      };
+    'log_date': formatDateOnly(logDate),
+    'completed': completed,
+    'note': note,
+  };
 }

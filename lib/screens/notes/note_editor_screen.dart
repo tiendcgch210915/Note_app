@@ -85,11 +85,15 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
     try {
       if (_currentNoteId == null) {
         final detail = await NotesRepository.instance.create(
-          title: _title.text.trim().isEmpty ? '(Không tiêu đề)' : _title.text.trim(),
+          title: _title.text.trim().isEmpty
+              ? '(Không tiêu đề)'
+              : _title.text.trim(),
           type: _type,
           body: _body.text.isEmpty ? null : _body.text,
           cornellCue: _type == NoteType.cornell ? _cornellCue.text : null,
-          cornellSummary: _type == NoteType.cornell ? _cornellSummary.text : null,
+          cornellSummary: _type == NoteType.cornell
+              ? _cornellSummary.text
+              : null,
           isPinned: _pinned,
         );
         if (!mounted) return;
@@ -104,12 +108,17 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
           type: _type,
           body: _body.text,
           cornellCue: _type == NoteType.cornell ? _cornellCue.text : null,
-          cornellSummary: _type == NoteType.cornell ? _cornellSummary.text : null,
+          cornellSummary: _type == NoteType.cornell
+              ? _cornellSummary.text
+              : null,
         );
       }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Đã lưu'), duration: Duration(seconds: 1)),
+          const SnackBar(
+            content: Text('Đã lưu'),
+            duration: Duration(seconds: 1),
+          ),
         );
       }
     } on ApiException catch (e) {
@@ -135,7 +144,8 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
     if (_currentNoteId == null) return;
     try {
       if (newType == NoteType.cornell &&
-          (_cornellCue.text.trim().isEmpty || _cornellSummary.text.trim().isEmpty)) {
+          (_cornellCue.text.trim().isEmpty ||
+              _cornellSummary.text.trim().isEmpty)) {
         _showError('Cornell cần nhập cue + summary trước');
         setState(() => _type = oldType);
         return;
@@ -155,9 +165,9 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
     try {
       await NotesRepository.instance.delete(_currentNoteId!);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Đã xóa')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Đã xóa')));
         Navigator.of(context).pop();
       }
     } on ApiException catch (e) {
@@ -175,8 +185,12 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? AppColors.noteBackgroundDark : AppColors.noteBackground;
-    final textPrimary = isDark ? AppColors.textPrimaryDark : AppColors.textPrimary;
-    final textSecondary = isDark ? AppColors.textSecondaryDark : AppColors.textSecondary;
+    final textPrimary = isDark
+        ? AppColors.textPrimaryDark
+        : AppColors.textPrimary;
+    final textSecondary = isDark
+        ? AppColors.textSecondaryDark
+        : AppColors.textSecondary;
 
     if (_loading && _detail == null) {
       return Scaffold(
@@ -210,9 +224,15 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
               }
             },
             itemBuilder: (_) => [
-              const PopupMenuItem(value: 'cornell', child: Text('Đổi sang Cornell')),
+              const PopupMenuItem(
+                value: 'cornell',
+                child: Text('Đổi sang Cornell'),
+              ),
               const PopupMenuItem(value: 'free', child: Text('Đổi sang Free')),
-              const PopupMenuItem(value: 'delete', child: Text('Xóa', style: TextStyle(color: AppColors.danger))),
+              const PopupMenuItem(
+                value: 'delete',
+                child: Text('Xóa', style: TextStyle(color: AppColors.danger)),
+              ),
             ],
           ),
         ],
@@ -224,7 +244,11 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
             TextField(
               controller: _title,
               onChanged: (_) => _scheduleAutosave(),
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: textPrimary),
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w600,
+                color: textPrimary,
+              ),
               decoration: const InputDecoration(
                 hintText: 'Tiêu đề',
                 border: InputBorder.none,
@@ -251,7 +275,11 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
                       onChanged: (_) => _scheduleAutosave(),
                       maxLines: null,
                       minLines: 12,
-                      style: TextStyle(fontSize: 16, color: textPrimary, height: 1.5),
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: textPrimary,
+                        height: 1.5,
+                      ),
                       decoration: const InputDecoration(
                         hintText: 'Bắt đầu viết...',
                         border: InputBorder.none,
@@ -330,7 +358,10 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
         title: const Text('Xóa note?'),
         content: const Text('Hành động này không thể hoàn tác.'),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Hủy')),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Hủy'),
+          ),
           TextButton(
             onPressed: () {
               Navigator.of(ctx).pop();
@@ -381,7 +412,10 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
         title: const Text('Bỏ tag?'),
         content: Text('Bỏ tag "${tag.name}" khỏi note này?'),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Hủy')),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Hủy'),
+          ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('Bỏ', style: TextStyle(color: AppColors.danger)),
@@ -426,11 +460,19 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
           title: const Text('Nhãn liên kết'),
           content: TextField(
             controller: ctrl,
-            decoration: const InputDecoration(hintText: 'Tùy chọn, vd "tham khảo"'),
+            decoration: const InputDecoration(
+              hintText: 'Tùy chọn, vd "tham khảo"',
+            ),
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.of(ctx).pop(null), child: const Text('Bỏ qua')),
-            TextButton(onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()), child: const Text('Thêm')),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(null),
+              child: const Text('Bỏ qua'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
+              child: const Text('Thêm'),
+            ),
           ],
         );
       },
@@ -450,7 +492,10 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
   Future<void> _removeLink(OutgoingLink link) async {
     if (_currentNoteId == null) return;
     try {
-      await NotesRepository.instance.removeLink(_currentNoteId!, link.targetNoteId);
+      await NotesRepository.instance.removeLink(
+        _currentNoteId!,
+        link.targetNoteId,
+      );
       setState(() {
         _detail = NoteWithRelations(
           note: _detail!.note,
@@ -467,16 +512,16 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
 
   // ─── Navigation helpers ───────────────────────────────────────
   Future<void> _openNote(String noteId) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => NoteEditorScreen(noteId: noteId)),
-    );
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => NoteEditorScreen(noteId: noteId)));
     if (mounted) _loadDetail(); // refresh khi quay về
   }
 
   Future<void> _openTodo(String todoId) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => TodoDetailScreen(todoId: todoId)),
-    );
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => TodoDetailScreen(todoId: todoId)));
     if (mounted) _loadDetail();
   }
 
@@ -505,32 +550,48 @@ class _TagsSection extends StatelessWidget {
   final List<Tag> tags;
   final VoidCallback onAdd;
   final void Function(Tag) onRemove;
-  const _TagsSection({required this.tags, required this.onAdd, required this.onRemove});
+  const _TagsSection({
+    required this.tags,
+    required this.onAdd,
+    required this.onRemove,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SectionHeader(label: 'Tags', padding: EdgeInsets.only(top: 8, bottom: 8)),
+        const SectionHeader(
+          label: 'Tags',
+          padding: EdgeInsets.only(top: 8, bottom: 8),
+        ),
         Wrap(
           spacing: 8,
           runSpacing: 6,
           children: [
-            ...tags.map((t) => GestureDetector(
-                  onLongPress: () => onRemove(t),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: t.color.withValues(alpha: 0.18),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      t.name,
-                      style: TextStyle(fontSize: 12, color: t.color, fontWeight: FontWeight.w600),
+            ...tags.map(
+              (t) => GestureDetector(
+                onLongPress: () => onRemove(t),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: t.color.withValues(alpha: 0.18),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    t.name,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: t.color,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                )),
+                ),
+              ),
+            ),
             ActionChip(
               avatar: const Icon(Icons.add, size: 14),
               label: const Text('Tag', style: TextStyle(fontSize: 12)),
@@ -541,8 +602,10 @@ class _TagsSection extends StatelessWidget {
         if (tags.isEmpty)
           const Padding(
             padding: EdgeInsets.only(top: 4),
-            child: Text('Chưa có tag · long-press chip để bỏ',
-                style: TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+            child: Text(
+              'Chưa có tag · long-press chip để bỏ',
+              style: TextStyle(fontSize: 11, color: AppColors.textSecondary),
+            ),
           ),
       ],
     );
@@ -578,25 +641,35 @@ class _OutgoingLinksSection extends StatelessWidget {
         if (links.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 4),
-            child: Text('(Chưa có liên kết)',
-                style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+            child: Text(
+              '(Chưa có liên kết)',
+              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
           )
         else
-          ...links.map((l) => ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.arrow_outward, size: 18, color: AppColors.primary),
-                title: Text(
-                  l.targetTitle.isEmpty ? '(Note đã đổi tên)' : l.targetTitle,
-                  style: const TextStyle(fontSize: 14),
-                ),
-                subtitle: l.label == null ? null : Text(l.label!, style: const TextStyle(fontSize: 11)),
-                trailing: IconButton(
-                  icon: const Icon(Icons.close, size: 18),
-                  onPressed: () => onRemove(l),
-                ),
-                onTap: () => onTapTarget(l.targetNoteId),
-              )),
+          ...links.map(
+            (l) => ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(
+                Icons.arrow_outward,
+                size: 18,
+                color: AppColors.primary,
+              ),
+              title: Text(
+                l.targetTitle.isEmpty ? '(Note đã đổi tên)' : l.targetTitle,
+                style: const TextStyle(fontSize: 14),
+              ),
+              subtitle: l.label == null
+                  ? null
+                  : Text(l.label!, style: const TextStyle(fontSize: 11)),
+              trailing: IconButton(
+                icon: const Icon(Icons.close, size: 18),
+                onPressed: () => onRemove(l),
+              ),
+              onTap: () => onTapTarget(l.targetNoteId),
+            ),
+          ),
       ],
     );
   }
@@ -619,21 +692,31 @@ class _BacklinksSection extends StatelessWidget {
         if (links.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 4),
-            child: Text('(Chưa có note nào liên kết tới đây)',
-                style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+            child: Text(
+              '(Chưa có note nào liên kết tới đây)',
+              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
           )
         else
-          ...links.map((l) => ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.subdirectory_arrow_left, size: 18, color: AppColors.primary),
-                title: Text(
-                  l.sourceTitle.isEmpty ? '(Note đã đổi tên)' : l.sourceTitle,
-                  style: const TextStyle(fontSize: 14),
-                ),
-                subtitle: l.label == null ? null : Text(l.label!, style: const TextStyle(fontSize: 11)),
-                onTap: () => onTapSource(l.sourceNoteId),
-              )),
+          ...links.map(
+            (l) => ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(
+                Icons.subdirectory_arrow_left,
+                size: 18,
+                color: AppColors.primary,
+              ),
+              title: Text(
+                l.sourceTitle.isEmpty ? '(Note đã đổi tên)' : l.sourceTitle,
+                style: const TextStyle(fontSize: 14),
+              ),
+              subtitle: l.label == null
+                  ? null
+                  : Text(l.label!, style: const TextStyle(fontSize: 11)),
+              onTap: () => onTapSource(l.sourceNoteId),
+            ),
+          ),
       ],
     );
   }
@@ -661,32 +744,36 @@ class _LinkedTodosSection extends StatelessWidget {
         if (todos.isEmpty)
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 4),
-            child: Text('(Chưa có todo liên kết)',
-                style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+            child: Text(
+              '(Chưa có todo liên kết)',
+              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
           )
         else
-          ...todos.map((t) => ListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(
-                  t.isDone ? Icons.check_circle : Icons.radio_button_unchecked,
-                  size: 18,
-                  color: t.isDone ? AppColors.primary : AppColors.textSecondary,
+          ...todos.map(
+            (t) => ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                t.isDone ? Icons.check_circle : Icons.radio_button_unchecked,
+                size: 18,
+                color: t.isDone ? AppColors.primary : AppColors.textSecondary,
+              ),
+              title: Text(
+                t.title,
+                style: TextStyle(
+                  fontSize: 14,
+                  decoration: t.isDone ? TextDecoration.lineThrough : null,
+                  color: t.isDone ? AppColors.textSecondary : null,
                 ),
-                title: Text(
-                  t.title,
-                  style: TextStyle(
-                    fontSize: 14,
-                    decoration: t.isDone ? TextDecoration.lineThrough : null,
-                    color: t.isDone ? AppColors.textSecondary : null,
-                  ),
-                ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.link_off, size: 18),
-                  onPressed: () => onUnlink(t),
-                ),
-                onTap: () => onTap(t.id),
-              )),
+              ),
+              trailing: IconButton(
+                icon: const Icon(Icons.link_off, size: 18),
+                onPressed: () => onUnlink(t),
+              ),
+              onTap: () => onTap(t.id),
+            ),
+          ),
       ],
     );
   }
@@ -749,7 +836,9 @@ class _TagDialogState extends State<_TagDialog> {
                   decoration: BoxDecoration(
                     color: c,
                     shape: BoxShape.circle,
-                    border: c == _color ? Border.all(color: AppColors.primary, width: 2.5) : null,
+                    border: c == _color
+                        ? Border.all(color: AppColors.primary, width: 2.5)
+                        : null,
                   ),
                 ),
               );
@@ -758,12 +847,17 @@ class _TagDialogState extends State<_TagDialog> {
         ],
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Hủy')),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Hủy'),
+        ),
         TextButton(
           onPressed: () {
             final name = _ctrl.text.trim();
             if (name.isEmpty) return;
-            Navigator.of(context).pop((name: name, color: formatColorHex(_color)));
+            Navigator.of(
+              context,
+            ).pop((name: name, color: formatColorHex(_color)));
           },
           child: const Text('Thêm'),
         ),
@@ -863,7 +957,11 @@ class _NotePickerState extends State<_NotePicker> {
                         return ListTile(
                           leading: const Icon(Icons.sticky_note_2_outlined),
                           title: Text(n.title),
-                          subtitle: Text(n.previewBody, maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: Text(
+                            n.previewBody,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                           onTap: () => Navigator.of(context).pop(n),
                         );
                       },
@@ -944,7 +1042,11 @@ class _CornellLayout extends StatelessWidget {
                     expands: true,
                     textAlignVertical: TextAlignVertical.top,
                     onChanged: (_) => onChange(),
-                    style: TextStyle(fontSize: 15, color: textPrimary, height: 1.4),
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: textPrimary,
+                      height: 1.4,
+                    ),
                     decoration: const InputDecoration(
                       hintText: 'Ghi chú',
                       border: InputBorder.none,

@@ -38,8 +38,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final today = AppDateUtils.dateOnly(DateTime.now());
       final results = await Future.wait([
-        DashboardRepository.instance.today(),
-        DashboardRepository.instance.eisenhower(),
+        DashboardRepository.instance.today(date: today),
+        DashboardRepository.instance.eisenhower(date: today),
         HabitsRepository.instance.list(),
         HabitsRepository.instance.getCalendar(from: today, to: today),
       ]);
@@ -53,7 +53,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } on ApiException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.vnMessage), backgroundColor: AppColors.danger),
+          SnackBar(
+            content: Text(e.vnMessage),
+            backgroundColor: AppColors.danger,
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Không tải được dashboard'),
+            backgroundColor: AppColors.danger,
+          ),
         );
       }
     } finally {
@@ -64,23 +76,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> _toggleHabit(Habit habit) async {
     final today = AppDateUtils.dateOnly(DateTime.now());
     final current = _todayCal[today]?[habit.id] ?? false;
+    final next = !current;
+    setState(() {
+      final dayMap = Map<String, bool>.from(_todayCal[today] ?? const {});
+      dayMap[habit.id] = next;
+      _todayCal = {..._todayCal, today: dayMap};
+      _snapshot = _snapshotWithHabitCompletion(next ? 1 : -1);
+    });
     try {
       await HabitsRepository.instance.logHabit(
         habit.id,
         logDate: today,
-        completed: !current,
+        completed: next,
       );
-      _refresh();
     } on ApiException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.vnMessage)));
+        setState(() {
+          final dayMap = Map<String, bool>.from(_todayCal[today] ?? const {});
+          dayMap[habit.id] = current;
+          _todayCal = {..._todayCal, today: dayMap};
+          _snapshot = _snapshotWithHabitCompletion(next ? -1 : 1);
+        });
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.vnMessage)));
       }
     }
   }
 
   void _openQuadrant(Quadrant q) {
     if (_eisenhower == null) return;
-    final key = q == Quadrant.unclassified ? 'unclassified' : 'q${q.index + 1}';
+    final key = _dashboardQuadrantKey(q);
     final todos = _eisenhower!.byQuadrant[key] ?? const [];
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -127,16 +153,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ],
           const SectionHeader(label: 'Ma trận Eisenhower'),
           EisenhowerGrid(
-            counts: snap.eisenhowerCounts,
+            counts: _eisenhower?.counts ?? snap.eisenhowerCounts,
             previews: _eisenhower?.byQuadrant,
             onTap: _openQuadrant,
           ),
-          const SectionHeader(label: 'Thói quen hôm nay'),
+          SectionHeader(
+            label: 'Bạn có ${_habits.length} thói quen cần duy trì',
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: _buildHabitChips(),
-            ),
+            child: Row(children: _buildHabitChips()),
           ),
         ],
       ),
@@ -151,10 +177,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
     for (var i = 0; i < habitsToShow.length; i++) {
       final h = habitsToShow[i];
       final done = _todayCal[today]?[h.id] ?? false;
-      widgets.add(Expanded(child: _HabitChipCard(habit: h, completed: done, onToggle: () => _toggleHabit(h))));
+      widgets.add(
+        Expanded(
+          child: _HabitChipCard(
+            habit: h,
+            completed: done,
+            onToggle: () => _toggleHabit(h),
+          ),
+        ),
+      );
       if (i < habitsToShow.length - 1) widgets.add(const SizedBox(width: 8));
     }
     return widgets;
+  }
+
+  DashboardSnapshot? _snapshotWithHabitCompletion(int delta) {
+    final snap = _snapshot;
+    if (snap == null) return null;
+    final completed = (snap.habitsCompleted + delta)
+        .clamp(0, snap.habitsTotal)
+        .toInt();
+    return DashboardSnapshot(
+      date: snap.date,
+      score: snap.score,
+      todosTotal: snap.todosTotal,
+      todosDone: snap.todosDone,
+      eisenhowerCounts: snap.eisenhowerCounts,
+      habitsTotal: snap.habitsTotal,
+      habitsCompleted: completed,
+      frog: snap.frog,
+    );
+  }
+
+  String _dashboardQuadrantKey(Quadrant q) {
+    switch (q) {
+      case Quadrant.q1:
+        return 'q1';
+      case Quadrant.q2:
+        return 'q2';
+      case Quadrant.q3:
+        return 'q3';
+      case Quadrant.q4:
+      case Quadrant.unclassified:
+        return 'q4';
+    }
   }
 }
 
@@ -184,14 +250,19 @@ class _ScoreCard extends StatelessWidget {
                 children: [
                   Text(
                     _label(snapshot.score),
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     'Việc: ${snapshot.todosDone}/${snapshot.todosTotal} · Thói quen: ${snapshot.habitsCompleted}/${snapshot.habitsTotal}',
                     style: TextStyle(
                       fontSize: 13,
-                      color: isDark ? AppColors.textSecondaryDark : AppColors.textSecondary,
+                      color: isDark
+                          ? AppColors.textSecondaryDark
+                          : AppColors.textSecondary,
                     ),
                   ),
                 ],
@@ -225,7 +296,9 @@ class _FrogCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         onTap: () async {
           await Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => TodoDetailScreen(todoId: frog.id)),
+            MaterialPageRoute(
+              builder: (_) => TodoDetailScreen(todoId: frog.id),
+            ),
           );
           onRefresh();
         },
@@ -234,7 +307,9 @@ class _FrogCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: Theme.of(context).cardTheme.color,
             borderRadius: BorderRadius.circular(16),
-            border: const Border(left: BorderSide(color: AppColors.frog, width: 4)),
+            border: const Border(
+              left: BorderSide(color: AppColors.frog, width: 4),
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -272,7 +347,11 @@ class _FrogCard extends StatelessWidget {
                 ),
                 child: Text(
                   frog.isDone ? 'Hoàn thành' : 'Mở',
-                  style: const TextStyle(fontSize: 11, color: AppColors.q1, fontWeight: FontWeight.w600),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppColors.q1,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
@@ -287,7 +366,11 @@ class _HabitChipCard extends StatelessWidget {
   final Habit habit;
   final bool completed;
   final VoidCallback onToggle;
-  const _HabitChipCard({required this.habit, required this.completed, required this.onToggle});
+  const _HabitChipCard({
+    required this.habit,
+    required this.completed,
+    required this.onToggle,
+  });
 
   @override
   Widget build(BuildContext context) {

@@ -66,7 +66,10 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: AppColors.surface,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppColors.divider),
@@ -85,8 +88,16 @@ class AppTheme {
         bodyLarge: TextStyle(color: AppColors.textPrimary, fontSize: 16),
         bodyMedium: TextStyle(color: AppColors.textPrimary, fontSize: 14),
         bodySmall: TextStyle(color: AppColors.textSecondary, fontSize: 12),
-        titleLarge: TextStyle(color: AppColors.textPrimary, fontSize: 22, fontWeight: FontWeight.w700),
-        titleMedium: TextStyle(color: AppColors.textPrimary, fontSize: 16, fontWeight: FontWeight.w600),
+        titleLarge: TextStyle(
+          color: AppColors.textPrimary,
+          fontSize: 22,
+          fontWeight: FontWeight.w700,
+        ),
+        titleMedium: TextStyle(
+          color: AppColors.textPrimary,
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+        ),
       ),
       dividerTheme: const DividerThemeData(
         color: AppColors.divider,
@@ -162,7 +173,10 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: AppColors.surfaceDark,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: AppColors.dividerDark),
@@ -173,7 +187,10 @@ class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.primaryDark, width: 1.5),
+          borderSide: const BorderSide(
+            color: AppColors.primaryDark,
+            width: 1.5,
+          ),
         ),
         hintStyle: const TextStyle(color: AppColors.textSecondaryDark),
       ),
@@ -181,8 +198,16 @@ class AppTheme {
         bodyLarge: TextStyle(color: AppColors.textPrimaryDark, fontSize: 16),
         bodyMedium: TextStyle(color: AppColors.textPrimaryDark, fontSize: 14),
         bodySmall: TextStyle(color: AppColors.textSecondaryDark, fontSize: 12),
-        titleLarge: TextStyle(color: AppColors.textPrimaryDark, fontSize: 22, fontWeight: FontWeight.w700),
-        titleMedium: TextStyle(color: AppColors.textPrimaryDark, fontSize: 16, fontWeight: FontWeight.w600),
+        titleLarge: TextStyle(
+          color: AppColors.textPrimaryDark,
+          fontSize: 22,
+          fontWeight: FontWeight.w700,
+        ),
+        titleMedium: TextStyle(
+          color: AppColors.textPrimaryDark,
+          fontSize: 16,
+          fontWeight: FontWeight.w600,
+        ),
       ),
       dividerTheme: const DividerThemeData(
         color: AppColors.dividerDark,

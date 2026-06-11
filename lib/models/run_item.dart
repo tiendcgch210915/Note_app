@@ -70,7 +70,11 @@ class RunItem {
     );
   }
 
-  RunItem copyWith({RunItemStatus? status, DateTime? completedAt, String? note}) {
+  RunItem copyWith({
+    RunItemStatus? status,
+    DateTime? completedAt,
+    String? note,
+  }) {
     return RunItem(
       id: id,
       runId: runId,

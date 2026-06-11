@@ -18,7 +18,9 @@ class SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final color = isDark ? AppColors.textSecondaryDark : AppColors.textSecondary;
+    final color = isDark
+        ? AppColors.textSecondaryDark
+        : AppColors.textSecondary;
     return Padding(
       padding: padding,
       child: Row(

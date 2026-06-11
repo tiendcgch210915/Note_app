@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import '../models/todo.dart';
+import '../models/dashboard.dart';
 import '../theme/app_colors.dart';
 import '../utils/quadrant_utils.dart';
 
 /// 2x2 grid hiển thị count + preview todos cho mỗi quadrant.
-/// previews là Map từ 'q1'/'q2'/'q3'/'q4' tới `List<Todo>` (top 3 todos chưa done).
+/// previews là Map từ 'q1'/'q2'/'q3'/'q4' tới dashboard todos.
 class EisenhowerGrid extends StatelessWidget {
   final Map<String, int> counts; // q1, q2, q3, q4
-  final Map<String, List<Todo>>? previews;
+  final Map<String, List<DashboardEisenhowerTodo>>? previews;
   final void Function(Quadrant)? onTap;
 
   const EisenhowerGrid({
@@ -34,9 +34,11 @@ class EisenhowerGrid extends StatelessWidget {
       itemBuilder: (context, index) {
         final q = items[index];
         final info = QuadrantUtils.info(q);
-        final key = 'q${index + 1}';
+        final key = dashboardQuadrantKeys[index];
         final count = counts[key] ?? 0;
-        final preview = previews == null ? const <Todo>[] : (previews![key] ?? const []);
+        final preview = previews == null
+            ? const <DashboardEisenhowerTodo>[]
+            : (previews![key] ?? const []);
         return _QuadrantCard(
           info: info,
           count: count,
@@ -51,7 +53,7 @@ class EisenhowerGrid extends StatelessWidget {
 class _QuadrantCard extends StatelessWidget {
   final QuadrantInfo info;
   final int count;
-  final List<Todo> previewTodos;
+  final List<DashboardEisenhowerTodo> previewTodos;
   final VoidCallback? onTap;
 
   const _QuadrantCard({
@@ -64,7 +66,9 @@ class _QuadrantCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final secondary = isDark ? AppColors.textSecondaryDark : AppColors.textSecondary;
+    final secondary = isDark
+        ? AppColors.textSecondaryDark
+        : AppColors.textSecondary;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
@@ -73,16 +77,18 @@ class _QuadrantCard extends StatelessWidget {
         decoration: BoxDecoration(
           color: Theme.of(context).cardTheme.color,
           borderRadius: BorderRadius.circular(16),
-          border: Border(
-            left: BorderSide(color: info.color, width: 4),
-          ),
+          border: Border(left: BorderSide(color: info.color, width: 4)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
               info.label,
-              style: TextStyle(fontSize: 11, color: secondary, fontWeight: FontWeight.w500),
+              style: TextStyle(
+                fontSize: 11,
+                color: secondary,
+                fontWeight: FontWeight.w500,
+              ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -96,31 +102,27 @@ class _QuadrantCard extends StatelessWidget {
                     fontSize: 24,
                     fontWeight: FontWeight.w700,
                     color: info.color,
-                    letterSpacing: -0.5,
+                    letterSpacing: 0,
                     height: 1,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 2),
-                  child: Text(
-                    count == 1 ? 'todo' : 'todos',
-                    style: TextStyle(fontSize: 11, color: secondary),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 4),
             // EXP 10 — Preview titles
-            ...previewTodos.take(3).map((t) => Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text(
-                    '· ${t.title}',
-                    style: TextStyle(fontSize: 10, color: secondary),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+            ...previewTodos
+                .take(3)
+                .map(
+                  (t) => Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      '· ${t.title}',
+                      style: TextStyle(fontSize: 10, color: secondary),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                )),
+                ),
           ],
         ),
       ),

@@ -27,12 +27,16 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
     required String operation,
     required String payload,
   }) async {
-    final existing = await (select(db.syncQueueTable)
-          ..where((q) =>
-              q.entityType.equals(entityType) & q.entityId.equals(entityId))
-          ..orderBy([(q) => OrderingTerm.asc(q.id)])
-          ..limit(1))
-        .getSingleOrNull();
+    final existing =
+        await (select(db.syncQueueTable)
+              ..where(
+                (q) =>
+                    q.entityType.equals(entityType) &
+                    q.entityId.equals(entityId),
+              )
+              ..orderBy([(q) => OrderingTerm.asc(q.id)])
+              ..limit(1))
+            .getSingleOrNull();
 
     final now = DateTime.now().toUtc().toIso8601String();
 
@@ -56,9 +60,9 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
       } else {
         mergedOp = operation; // update overwrites update
       }
-      await (update(db.syncQueueTable)
-            ..where((q) => q.id.equals(existing.id)))
-          .write(
+      await (update(
+        db.syncQueueTable,
+      )..where((q) => q.id.equals(existing.id))).write(
         SyncQueueTableCompanion(
           operation: Value(mergedOp),
           payload: Value(payload),
@@ -73,25 +77,37 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
   Future<List<SyncQueueRow>> getDueBatch({int limit = 100}) {
     final nowMillis = DateTime.now().millisecondsSinceEpoch;
     return (select(db.syncQueueTable)
-          ..where((q) =>
-              q.nextRetryAt.isNull() |
-              q.nextRetryAt.isSmallerOrEqualValue(nowMillis))
+          ..where(
+            (q) =>
+                q.nextRetryAt.isNull() |
+                q.nextRetryAt.isSmallerOrEqualValue(nowMillis),
+          )
           ..orderBy([(q) => OrderingTerm.asc(q.id)])
           ..limit(limit))
         .get();
   }
 
   Future<void> removeSyncOp(int queueId) async {
-    await (delete(db.syncQueueTable)
-          ..where((q) => q.id.equals(queueId)))
-        .go();
+    await (delete(db.syncQueueTable)..where((q) => q.id.equals(queueId))).go();
   }
 
   Future<void> removeOpsForEntity(String entityType, String entityId) async {
-    await (delete(db.syncQueueTable)
-          ..where((q) =>
-              q.entityType.equals(entityType) & q.entityId.equals(entityId)))
+    await (delete(db.syncQueueTable)..where(
+          (q) => q.entityType.equals(entityType) & q.entityId.equals(entityId),
+        ))
         .go();
+  }
+
+  Future<void> remapEntityId({
+    required String entityType,
+    required String oldEntityId,
+    required String newEntityId,
+  }) async {
+    await (update(db.syncQueueTable)..where(
+          (q) =>
+              q.entityType.equals(entityType) & q.entityId.equals(oldEntityId),
+        ))
+        .write(SyncQueueTableCompanion(entityId: Value(newEntityId)));
   }
 
   /// Maximum attempts before an op is dropped automatically.
@@ -109,11 +125,22 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
     }
     final backoffSecs = _backoffSeconds(currentRetryCount);
     final nextRetryMillis = DateTime.now()
-            .add(Duration(seconds: backoffSecs))
-            .millisecondsSinceEpoch;
-    await (update(db.syncQueueTable)
-          ..where((q) => q.id.equals(queueId)))
-        .write(
+        .add(Duration(seconds: backoffSecs))
+        .millisecondsSinceEpoch;
+    await (update(db.syncQueueTable)..where((q) => q.id.equals(queueId))).write(
+      SyncQueueTableCompanion(
+        retryCount: Value(currentRetryCount + 1),
+        nextRetryAt: Value(nextRetryMillis),
+      ),
+    );
+  }
+
+  Future<void> markFailedRetryable(int queueId, int currentRetryCount) async {
+    final backoffSecs = _backoffSeconds(currentRetryCount);
+    final nextRetryMillis = DateTime.now()
+        .add(Duration(seconds: backoffSecs))
+        .millisecondsSinceEpoch;
+    await (update(db.syncQueueTable)..where((q) => q.id.equals(queueId))).write(
       SyncQueueTableCompanion(
         retryCount: Value(currentRetryCount + 1),
         nextRetryAt: Value(nextRetryMillis),
@@ -134,27 +161,24 @@ class SyncDao extends DatabaseAccessor<AppDatabase> with _$SyncDaoMixin {
   // ─── Sync metadata ────────────────────────────────────────────────
 
   Future<String?> getLastSyncedAt() async {
-    final row = await (select(db.syncMetaTable)
-          ..where((m) => m.key.equals(kLastSyncedAt)))
-        .getSingleOrNull();
+    final row = await (select(
+      db.syncMetaTable,
+    )..where((m) => m.key.equals(kLastSyncedAt))).getSingleOrNull();
     return row?.value;
   }
 
   Future<void> setLastSyncedAt(String isoTimestamp) async {
     await into(db.syncMetaTable).insertOnConflictUpdate(
-      SyncMetaTableCompanion.insert(
-        key: kLastSyncedAt,
-        value: isoTimestamp,
-      ),
+      SyncMetaTableCompanion.insert(key: kLastSyncedAt, value: isoTimestamp),
     );
   }
 
   // ─── Generic key-value meta ────────────────────────────────────────
 
   Future<String?> getSyncMeta(String key) async {
-    final row = await (select(db.syncMetaTable)
-          ..where((m) => m.key.equals(key)))
-        .getSingleOrNull();
+    final row = await (select(
+      db.syncMetaTable,
+    )..where((m) => m.key.equals(key))).getSingleOrNull();
     return row?.value;
   }
 

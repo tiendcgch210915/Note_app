@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
-import '../models/todo.dart';
 
-/// EXP 1 — Habit Stacking popup chain.
-///
-/// Sau khi F-T7 complete trả `triggered_todos[]` (depth 1, các todo có
-/// `trigger_after_todo_id` = todo vừa hoàn thành), hiển thị popup cho user
-/// mở từng item theo chuỗi.
+import '../models/todo.dart';
+import '../theme/app_colors.dart';
+import '../widgets/duration_picker_sheet.dart';
+import 'date_utils.dart';
+
+/// Shows next-todo suggestions returned by complete todo / local offline lookup.
 Future<void> showHabitStackingDialog(
   BuildContext context,
   List<Todo> triggered,
@@ -13,69 +13,121 @@ Future<void> showHabitStackingDialog(
 ) async {
   if (triggered.isEmpty) {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Hoàn thành ✓'), duration: Duration(seconds: 1)),
-    );
-    return;
-  }
-
-  if (triggered.length == 1) {
-    final next = triggered.first;
-    final action = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Bước tiếp theo:'),
-        content: Text(next.title),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop('later'),
-            child: const Text('Để sau'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop('open'),
-            child: const Text('Mở'),
-          ),
-        ],
+      const SnackBar(
+        content: Text('Hoàn thành ✓'),
+        duration: Duration(seconds: 1),
       ),
     );
-    if (action == 'open') onOpen(next);
     return;
   }
 
-  // Multi-item chain
-  await showDialog<void>(
+  final selected = await showModalBottomSheet<Todo>(
     context: context,
-    builder: (ctx) {
-      return AlertDialog(
-        title: Text('Còn ${triggered.length} bước tiếp theo:'),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: ListView.separated(
-            shrinkWrap: true,
-            itemCount: triggered.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
-            itemBuilder: (_, i) {
-              final t = triggered[i];
-              return ListTile(
-                contentPadding: EdgeInsets.zero,
-                title: Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                trailing: TextButton(
-                  child: const Text('Mở'),
-                  onPressed: () {
-                    Navigator.of(ctx).pop();
-                    onOpen(t);
-                  },
-                ),
-              );
-            },
-          ),
+    showDragHandle: true,
+    builder: (ctx) => SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.sizeOf(ctx).height * 0.72,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Đóng'),
-          ),
-        ],
-      );
-    },
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.account_tree_outlined,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Nên làm tiếp',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        Text(
+                          '${triggered.length} việc được gợi ý sau bước vừa hoàn thành',
+                          style: Theme.of(ctx).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(ctx).colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(height: 1),
+            Flexible(
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: triggered.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (_, index) {
+                  final todo = triggered[index];
+                  return ListTile(
+                    leading: Icon(
+                      todo.isFrog
+                          ? Icons.flag_circle_outlined
+                          : Icons.radio_button_unchecked,
+                      color: todo.isFrog ? AppColors.frog : null,
+                    ),
+                    title: Text(
+                      todo.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(_subtitle(todo)),
+                    trailing: TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(todo),
+                      child: const Text('Mở'),
+                    ),
+                    onTap: () => Navigator.of(ctx).pop(todo),
+                  );
+                },
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.of(ctx).pop(),
+                  child: const Text('Bỏ qua'),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
   );
+
+  if (selected != null) onOpen(selected);
+}
+
+String _subtitle(Todo todo) {
+  final parts = <String>[todo.status.label];
+  if (todo.estimatedMinutes != null) {
+    parts.add(formatDurationMinutesShort(todo.estimatedMinutes!));
+  }
+  if (todo.scheduledDate != null) {
+    parts.add(AppDateUtils.formatDate(todo.scheduledDate!));
+  }
+  return parts.join(' · ');
 }

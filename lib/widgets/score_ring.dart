@@ -24,10 +24,16 @@ class ScoreRing extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final ringColor = color ?? (isDark ? AppColors.primaryDark : AppColors.primary);
-    final bgColor = backgroundColor ?? (isDark ? AppColors.dividerDark : AppColors.divider);
-    final textColor = isDark ? AppColors.textPrimaryDark : AppColors.textPrimary;
-    final secondary = isDark ? AppColors.textSecondaryDark : AppColors.textSecondary;
+    final ringColor =
+        color ?? (isDark ? AppColors.primaryDark : AppColors.primary);
+    final bgColor =
+        backgroundColor ?? (isDark ? AppColors.dividerDark : AppColors.divider);
+    final textColor = isDark
+        ? AppColors.textPrimaryDark
+        : AppColors.textPrimary;
+    final secondary = isDark
+        ? AppColors.textSecondaryDark
+        : AppColors.textSecondary;
     final clamped = score.clamp(0, 100);
 
     return SizedBox(
@@ -58,10 +64,7 @@ class ScoreRing extends StatelessWidget {
                     letterSpacing: -1,
                   ),
                 ),
-                Text(
-                  '/ 100',
-                  style: TextStyle(fontSize: 12, color: secondary),
-                ),
+                Text('/ 100', style: TextStyle(fontSize: 12, color: secondary)),
               ],
             ),
         ],

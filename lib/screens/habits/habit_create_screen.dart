@@ -19,9 +19,8 @@ class _HabitCreateScreenState extends State<HabitCreateScreen> {
   String _iconName = 'flag';
   Color _color = AppColors.tagIndigo;
   FrequencyType _frequency = FrequencyType.daily;
-  int _target = 1;
   final Set<int> _weekdays = {1, 2, 3, 4, 5};
-  DateTime _startDate = DateTime.now();
+  DateTime _startDate = AppDateUtils.dateOnly(DateTime.now());
   DateTime? _endDate;
   bool _saving = false;
 
@@ -87,7 +86,6 @@ class _HabitCreateScreenState extends State<HabitCreateScreen> {
         icon: _iconName,
         color: _color,
         frequencyType: _frequency,
-        targetPerPeriod: _target,
         activeWeekdays: weekdays,
         startDate: _startDate,
         endDate: _endDate,
@@ -95,13 +93,16 @@ class _HabitCreateScreenState extends State<HabitCreateScreen> {
       await HabitsRepository.instance.create(body);
       if (!mounted) return;
       Navigator.of(context).pop(true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Đã tạo thói quen')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Đã tạo thói quen')));
     } on ApiException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.vnMessage), backgroundColor: AppColors.danger),
+          SnackBar(
+            content: Text(e.vnMessage),
+            backgroundColor: AppColors.danger,
+          ),
         );
       }
     } finally {
@@ -118,9 +119,18 @@ class _HabitCreateScreenState extends State<HabitCreateScreen> {
           TextButton(
             onPressed: _saving ? null : _save,
             child: _saving
-                ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Text('Lưu',
-                    style: TextStyle(color: AppColors.primary, fontWeight: FontWeight.w600)),
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text(
+                    'Lưu',
+                    style: TextStyle(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
           ),
         ],
       ),
@@ -165,32 +175,24 @@ class _HabitCreateScreenState extends State<HabitCreateScreen> {
           const SizedBox(height: 12),
           SegmentedButton<FrequencyType>(
             segments: const [
-              ButtonSegment(value: FrequencyType.daily, label: Text('Hàng ngày')),
-              ButtonSegment(value: FrequencyType.weekly, label: Text('Hàng tuần')),
-              ButtonSegment(value: FrequencyType.custom, label: Text('Tùy chọn')),
+              ButtonSegment(
+                value: FrequencyType.daily,
+                label: Text('Hàng ngày'),
+              ),
+              ButtonSegment(
+                value: FrequencyType.weekly,
+                label: Text('Hàng tuần'),
+              ),
+              ButtonSegment(
+                value: FrequencyType.custom,
+                label: Text('Tùy chọn'),
+              ),
             ],
             selected: {_frequency},
             onSelectionChanged: (s) => setState(() => _frequency = s.first),
           ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              const Text('Mục tiêu:'),
-              Expanded(
-                child: Slider(
-                  value: _target.toDouble(),
-                  min: 1,
-                  max: 7,
-                  divisions: 6,
-                  label: '$_target',
-                  onChanged: (v) => setState(() => _target = v.round()),
-                ),
-              ),
-              Text('$_target'),
-            ],
-          ),
           if (_frequency != FrequencyType.daily) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 16),
             Wrap(
               spacing: 8,
               children: List.generate(7, (i) {
@@ -222,13 +224,24 @@ class _HabitCreateScreenState extends State<HabitCreateScreen> {
                 firstDate: DateTime.now().subtract(const Duration(days: 365)),
                 lastDate: DateTime.now().add(const Duration(days: 365)),
               );
-              if (picked != null) setState(() => _startDate = picked);
+              if (picked != null) {
+                setState(() {
+                  _startDate = AppDateUtils.dateOnly(picked);
+                  if (_endDate != null && _endDate!.isBefore(_startDate)) {
+                    _endDate = null;
+                  }
+                });
+              }
             },
           ),
           ListTile(
             leading: const Icon(Icons.stop_outlined),
             title: const Text('Ngày kết thúc'),
-            subtitle: Text(_endDate == null ? 'Không có' : AppDateUtils.formatDate(_endDate!)),
+            subtitle: Text(
+              _endDate == null
+                  ? 'Không có'
+                  : AppDateUtils.formatDate(_endDate!),
+            ),
             trailing: _endDate == null
                 ? null
                 : IconButton(
@@ -238,15 +251,22 @@ class _HabitCreateScreenState extends State<HabitCreateScreen> {
             onTap: () async {
               final picked = await showDatePicker(
                 context: context,
-                initialDate: _endDate ?? DateTime.now().add(const Duration(days: 30)),
+                initialDate:
+                    _endDate ?? DateTime.now().add(const Duration(days: 30)),
                 firstDate: _startDate,
                 lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
               );
-              if (picked != null) setState(() => _endDate = picked);
+              if (picked != null) {
+                setState(() => _endDate = AppDateUtils.dateOnly(picked));
+              }
             },
           ),
           const SizedBox(height: 24),
-          PrimaryButton(label: 'Tạo thói quen', icon: Icons.check, onPressed: _save),
+          PrimaryButton(
+            label: 'Tạo thói quen',
+            icon: Icons.check,
+            onPressed: _save,
+          ),
         ],
       ),
     );

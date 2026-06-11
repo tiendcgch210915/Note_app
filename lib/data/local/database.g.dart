@@ -5840,6 +5840,653 @@ class HabitLogsTableCompanion extends UpdateCompanion<HabitLogRow> {
   }
 }
 
+class $ChecklistCategoriesTableTable extends ChecklistCategoriesTable
+    with TableInfo<$ChecklistCategoriesTableTable, ChecklistCategoryRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ChecklistCategoriesTableTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _deletedAtMeta = const VerificationMeta(
+    'deletedAt',
+  );
+  @override
+  late final GeneratedColumn<String> deletedAt = GeneratedColumn<String>(
+    'deleted_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
+  @override
+  late final GeneratedColumn<String> userId = GeneratedColumn<String>(
+    'user_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _nameMeta = const VerificationMeta('name');
+  @override
+  late final GeneratedColumn<String> name = GeneratedColumn<String>(
+    'name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _slugMeta = const VerificationMeta('slug');
+  @override
+  late final GeneratedColumn<String> slug = GeneratedColumn<String>(
+    'slug',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _iconMeta = const VerificationMeta('icon');
+  @override
+  late final GeneratedColumn<String> icon = GeneratedColumn<String>(
+    'icon',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _colorMeta = const VerificationMeta('color');
+  @override
+  late final GeneratedColumn<String> color = GeneratedColumn<String>(
+    'color',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('#4F46E5'),
+  );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _isSystemMeta = const VerificationMeta(
+    'isSystem',
+  );
+  @override
+  late final GeneratedColumn<bool> isSystem = GeneratedColumn<bool>(
+    'is_system',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_system" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    createdAt,
+    updatedAt,
+    deletedAt,
+    id,
+    userId,
+    name,
+    slug,
+    icon,
+    color,
+    sortOrder,
+    isSystem,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'checklist_categories';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ChecklistCategoryRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    if (data.containsKey('deleted_at')) {
+      context.handle(
+        _deletedAtMeta,
+        deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
+      );
+    }
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('user_id')) {
+      context.handle(
+        _userIdMeta,
+        userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_userIdMeta);
+    }
+    if (data.containsKey('name')) {
+      context.handle(
+        _nameMeta,
+        name.isAcceptableOrUnknown(data['name']!, _nameMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_nameMeta);
+    }
+    if (data.containsKey('slug')) {
+      context.handle(
+        _slugMeta,
+        slug.isAcceptableOrUnknown(data['slug']!, _slugMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_slugMeta);
+    }
+    if (data.containsKey('icon')) {
+      context.handle(
+        _iconMeta,
+        icon.isAcceptableOrUnknown(data['icon']!, _iconMeta),
+      );
+    }
+    if (data.containsKey('color')) {
+      context.handle(
+        _colorMeta,
+        color.isAcceptableOrUnknown(data['color']!, _colorMeta),
+      );
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    }
+    if (data.containsKey('is_system')) {
+      context.handle(
+        _isSystemMeta,
+        isSystem.isAcceptableOrUnknown(data['is_system']!, _isSystemMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ChecklistCategoryRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ChecklistCategoryRow(
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      deletedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}deleted_at'],
+      ),
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      userId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}user_id'],
+      )!,
+      name: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}name'],
+      )!,
+      slug: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}slug'],
+      )!,
+      icon: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}icon'],
+      ),
+      color: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}color'],
+      )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
+      isSystem: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_system'],
+      )!,
+    );
+  }
+
+  @override
+  $ChecklistCategoriesTableTable createAlias(String alias) {
+    return $ChecklistCategoriesTableTable(attachedDatabase, alias);
+  }
+}
+
+class ChecklistCategoryRow extends DataClass
+    implements Insertable<ChecklistCategoryRow> {
+  final String createdAt;
+  final String updatedAt;
+  final String? deletedAt;
+  final String id;
+  final String userId;
+  final String name;
+  final String slug;
+  final String? icon;
+  final String color;
+  final int sortOrder;
+  final bool isSystem;
+  const ChecklistCategoryRow({
+    required this.createdAt,
+    required this.updatedAt,
+    this.deletedAt,
+    required this.id,
+    required this.userId,
+    required this.name,
+    required this.slug,
+    this.icon,
+    required this.color,
+    required this.sortOrder,
+    required this.isSystem,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['created_at'] = Variable<String>(createdAt);
+    map['updated_at'] = Variable<String>(updatedAt);
+    if (!nullToAbsent || deletedAt != null) {
+      map['deleted_at'] = Variable<String>(deletedAt);
+    }
+    map['id'] = Variable<String>(id);
+    map['user_id'] = Variable<String>(userId);
+    map['name'] = Variable<String>(name);
+    map['slug'] = Variable<String>(slug);
+    if (!nullToAbsent || icon != null) {
+      map['icon'] = Variable<String>(icon);
+    }
+    map['color'] = Variable<String>(color);
+    map['sort_order'] = Variable<int>(sortOrder);
+    map['is_system'] = Variable<bool>(isSystem);
+    return map;
+  }
+
+  ChecklistCategoriesTableCompanion toCompanion(bool nullToAbsent) {
+    return ChecklistCategoriesTableCompanion(
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      deletedAt: deletedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deletedAt),
+      id: Value(id),
+      userId: Value(userId),
+      name: Value(name),
+      slug: Value(slug),
+      icon: icon == null && nullToAbsent ? const Value.absent() : Value(icon),
+      color: Value(color),
+      sortOrder: Value(sortOrder),
+      isSystem: Value(isSystem),
+    );
+  }
+
+  factory ChecklistCategoryRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ChecklistCategoryRow(
+      createdAt: serializer.fromJson<String>(json['createdAt']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+      deletedAt: serializer.fromJson<String?>(json['deletedAt']),
+      id: serializer.fromJson<String>(json['id']),
+      userId: serializer.fromJson<String>(json['userId']),
+      name: serializer.fromJson<String>(json['name']),
+      slug: serializer.fromJson<String>(json['slug']),
+      icon: serializer.fromJson<String?>(json['icon']),
+      color: serializer.fromJson<String>(json['color']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+      isSystem: serializer.fromJson<bool>(json['isSystem']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'createdAt': serializer.toJson<String>(createdAt),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+      'deletedAt': serializer.toJson<String?>(deletedAt),
+      'id': serializer.toJson<String>(id),
+      'userId': serializer.toJson<String>(userId),
+      'name': serializer.toJson<String>(name),
+      'slug': serializer.toJson<String>(slug),
+      'icon': serializer.toJson<String?>(icon),
+      'color': serializer.toJson<String>(color),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+      'isSystem': serializer.toJson<bool>(isSystem),
+    };
+  }
+
+  ChecklistCategoryRow copyWith({
+    String? createdAt,
+    String? updatedAt,
+    Value<String?> deletedAt = const Value.absent(),
+    String? id,
+    String? userId,
+    String? name,
+    String? slug,
+    Value<String?> icon = const Value.absent(),
+    String? color,
+    int? sortOrder,
+    bool? isSystem,
+  }) => ChecklistCategoryRow(
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    id: id ?? this.id,
+    userId: userId ?? this.userId,
+    name: name ?? this.name,
+    slug: slug ?? this.slug,
+    icon: icon.present ? icon.value : this.icon,
+    color: color ?? this.color,
+    sortOrder: sortOrder ?? this.sortOrder,
+    isSystem: isSystem ?? this.isSystem,
+  );
+  ChecklistCategoryRow copyWithCompanion(
+    ChecklistCategoriesTableCompanion data,
+  ) {
+    return ChecklistCategoryRow(
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      id: data.id.present ? data.id.value : this.id,
+      userId: data.userId.present ? data.userId.value : this.userId,
+      name: data.name.present ? data.name.value : this.name,
+      slug: data.slug.present ? data.slug.value : this.slug,
+      icon: data.icon.present ? data.icon.value : this.icon,
+      color: data.color.present ? data.color.value : this.color,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+      isSystem: data.isSystem.present ? data.isSystem.value : this.isSystem,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ChecklistCategoryRow(')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('name: $name, ')
+          ..write('slug: $slug, ')
+          ..write('icon: $icon, ')
+          ..write('color: $color, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('isSystem: $isSystem')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    createdAt,
+    updatedAt,
+    deletedAt,
+    id,
+    userId,
+    name,
+    slug,
+    icon,
+    color,
+    sortOrder,
+    isSystem,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ChecklistCategoryRow &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.deletedAt == this.deletedAt &&
+          other.id == this.id &&
+          other.userId == this.userId &&
+          other.name == this.name &&
+          other.slug == this.slug &&
+          other.icon == this.icon &&
+          other.color == this.color &&
+          other.sortOrder == this.sortOrder &&
+          other.isSystem == this.isSystem);
+}
+
+class ChecklistCategoriesTableCompanion
+    extends UpdateCompanion<ChecklistCategoryRow> {
+  final Value<String> createdAt;
+  final Value<String> updatedAt;
+  final Value<String?> deletedAt;
+  final Value<String> id;
+  final Value<String> userId;
+  final Value<String> name;
+  final Value<String> slug;
+  final Value<String?> icon;
+  final Value<String> color;
+  final Value<int> sortOrder;
+  final Value<bool> isSystem;
+  final Value<int> rowid;
+  const ChecklistCategoriesTableCompanion({
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.id = const Value.absent(),
+    this.userId = const Value.absent(),
+    this.name = const Value.absent(),
+    this.slug = const Value.absent(),
+    this.icon = const Value.absent(),
+    this.color = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.isSystem = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ChecklistCategoriesTableCompanion.insert({
+    required String createdAt,
+    required String updatedAt,
+    this.deletedAt = const Value.absent(),
+    required String id,
+    required String userId,
+    required String name,
+    required String slug,
+    this.icon = const Value.absent(),
+    this.color = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.isSystem = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt),
+       id = Value(id),
+       userId = Value(userId),
+       name = Value(name),
+       slug = Value(slug);
+  static Insertable<ChecklistCategoryRow> custom({
+    Expression<String>? createdAt,
+    Expression<String>? updatedAt,
+    Expression<String>? deletedAt,
+    Expression<String>? id,
+    Expression<String>? userId,
+    Expression<String>? name,
+    Expression<String>? slug,
+    Expression<String>? icon,
+    Expression<String>? color,
+    Expression<int>? sortOrder,
+    Expression<bool>? isSystem,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (deletedAt != null) 'deleted_at': deletedAt,
+      if (id != null) 'id': id,
+      if (userId != null) 'user_id': userId,
+      if (name != null) 'name': name,
+      if (slug != null) 'slug': slug,
+      if (icon != null) 'icon': icon,
+      if (color != null) 'color': color,
+      if (sortOrder != null) 'sort_order': sortOrder,
+      if (isSystem != null) 'is_system': isSystem,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ChecklistCategoriesTableCompanion copyWith({
+    Value<String>? createdAt,
+    Value<String>? updatedAt,
+    Value<String?>? deletedAt,
+    Value<String>? id,
+    Value<String>? userId,
+    Value<String>? name,
+    Value<String>? slug,
+    Value<String?>? icon,
+    Value<String>? color,
+    Value<int>? sortOrder,
+    Value<bool>? isSystem,
+    Value<int>? rowid,
+  }) {
+    return ChecklistCategoriesTableCompanion(
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      deletedAt: deletedAt ?? this.deletedAt,
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      name: name ?? this.name,
+      slug: slug ?? this.slug,
+      icon: icon ?? this.icon,
+      color: color ?? this.color,
+      sortOrder: sortOrder ?? this.sortOrder,
+      isSystem: isSystem ?? this.isSystem,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<String>(deletedAt.value);
+    }
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (userId.present) {
+      map['user_id'] = Variable<String>(userId.value);
+    }
+    if (name.present) {
+      map['name'] = Variable<String>(name.value);
+    }
+    if (slug.present) {
+      map['slug'] = Variable<String>(slug.value);
+    }
+    if (icon.present) {
+      map['icon'] = Variable<String>(icon.value);
+    }
+    if (color.present) {
+      map['color'] = Variable<String>(color.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    if (isSystem.present) {
+      map['is_system'] = Variable<bool>(isSystem.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ChecklistCategoriesTableCompanion(')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('name: $name, ')
+          ..write('slug: $slug, ')
+          ..write('icon: $icon, ')
+          ..write('color: $color, ')
+          ..write('sortOrder: $sortOrder, ')
+          ..write('isSystem: $isSystem, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $ChecklistTemplatesTableTable extends ChecklistTemplatesTable
     with TableInfo<$ChecklistTemplatesTableTable, TemplateRow> {
   @override
@@ -5937,6 +6584,17 @@ class $ChecklistTemplatesTableTable extends ChecklistTemplatesTable
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _categoryIdMeta = const VerificationMeta(
+    'categoryId',
+  );
+  @override
+  late final GeneratedColumn<String> categoryId = GeneratedColumn<String>(
+    'category_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _isSystemMeta = const VerificationMeta(
     'isSystem',
   );
@@ -5986,6 +6644,7 @@ class $ChecklistTemplatesTableTable extends ChecklistTemplatesTable
     description,
     icon,
     category,
+    categoryId,
     isSystem,
     timesUsed,
     lastUsedAt,
@@ -6064,6 +6723,12 @@ class $ChecklistTemplatesTableTable extends ChecklistTemplatesTable
         category.isAcceptableOrUnknown(data['category']!, _categoryMeta),
       );
     }
+    if (data.containsKey('category_id')) {
+      context.handle(
+        _categoryIdMeta,
+        categoryId.isAcceptableOrUnknown(data['category_id']!, _categoryIdMeta),
+      );
+    }
     if (data.containsKey('is_system')) {
       context.handle(
         _isSystemMeta,
@@ -6130,6 +6795,10 @@ class $ChecklistTemplatesTableTable extends ChecklistTemplatesTable
         DriftSqlType.string,
         data['${effectivePrefix}category'],
       ),
+      categoryId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}category_id'],
+      ),
       isSystem: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}is_system'],
@@ -6161,6 +6830,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
   final String? description;
   final String? icon;
   final String? category;
+  final String? categoryId;
   final bool isSystem;
   final int timesUsed;
   final String? lastUsedAt;
@@ -6174,6 +6844,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
     this.description,
     this.icon,
     this.category,
+    this.categoryId,
     required this.isSystem,
     required this.timesUsed,
     this.lastUsedAt,
@@ -6199,6 +6870,9 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
     }
     if (!nullToAbsent || category != null) {
       map['category'] = Variable<String>(category);
+    }
+    if (!nullToAbsent || categoryId != null) {
+      map['category_id'] = Variable<String>(categoryId);
     }
     map['is_system'] = Variable<bool>(isSystem);
     map['times_used'] = Variable<int>(timesUsed);
@@ -6227,6 +6901,9 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
       category: category == null && nullToAbsent
           ? const Value.absent()
           : Value(category),
+      categoryId: categoryId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(categoryId),
       isSystem: Value(isSystem),
       timesUsed: Value(timesUsed),
       lastUsedAt: lastUsedAt == null && nullToAbsent
@@ -6250,6 +6927,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
       description: serializer.fromJson<String?>(json['description']),
       icon: serializer.fromJson<String?>(json['icon']),
       category: serializer.fromJson<String?>(json['category']),
+      categoryId: serializer.fromJson<String?>(json['categoryId']),
       isSystem: serializer.fromJson<bool>(json['isSystem']),
       timesUsed: serializer.fromJson<int>(json['timesUsed']),
       lastUsedAt: serializer.fromJson<String?>(json['lastUsedAt']),
@@ -6268,6 +6946,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
       'description': serializer.toJson<String?>(description),
       'icon': serializer.toJson<String?>(icon),
       'category': serializer.toJson<String?>(category),
+      'categoryId': serializer.toJson<String?>(categoryId),
       'isSystem': serializer.toJson<bool>(isSystem),
       'timesUsed': serializer.toJson<int>(timesUsed),
       'lastUsedAt': serializer.toJson<String?>(lastUsedAt),
@@ -6284,6 +6963,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
     Value<String?> description = const Value.absent(),
     Value<String?> icon = const Value.absent(),
     Value<String?> category = const Value.absent(),
+    Value<String?> categoryId = const Value.absent(),
     bool? isSystem,
     int? timesUsed,
     Value<String?> lastUsedAt = const Value.absent(),
@@ -6297,6 +6977,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
     description: description.present ? description.value : this.description,
     icon: icon.present ? icon.value : this.icon,
     category: category.present ? category.value : this.category,
+    categoryId: categoryId.present ? categoryId.value : this.categoryId,
     isSystem: isSystem ?? this.isSystem,
     timesUsed: timesUsed ?? this.timesUsed,
     lastUsedAt: lastUsedAt.present ? lastUsedAt.value : this.lastUsedAt,
@@ -6314,6 +6995,9 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
           : this.description,
       icon: data.icon.present ? data.icon.value : this.icon,
       category: data.category.present ? data.category.value : this.category,
+      categoryId: data.categoryId.present
+          ? data.categoryId.value
+          : this.categoryId,
       isSystem: data.isSystem.present ? data.isSystem.value : this.isSystem,
       timesUsed: data.timesUsed.present ? data.timesUsed.value : this.timesUsed,
       lastUsedAt: data.lastUsedAt.present
@@ -6334,6 +7018,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
           ..write('description: $description, ')
           ..write('icon: $icon, ')
           ..write('category: $category, ')
+          ..write('categoryId: $categoryId, ')
           ..write('isSystem: $isSystem, ')
           ..write('timesUsed: $timesUsed, ')
           ..write('lastUsedAt: $lastUsedAt')
@@ -6352,6 +7037,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
     description,
     icon,
     category,
+    categoryId,
     isSystem,
     timesUsed,
     lastUsedAt,
@@ -6369,6 +7055,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
           other.description == this.description &&
           other.icon == this.icon &&
           other.category == this.category &&
+          other.categoryId == this.categoryId &&
           other.isSystem == this.isSystem &&
           other.timesUsed == this.timesUsed &&
           other.lastUsedAt == this.lastUsedAt);
@@ -6384,6 +7071,7 @@ class ChecklistTemplatesTableCompanion extends UpdateCompanion<TemplateRow> {
   final Value<String?> description;
   final Value<String?> icon;
   final Value<String?> category;
+  final Value<String?> categoryId;
   final Value<bool> isSystem;
   final Value<int> timesUsed;
   final Value<String?> lastUsedAt;
@@ -6398,6 +7086,7 @@ class ChecklistTemplatesTableCompanion extends UpdateCompanion<TemplateRow> {
     this.description = const Value.absent(),
     this.icon = const Value.absent(),
     this.category = const Value.absent(),
+    this.categoryId = const Value.absent(),
     this.isSystem = const Value.absent(),
     this.timesUsed = const Value.absent(),
     this.lastUsedAt = const Value.absent(),
@@ -6413,6 +7102,7 @@ class ChecklistTemplatesTableCompanion extends UpdateCompanion<TemplateRow> {
     this.description = const Value.absent(),
     this.icon = const Value.absent(),
     this.category = const Value.absent(),
+    this.categoryId = const Value.absent(),
     this.isSystem = const Value.absent(),
     this.timesUsed = const Value.absent(),
     this.lastUsedAt = const Value.absent(),
@@ -6431,6 +7121,7 @@ class ChecklistTemplatesTableCompanion extends UpdateCompanion<TemplateRow> {
     Expression<String>? description,
     Expression<String>? icon,
     Expression<String>? category,
+    Expression<String>? categoryId,
     Expression<bool>? isSystem,
     Expression<int>? timesUsed,
     Expression<String>? lastUsedAt,
@@ -6446,6 +7137,7 @@ class ChecklistTemplatesTableCompanion extends UpdateCompanion<TemplateRow> {
       if (description != null) 'description': description,
       if (icon != null) 'icon': icon,
       if (category != null) 'category': category,
+      if (categoryId != null) 'category_id': categoryId,
       if (isSystem != null) 'is_system': isSystem,
       if (timesUsed != null) 'times_used': timesUsed,
       if (lastUsedAt != null) 'last_used_at': lastUsedAt,
@@ -6463,6 +7155,7 @@ class ChecklistTemplatesTableCompanion extends UpdateCompanion<TemplateRow> {
     Value<String?>? description,
     Value<String?>? icon,
     Value<String?>? category,
+    Value<String?>? categoryId,
     Value<bool>? isSystem,
     Value<int>? timesUsed,
     Value<String?>? lastUsedAt,
@@ -6478,6 +7171,7 @@ class ChecklistTemplatesTableCompanion extends UpdateCompanion<TemplateRow> {
       description: description ?? this.description,
       icon: icon ?? this.icon,
       category: category ?? this.category,
+      categoryId: categoryId ?? this.categoryId,
       isSystem: isSystem ?? this.isSystem,
       timesUsed: timesUsed ?? this.timesUsed,
       lastUsedAt: lastUsedAt ?? this.lastUsedAt,
@@ -6515,6 +7209,9 @@ class ChecklistTemplatesTableCompanion extends UpdateCompanion<TemplateRow> {
     if (category.present) {
       map['category'] = Variable<String>(category.value);
     }
+    if (categoryId.present) {
+      map['category_id'] = Variable<String>(categoryId.value);
+    }
     if (isSystem.present) {
       map['is_system'] = Variable<bool>(isSystem.value);
     }
@@ -6542,6 +7239,7 @@ class ChecklistTemplatesTableCompanion extends UpdateCompanion<TemplateRow> {
           ..write('description: $description, ')
           ..write('icon: $icon, ')
           ..write('category: $category, ')
+          ..write('categoryId: $categoryId, ')
           ..write('isSystem: $isSystem, ')
           ..write('timesUsed: $timesUsed, ')
           ..write('lastUsedAt: $lastUsedAt, ')
@@ -7784,6 +8482,17 @@ class $ChecklistRunItemsTableTable extends ChecklistRunItemsTable
     requiredDuringInsert: false,
     defaultValue: const Constant('pending'),
   );
+  static const VerificationMeta _completedAtMeta = const VerificationMeta(
+    'completedAt',
+  );
+  @override
+  late final GeneratedColumn<String> completedAt = GeneratedColumn<String>(
+    'completed_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _noteMeta = const VerificationMeta('note');
   @override
   late final GeneratedColumn<String> note = GeneratedColumn<String>(
@@ -7816,6 +8525,7 @@ class $ChecklistRunItemsTableTable extends ChecklistRunItemsTable
     title,
     isRequired,
     status,
+    completedAt,
     note,
     orderIndex,
   ];
@@ -7895,6 +8605,15 @@ class $ChecklistRunItemsTableTable extends ChecklistRunItemsTable
         status.isAcceptableOrUnknown(data['status']!, _statusMeta),
       );
     }
+    if (data.containsKey('completed_at')) {
+      context.handle(
+        _completedAtMeta,
+        completedAt.isAcceptableOrUnknown(
+          data['completed_at']!,
+          _completedAtMeta,
+        ),
+      );
+    }
     if (data.containsKey('note')) {
       context.handle(
         _noteMeta,
@@ -7952,6 +8671,10 @@ class $ChecklistRunItemsTableTable extends ChecklistRunItemsTable
         DriftSqlType.string,
         data['${effectivePrefix}status'],
       )!,
+      completedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}completed_at'],
+      ),
       note: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}note'],
@@ -7979,6 +8702,7 @@ class RunItemRow extends DataClass implements Insertable<RunItemRow> {
   final String title;
   final bool isRequired;
   final String status;
+  final String? completedAt;
   final String? note;
   final int orderIndex;
   const RunItemRow({
@@ -7991,6 +8715,7 @@ class RunItemRow extends DataClass implements Insertable<RunItemRow> {
     required this.title,
     required this.isRequired,
     required this.status,
+    this.completedAt,
     this.note,
     required this.orderIndex,
   });
@@ -8010,6 +8735,9 @@ class RunItemRow extends DataClass implements Insertable<RunItemRow> {
     map['title'] = Variable<String>(title);
     map['is_required'] = Variable<bool>(isRequired);
     map['status'] = Variable<String>(status);
+    if (!nullToAbsent || completedAt != null) {
+      map['completed_at'] = Variable<String>(completedAt);
+    }
     if (!nullToAbsent || note != null) {
       map['note'] = Variable<String>(note);
     }
@@ -8032,6 +8760,9 @@ class RunItemRow extends DataClass implements Insertable<RunItemRow> {
       title: Value(title),
       isRequired: Value(isRequired),
       status: Value(status),
+      completedAt: completedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(completedAt),
       note: note == null && nullToAbsent ? const Value.absent() : Value(note),
       orderIndex: Value(orderIndex),
     );
@@ -8052,6 +8783,7 @@ class RunItemRow extends DataClass implements Insertable<RunItemRow> {
       title: serializer.fromJson<String>(json['title']),
       isRequired: serializer.fromJson<bool>(json['isRequired']),
       status: serializer.fromJson<String>(json['status']),
+      completedAt: serializer.fromJson<String?>(json['completedAt']),
       note: serializer.fromJson<String?>(json['note']),
       orderIndex: serializer.fromJson<int>(json['orderIndex']),
     );
@@ -8069,6 +8801,7 @@ class RunItemRow extends DataClass implements Insertable<RunItemRow> {
       'title': serializer.toJson<String>(title),
       'isRequired': serializer.toJson<bool>(isRequired),
       'status': serializer.toJson<String>(status),
+      'completedAt': serializer.toJson<String?>(completedAt),
       'note': serializer.toJson<String?>(note),
       'orderIndex': serializer.toJson<int>(orderIndex),
     };
@@ -8084,6 +8817,7 @@ class RunItemRow extends DataClass implements Insertable<RunItemRow> {
     String? title,
     bool? isRequired,
     String? status,
+    Value<String?> completedAt = const Value.absent(),
     Value<String?> note = const Value.absent(),
     int? orderIndex,
   }) => RunItemRow(
@@ -8098,6 +8832,7 @@ class RunItemRow extends DataClass implements Insertable<RunItemRow> {
     title: title ?? this.title,
     isRequired: isRequired ?? this.isRequired,
     status: status ?? this.status,
+    completedAt: completedAt.present ? completedAt.value : this.completedAt,
     note: note.present ? note.value : this.note,
     orderIndex: orderIndex ?? this.orderIndex,
   );
@@ -8116,6 +8851,9 @@ class RunItemRow extends DataClass implements Insertable<RunItemRow> {
           ? data.isRequired.value
           : this.isRequired,
       status: data.status.present ? data.status.value : this.status,
+      completedAt: data.completedAt.present
+          ? data.completedAt.value
+          : this.completedAt,
       note: data.note.present ? data.note.value : this.note,
       orderIndex: data.orderIndex.present
           ? data.orderIndex.value
@@ -8135,6 +8873,7 @@ class RunItemRow extends DataClass implements Insertable<RunItemRow> {
           ..write('title: $title, ')
           ..write('isRequired: $isRequired, ')
           ..write('status: $status, ')
+          ..write('completedAt: $completedAt, ')
           ..write('note: $note, ')
           ..write('orderIndex: $orderIndex')
           ..write(')'))
@@ -8152,6 +8891,7 @@ class RunItemRow extends DataClass implements Insertable<RunItemRow> {
     title,
     isRequired,
     status,
+    completedAt,
     note,
     orderIndex,
   );
@@ -8168,6 +8908,7 @@ class RunItemRow extends DataClass implements Insertable<RunItemRow> {
           other.title == this.title &&
           other.isRequired == this.isRequired &&
           other.status == this.status &&
+          other.completedAt == this.completedAt &&
           other.note == this.note &&
           other.orderIndex == this.orderIndex);
 }
@@ -8182,6 +8923,7 @@ class ChecklistRunItemsTableCompanion extends UpdateCompanion<RunItemRow> {
   final Value<String> title;
   final Value<bool> isRequired;
   final Value<String> status;
+  final Value<String?> completedAt;
   final Value<String?> note;
   final Value<int> orderIndex;
   final Value<int> rowid;
@@ -8195,6 +8937,7 @@ class ChecklistRunItemsTableCompanion extends UpdateCompanion<RunItemRow> {
     this.title = const Value.absent(),
     this.isRequired = const Value.absent(),
     this.status = const Value.absent(),
+    this.completedAt = const Value.absent(),
     this.note = const Value.absent(),
     this.orderIndex = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -8209,6 +8952,7 @@ class ChecklistRunItemsTableCompanion extends UpdateCompanion<RunItemRow> {
     required String title,
     this.isRequired = const Value.absent(),
     this.status = const Value.absent(),
+    this.completedAt = const Value.absent(),
     this.note = const Value.absent(),
     this.orderIndex = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -8227,6 +8971,7 @@ class ChecklistRunItemsTableCompanion extends UpdateCompanion<RunItemRow> {
     Expression<String>? title,
     Expression<bool>? isRequired,
     Expression<String>? status,
+    Expression<String>? completedAt,
     Expression<String>? note,
     Expression<int>? orderIndex,
     Expression<int>? rowid,
@@ -8241,6 +8986,7 @@ class ChecklistRunItemsTableCompanion extends UpdateCompanion<RunItemRow> {
       if (title != null) 'title': title,
       if (isRequired != null) 'is_required': isRequired,
       if (status != null) 'status': status,
+      if (completedAt != null) 'completed_at': completedAt,
       if (note != null) 'note': note,
       if (orderIndex != null) 'order_index': orderIndex,
       if (rowid != null) 'rowid': rowid,
@@ -8257,6 +9003,7 @@ class ChecklistRunItemsTableCompanion extends UpdateCompanion<RunItemRow> {
     Value<String>? title,
     Value<bool>? isRequired,
     Value<String>? status,
+    Value<String?>? completedAt,
     Value<String?>? note,
     Value<int>? orderIndex,
     Value<int>? rowid,
@@ -8271,6 +9018,7 @@ class ChecklistRunItemsTableCompanion extends UpdateCompanion<RunItemRow> {
       title: title ?? this.title,
       isRequired: isRequired ?? this.isRequired,
       status: status ?? this.status,
+      completedAt: completedAt ?? this.completedAt,
       note: note ?? this.note,
       orderIndex: orderIndex ?? this.orderIndex,
       rowid: rowid ?? this.rowid,
@@ -8307,6 +9055,9 @@ class ChecklistRunItemsTableCompanion extends UpdateCompanion<RunItemRow> {
     if (status.present) {
       map['status'] = Variable<String>(status.value);
     }
+    if (completedAt.present) {
+      map['completed_at'] = Variable<String>(completedAt.value);
+    }
     if (note.present) {
       map['note'] = Variable<String>(note.value);
     }
@@ -8331,6 +9082,7 @@ class ChecklistRunItemsTableCompanion extends UpdateCompanion<RunItemRow> {
           ..write('title: $title, ')
           ..write('isRequired: $isRequired, ')
           ..write('status: $status, ')
+          ..write('completedAt: $completedAt, ')
           ..write('note: $note, ')
           ..write('orderIndex: $orderIndex, ')
           ..write('rowid: $rowid')
@@ -9697,6 +10449,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $NoteTodoLinksTableTable(this);
   late final $HabitsTableTable habitsTable = $HabitsTableTable(this);
   late final $HabitLogsTableTable habitLogsTable = $HabitLogsTableTable(this);
+  late final $ChecklistCategoriesTableTable checklistCategoriesTable =
+      $ChecklistCategoriesTableTable(this);
   late final $ChecklistTemplatesTableTable checklistTemplatesTable =
       $ChecklistTemplatesTableTable(this);
   late final $ChecklistTemplateItemsTableTable checklistTemplateItemsTable =
@@ -9728,6 +10482,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     noteTodoLinksTable,
     habitsTable,
     habitLogsTable,
+    checklistCategoriesTable,
     checklistTemplatesTable,
     checklistTemplateItemsTable,
     checklistRunsTable,
@@ -12593,6 +13348,339 @@ typedef $$HabitLogsTableTableProcessedTableManager =
       HabitLogRow,
       PrefetchHooks Function()
     >;
+typedef $$ChecklistCategoriesTableTableCreateCompanionBuilder =
+    ChecklistCategoriesTableCompanion Function({
+      required String createdAt,
+      required String updatedAt,
+      Value<String?> deletedAt,
+      required String id,
+      required String userId,
+      required String name,
+      required String slug,
+      Value<String?> icon,
+      Value<String> color,
+      Value<int> sortOrder,
+      Value<bool> isSystem,
+      Value<int> rowid,
+    });
+typedef $$ChecklistCategoriesTableTableUpdateCompanionBuilder =
+    ChecklistCategoriesTableCompanion Function({
+      Value<String> createdAt,
+      Value<String> updatedAt,
+      Value<String?> deletedAt,
+      Value<String> id,
+      Value<String> userId,
+      Value<String> name,
+      Value<String> slug,
+      Value<String?> icon,
+      Value<String> color,
+      Value<int> sortOrder,
+      Value<bool> isSystem,
+      Value<int> rowid,
+    });
+
+class $$ChecklistCategoriesTableTableFilterComposer
+    extends Composer<_$AppDatabase, $ChecklistCategoriesTableTable> {
+  $$ChecklistCategoriesTableTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get slug => $composableBuilder(
+    column: $table.slug,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get icon => $composableBuilder(
+    column: $table.icon,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get color => $composableBuilder(
+    column: $table.color,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isSystem => $composableBuilder(
+    column: $table.isSystem,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$ChecklistCategoriesTableTableOrderingComposer
+    extends Composer<_$AppDatabase, $ChecklistCategoriesTableTable> {
+  $$ChecklistCategoriesTableTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get name => $composableBuilder(
+    column: $table.name,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get slug => $composableBuilder(
+    column: $table.slug,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get icon => $composableBuilder(
+    column: $table.icon,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get color => $composableBuilder(
+    column: $table.color,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isSystem => $composableBuilder(
+    column: $table.isSystem,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ChecklistCategoriesTableTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ChecklistCategoriesTableTable> {
+  $$ChecklistCategoriesTableTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get userId =>
+      $composableBuilder(column: $table.userId, builder: (column) => column);
+
+  GeneratedColumn<String> get name =>
+      $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get slug =>
+      $composableBuilder(column: $table.slug, builder: (column) => column);
+
+  GeneratedColumn<String> get icon =>
+      $composableBuilder(column: $table.icon, builder: (column) => column);
+
+  GeneratedColumn<String> get color =>
+      $composableBuilder(column: $table.color, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+
+  GeneratedColumn<bool> get isSystem =>
+      $composableBuilder(column: $table.isSystem, builder: (column) => column);
+}
+
+class $$ChecklistCategoriesTableTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $ChecklistCategoriesTableTable,
+          ChecklistCategoryRow,
+          $$ChecklistCategoriesTableTableFilterComposer,
+          $$ChecklistCategoriesTableTableOrderingComposer,
+          $$ChecklistCategoriesTableTableAnnotationComposer,
+          $$ChecklistCategoriesTableTableCreateCompanionBuilder,
+          $$ChecklistCategoriesTableTableUpdateCompanionBuilder,
+          (
+            ChecklistCategoryRow,
+            BaseReferences<
+              _$AppDatabase,
+              $ChecklistCategoriesTableTable,
+              ChecklistCategoryRow
+            >,
+          ),
+          ChecklistCategoryRow,
+          PrefetchHooks Function()
+        > {
+  $$ChecklistCategoriesTableTableTableManager(
+    _$AppDatabase db,
+    $ChecklistCategoriesTableTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ChecklistCategoriesTableTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$ChecklistCategoriesTableTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$ChecklistCategoriesTableTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> createdAt = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<String?> deletedAt = const Value.absent(),
+                Value<String> id = const Value.absent(),
+                Value<String> userId = const Value.absent(),
+                Value<String> name = const Value.absent(),
+                Value<String> slug = const Value.absent(),
+                Value<String?> icon = const Value.absent(),
+                Value<String> color = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<bool> isSystem = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ChecklistCategoriesTableCompanion(
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                deletedAt: deletedAt,
+                id: id,
+                userId: userId,
+                name: name,
+                slug: slug,
+                icon: icon,
+                color: color,
+                sortOrder: sortOrder,
+                isSystem: isSystem,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String createdAt,
+                required String updatedAt,
+                Value<String?> deletedAt = const Value.absent(),
+                required String id,
+                required String userId,
+                required String name,
+                required String slug,
+                Value<String?> icon = const Value.absent(),
+                Value<String> color = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<bool> isSystem = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ChecklistCategoriesTableCompanion.insert(
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                deletedAt: deletedAt,
+                id: id,
+                userId: userId,
+                name: name,
+                slug: slug,
+                icon: icon,
+                color: color,
+                sortOrder: sortOrder,
+                isSystem: isSystem,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$ChecklistCategoriesTableTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $ChecklistCategoriesTableTable,
+      ChecklistCategoryRow,
+      $$ChecklistCategoriesTableTableFilterComposer,
+      $$ChecklistCategoriesTableTableOrderingComposer,
+      $$ChecklistCategoriesTableTableAnnotationComposer,
+      $$ChecklistCategoriesTableTableCreateCompanionBuilder,
+      $$ChecklistCategoriesTableTableUpdateCompanionBuilder,
+      (
+        ChecklistCategoryRow,
+        BaseReferences<
+          _$AppDatabase,
+          $ChecklistCategoriesTableTable,
+          ChecklistCategoryRow
+        >,
+      ),
+      ChecklistCategoryRow,
+      PrefetchHooks Function()
+    >;
 typedef $$ChecklistTemplatesTableTableCreateCompanionBuilder =
     ChecklistTemplatesTableCompanion Function({
       required String createdAt,
@@ -12604,6 +13692,7 @@ typedef $$ChecklistTemplatesTableTableCreateCompanionBuilder =
       Value<String?> description,
       Value<String?> icon,
       Value<String?> category,
+      Value<String?> categoryId,
       Value<bool> isSystem,
       Value<int> timesUsed,
       Value<String?> lastUsedAt,
@@ -12620,6 +13709,7 @@ typedef $$ChecklistTemplatesTableTableUpdateCompanionBuilder =
       Value<String?> description,
       Value<String?> icon,
       Value<String?> category,
+      Value<String?> categoryId,
       Value<bool> isSystem,
       Value<int> timesUsed,
       Value<String?> lastUsedAt,
@@ -12677,6 +13767,11 @@ class $$ChecklistTemplatesTableTableFilterComposer
 
   ColumnFilters<String> get category => $composableBuilder(
     column: $table.category,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get categoryId => $composableBuilder(
+    column: $table.categoryId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -12750,6 +13845,11 @@ class $$ChecklistTemplatesTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get categoryId => $composableBuilder(
+    column: $table.categoryId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<bool> get isSystem => $composableBuilder(
     column: $table.isSystem,
     builder: (column) => ColumnOrderings(column),
@@ -12803,6 +13903,11 @@ class $$ChecklistTemplatesTableTableAnnotationComposer
 
   GeneratedColumn<String> get category =>
       $composableBuilder(column: $table.category, builder: (column) => column);
+
+  GeneratedColumn<String> get categoryId => $composableBuilder(
+    column: $table.categoryId,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<bool> get isSystem =>
       $composableBuilder(column: $table.isSystem, builder: (column) => column);
@@ -12871,6 +13976,7 @@ class $$ChecklistTemplatesTableTableTableManager
                 Value<String?> description = const Value.absent(),
                 Value<String?> icon = const Value.absent(),
                 Value<String?> category = const Value.absent(),
+                Value<String?> categoryId = const Value.absent(),
                 Value<bool> isSystem = const Value.absent(),
                 Value<int> timesUsed = const Value.absent(),
                 Value<String?> lastUsedAt = const Value.absent(),
@@ -12885,6 +13991,7 @@ class $$ChecklistTemplatesTableTableTableManager
                 description: description,
                 icon: icon,
                 category: category,
+                categoryId: categoryId,
                 isSystem: isSystem,
                 timesUsed: timesUsed,
                 lastUsedAt: lastUsedAt,
@@ -12901,6 +14008,7 @@ class $$ChecklistTemplatesTableTableTableManager
                 Value<String?> description = const Value.absent(),
                 Value<String?> icon = const Value.absent(),
                 Value<String?> category = const Value.absent(),
+                Value<String?> categoryId = const Value.absent(),
                 Value<bool> isSystem = const Value.absent(),
                 Value<int> timesUsed = const Value.absent(),
                 Value<String?> lastUsedAt = const Value.absent(),
@@ -12915,6 +14023,7 @@ class $$ChecklistTemplatesTableTableTableManager
                 description: description,
                 icon: icon,
                 category: category,
+                categoryId: categoryId,
                 isSystem: isSystem,
                 timesUsed: timesUsed,
                 lastUsedAt: lastUsedAt,
@@ -13545,6 +14654,7 @@ typedef $$ChecklistRunItemsTableTableCreateCompanionBuilder =
       required String title,
       Value<bool> isRequired,
       Value<String> status,
+      Value<String?> completedAt,
       Value<String?> note,
       Value<int> orderIndex,
       Value<int> rowid,
@@ -13560,6 +14670,7 @@ typedef $$ChecklistRunItemsTableTableUpdateCompanionBuilder =
       Value<String> title,
       Value<bool> isRequired,
       Value<String> status,
+      Value<String?> completedAt,
       Value<String?> note,
       Value<int> orderIndex,
       Value<int> rowid,
@@ -13616,6 +14727,11 @@ class $$ChecklistRunItemsTableTableFilterComposer
 
   ColumnFilters<String> get status => $composableBuilder(
     column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get completedAt => $composableBuilder(
+    column: $table.completedAt,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -13684,6 +14800,11 @@ class $$ChecklistRunItemsTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get note => $composableBuilder(
     column: $table.note,
     builder: (column) => ColumnOrderings(column),
@@ -13734,6 +14855,11 @@ class $$ChecklistRunItemsTableTableAnnotationComposer
 
   GeneratedColumn<String> get status =>
       $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<String> get completedAt => $composableBuilder(
+    column: $table.completedAt,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<String> get note =>
       $composableBuilder(column: $table.note, builder: (column) => column);
@@ -13799,6 +14925,7 @@ class $$ChecklistRunItemsTableTableTableManager
                 Value<String> title = const Value.absent(),
                 Value<bool> isRequired = const Value.absent(),
                 Value<String> status = const Value.absent(),
+                Value<String?> completedAt = const Value.absent(),
                 Value<String?> note = const Value.absent(),
                 Value<int> orderIndex = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -13812,6 +14939,7 @@ class $$ChecklistRunItemsTableTableTableManager
                 title: title,
                 isRequired: isRequired,
                 status: status,
+                completedAt: completedAt,
                 note: note,
                 orderIndex: orderIndex,
                 rowid: rowid,
@@ -13827,6 +14955,7 @@ class $$ChecklistRunItemsTableTableTableManager
                 required String title,
                 Value<bool> isRequired = const Value.absent(),
                 Value<String> status = const Value.absent(),
+                Value<String?> completedAt = const Value.absent(),
                 Value<String?> note = const Value.absent(),
                 Value<int> orderIndex = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -13840,6 +14969,7 @@ class $$ChecklistRunItemsTableTableTableManager
                 title: title,
                 isRequired: isRequired,
                 status: status,
+                completedAt: completedAt,
                 note: note,
                 orderIndex: orderIndex,
                 rowid: rowid,
@@ -14595,6 +15725,11 @@ class $AppDatabaseManager {
       $$HabitsTableTableTableManager(_db, _db.habitsTable);
   $$HabitLogsTableTableTableManager get habitLogsTable =>
       $$HabitLogsTableTableTableManager(_db, _db.habitLogsTable);
+  $$ChecklistCategoriesTableTableTableManager get checklistCategoriesTable =>
+      $$ChecklistCategoriesTableTableTableManager(
+        _db,
+        _db.checklistCategoriesTable,
+      );
   $$ChecklistTemplatesTableTableTableManager get checklistTemplatesTable =>
       $$ChecklistTemplatesTableTableTableManager(
         _db,

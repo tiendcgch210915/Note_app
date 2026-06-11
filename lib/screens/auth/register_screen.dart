@@ -56,11 +56,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Đăng ký thành công, chào ${user.displayName ?? user.email}!')),
+        SnackBar(
+          content: Text(
+            'Đăng ký thành công, chào ${user.displayName ?? user.email}!',
+          ),
+        ),
       );
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const HomeShell()),
-      );
+      Navigator.of(
+        context,
+      ).pushReplacement(MaterialPageRoute(builder: (_) => const HomeShell()));
     } on ApiException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -84,7 +88,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const SizedBox(height: 24),
-                  const Icon(Icons.task_alt, size: 56, color: AppColors.primary),
+                  const Icon(
+                    Icons.task_alt,
+                    size: 56,
+                    color: AppColors.primary,
+                  ),
                   const SizedBox(height: 24),
                   TextField(
                     controller: _name,

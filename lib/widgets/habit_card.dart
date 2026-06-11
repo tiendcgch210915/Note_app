@@ -17,8 +17,12 @@ class HabitCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textPrimary = isDark ? AppColors.textPrimaryDark : AppColors.textPrimary;
-    final textSecondary = isDark ? AppColors.textSecondaryDark : AppColors.textSecondary;
+    final textPrimary = isDark
+        ? AppColors.textPrimaryDark
+        : AppColors.textPrimary;
+    final textSecondary = isDark
+        ? AppColors.textSecondaryDark
+        : AppColors.textSecondary;
     final cardColor = isDark ? AppColors.surfaceDark : AppColors.surface;
     final progress = (recentCompletions / 7).clamp(0.0, 1.0);
 
@@ -26,7 +30,7 @@ class HabitCard extends StatelessWidget {
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
       child: Container(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
         decoration: BoxDecoration(
           color: cardColor,
           borderRadius: BorderRadius.circular(16),
@@ -43,61 +47,74 @@ class HabitCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.local_fire_department,
-                    size: 20, color: AppColors.streakGold),
-                const SizedBox(width: 4),
-                Text(
-                  '${habit.currentStreak}',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w700,
-                    color: textPrimary,
-                    letterSpacing: -0.5,
+                Icon(
+                  Icons.local_fire_department,
+                  size: 16,
+                  color: AppColors.streakGold,
+                ),
+                const SizedBox(width: 3),
+                Flexible(
+                  child: Text(
+                    '${habit.currentStreak}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      color: textPrimary,
+                      letterSpacing: 0,
+                    ),
                   ),
                 ),
-                const SizedBox(width: 4),
+                const SizedBox(width: 3),
                 Padding(
-                  padding: const EdgeInsets.only(top: 4),
+                  padding: const EdgeInsets.only(top: 3),
                   child: Text(
                     'ngày',
-                    style: TextStyle(fontSize: 12, color: textSecondary),
+                    style: TextStyle(fontSize: 10, color: textSecondary),
                   ),
                 ),
                 const Spacer(),
                 if (habit.icon != null)
-                  Icon(habit.icon, size: 18, color: habit.color),
+                  Icon(habit.icon, size: 16, color: habit.color),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Text(
               habit.title,
               style: TextStyle(
-                fontSize: 16,
+                fontSize: 13,
                 fontWeight: FontWeight.w600,
                 color: textPrimary,
               ),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 3),
             Text(
               habit.frequencyLabel,
-              style: TextStyle(fontSize: 12, color: textSecondary),
+              style: TextStyle(fontSize: 10, color: textSecondary),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
             const Spacer(),
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
               child: LinearProgressIndicator(
                 value: progress,
-                minHeight: 6,
-                backgroundColor: isDark ? AppColors.dividerDark : AppColors.divider,
+                minHeight: 5,
+                backgroundColor: isDark
+                    ? AppColors.dividerDark
+                    : AppColors.divider,
                 valueColor: AlwaysStoppedAnimation(habit.color),
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 5),
             Text(
               'Kỷ lục: ${habit.longestStreak}',
-              style: TextStyle(fontSize: 11, color: textSecondary),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 10, color: textSecondary),
             ),
           ],
         ),

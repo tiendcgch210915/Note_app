@@ -29,6 +29,14 @@ class _HomeShellState extends State<HomeShell> {
 
   static const _titles = ['Hôm nay', 'Todos', 'Notes', 'Thói quen', 'Lịch'];
 
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      SyncWorker.instance.sync();
+    });
+  }
+
   Widget _screenForTab(int index) {
     switch (index) {
       case 0:
@@ -51,25 +59,25 @@ class _HomeShellState extends State<HomeShell> {
     switch (_currentIndex) {
       case 1:
         return FloatingActionButton(
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const TodoCreateScreen()),
-          ),
+          onPressed: () => Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => const TodoCreateScreen())),
           tooltip: 'Thêm việc',
           child: const Icon(Icons.add),
         );
       case 2:
         return FloatingActionButton(
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const NoteEditorScreen()),
-          ),
+          onPressed: () => Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => const NoteEditorScreen())),
           tooltip: 'Tạo note',
           child: const Icon(Icons.edit_outlined),
         );
       case 3:
         return FloatingActionButton(
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const HabitCreateScreen()),
-          ),
+          onPressed: () => Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => const HabitCreateScreen())),
           tooltip: 'Thêm thói quen',
           child: const Icon(Icons.add),
         );
@@ -99,8 +107,14 @@ class _HomeShellState extends State<HomeShell> {
                   radius: 16,
                   backgroundColor: AppColors.primary,
                   child: Text(
-                    (AuthRepository.instance.cachedUser?.displayName ?? AuthRepository.instance.cachedUser?.email ?? 'U')[0].toUpperCase(),
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+                    (AuthRepository.instance.cachedUser?.displayName ??
+                            AuthRepository.instance.cachedUser?.email ??
+                            'U')[0]
+                        .toUpperCase(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),
@@ -145,7 +159,6 @@ class _HomeShellState extends State<HomeShell> {
       backgroundColor: isDark ? AppColors.backgroundDark : AppColors.background,
     );
   }
-
 }
 
 /// Small icon in AppBar showing sync state.
@@ -176,7 +189,11 @@ class _SyncIndicator extends StatelessWidget {
         );
       case SyncState.error:
         return IconButton(
-          icon: const Icon(Icons.sync_problem, size: 20, color: AppColors.danger),
+          icon: const Icon(
+            Icons.sync_problem,
+            size: 20,
+            color: AppColors.danger,
+          ),
           tooltip: 'Sync lỗi – nhấn để thử lại',
           onPressed: () => SyncWorker.instance.sync(),
         );
@@ -215,7 +232,8 @@ class _AppDrawer extends StatelessWidget {
                     radius: 24,
                     backgroundColor: AppColors.primary,
                     child: Text(
-                      (user?.displayName ?? user?.email ?? 'U')[0].toUpperCase(),
+                      (user?.displayName ?? user?.email ?? 'U')[0]
+                          .toUpperCase(),
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.w700,
@@ -230,9 +248,15 @@ class _AppDrawer extends StatelessWidget {
                       children: [
                         Text(
                           user?.displayName ?? 'Người dùng',
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                        Text(user?.email ?? '', style: const TextStyle(fontSize: 12)),
+                        Text(
+                          user?.email ?? '',
+                          style: const TextStyle(fontSize: 12),
+                        ),
                       ],
                     ),
                   ),
@@ -264,7 +288,10 @@ class _AppDrawer extends StatelessWidget {
             const Divider(height: 1),
             ListTile(
               leading: const Icon(Icons.logout, color: AppColors.danger),
-              title: const Text('Đăng xuất', style: TextStyle(color: AppColors.danger)),
+              title: const Text(
+                'Đăng xuất',
+                style: TextStyle(color: AppColors.danger),
+              ),
               onTap: () => _logout(context),
             ),
             const SizedBox(height: 16),

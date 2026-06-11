@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import '../api_exception.dart';
 import '../auth_storage.dart';
 import 'api_client_dio.dart';
 
@@ -29,7 +28,10 @@ class AuthApiDio {
 
   /// Register and store token + user_id.
   Future<Map<String, dynamic>> register(
-      String email, String password, String displayName) async {
+    String email,
+    String password,
+    String displayName,
+  ) async {
     final resp = await _client.post(
       '/auth/register',
       data: {'email': email, 'password': password, 'display_name': displayName},

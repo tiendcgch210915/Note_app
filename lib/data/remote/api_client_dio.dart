@@ -38,11 +38,12 @@ class ApiClientDio {
 
   // ─── Convenience wrappers ─────────────────────────────────────────
 
-  Future<dynamic> get(String path,
-      {Map<String, dynamic>? queryParameters}) async {
+  Future<dynamic> get(
+    String path, {
+    Map<String, dynamic>? queryParameters,
+  }) async {
     try {
-      final resp =
-          await _dio.get(path, queryParameters: queryParameters);
+      final resp = await _dio.get(path, queryParameters: queryParameters);
       return resp.data;
     } on DioException catch (e) {
       throw _wrapDio(e);
@@ -109,7 +110,9 @@ class ApiClientDio {
 class _AuthInterceptor extends Interceptor {
   @override
   void onRequest(
-      RequestOptions options, RequestInterceptorHandler handler) async {
+    RequestOptions options,
+    RequestInterceptorHandler handler,
+  ) async {
     final token = AuthStorage.instance.currentToken;
     if (token != null) {
       options.headers['Authorization'] = 'Bearer $token';

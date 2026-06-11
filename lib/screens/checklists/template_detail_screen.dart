@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../data/api_exception.dart';
 import '../../data/checklists_repository.dart';
+import '../../models/checklist_category.dart';
 import '../../models/template.dart';
 import '../../models/template_item.dart';
 import '../../theme/app_colors.dart';
@@ -22,6 +23,7 @@ class TemplateDetailScreen extends StatefulWidget {
 class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
   Template? _template;
   List<TemplateItem> _items = [];
+  List<ChecklistCategory> _categories = [];
   bool _loading = false;
   bool _editMode = false;
 
@@ -34,11 +36,16 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final res = await ChecklistsRepository.instance.getTemplate(widget.templateId);
+      final results = await Future.wait([
+        ChecklistsRepository.instance.getTemplate(widget.templateId),
+        ChecklistsRepository.instance.listCategories(),
+      ]);
+      final res = results[0] as ({Template template, List<TemplateItem> items});
       if (!mounted) return;
       setState(() {
         _template = res.template;
         _items = res.items;
+        _categories = results[1] as List<ChecklistCategory>;
       });
     } on ApiException catch (e) {
       if (mounted) _showError(e.vnMessage);
@@ -94,7 +101,10 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
           decoration: const InputDecoration(hintText: 'Tên bước'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Hủy')),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Hủy'),
+          ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
             child: const Text('Thêm'),
@@ -117,7 +127,10 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
 
   Future<void> _deleteItem(TemplateItem item) async {
     try {
-      await ChecklistsRepository.instance.deleteItem(widget.templateId, item.id);
+      await ChecklistsRepository.instance.deleteItem(
+        widget.templateId,
+        item.id,
+      );
       setState(() => _items.removeWhere((i) => i.id == item.id));
     } on ApiException catch (e) {
       if (mounted) _showError(e.vnMessage);
@@ -136,6 +149,62 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
       });
     } on ApiException catch (e) {
       if (mounted) _showError(e.vnMessage);
+    }
+  }
+
+  Future<void> _changeCategory() async {
+    final template = _template;
+    if (template == null || template.isSystem) return;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ListTile(
+              title: const Text('Chưa phân loại'),
+              leading: const Icon(Icons.block_outlined),
+              trailing: template.categoryId == null
+                  ? const Icon(Icons.check, color: AppColors.primary)
+                  : null,
+              onTap: () => Navigator.of(ctx).pop('__uncategorized__'),
+            ),
+            ..._categories.map(
+              (category) => ListTile(
+                title: Text(category.name),
+                subtitle: category.isSystem
+                    ? const Text('Hệ thống')
+                    : const Text('Của tôi'),
+                leading: Icon(
+                  ChecklistCategory.iconFor(category.icon),
+                  color: category.color,
+                ),
+                trailing: template.categoryId == category.id
+                    ? const Icon(Icons.check, color: AppColors.primary)
+                    : null,
+                onTap: () => Navigator.of(ctx).pop(category.id),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (picked == null) return;
+    final categoryId = picked == '__uncategorized__' ? null : picked;
+    try {
+      final updated = await ChecklistsRepository.instance.updateTemplate(
+        template.id,
+        {'category_id': categoryId},
+      );
+      if (!mounted) return;
+      setState(() => _template = updated);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      if (e.code == 'invalid_category') {
+        await ChecklistsRepository.instance.listCategories();
+      }
+      _showError(e.vnMessage);
     }
   }
 
@@ -160,9 +229,15 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
       );
     }
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final secondary = isDark ? AppColors.textSecondaryDark : AppColors.textSecondary;
+    final secondary = isDark
+        ? AppColors.textSecondaryDark
+        : AppColors.textSecondary;
     final template = _template!;
     final canEdit = !template.isSystem;
+    final categoryById = {for (final c in _categories) c.id: c};
+    final category = template.categoryId == null
+        ? null
+        : categoryById[template.categoryId];
 
     return Scaffold(
       appBar: AppBar(
@@ -189,20 +264,31 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
                     color: AppColors.primarySoft,
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(Template.iconFor(template.icon), color: AppColors.primary, size: 28),
+                  child: Icon(
+                    Template.iconFor(template.icon),
+                    color: AppColors.primary,
+                    size: 28,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(template.title,
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                      Text(
+                        template.title,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                       if (template.description != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
-                          child: Text(template.description!,
-                              style: TextStyle(fontSize: 13, color: secondary)),
+                          child: Text(
+                            template.description!,
+                            style: TextStyle(fontSize: 13, color: secondary),
+                          ),
                         ),
                     ],
                   ),
@@ -217,13 +303,28 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
               runSpacing: 8,
               children: [
                 _chip('${_items.length} bước'),
-                _chip('Dùng ${template.timesUsed} lần'),
+                _TemplateDetailCategoryChip(
+                  template: template,
+                  category: category,
+                ),
                 if (template.lastUsedAt != null)
-                  _chip('Cập nhật: ${AppDateUtils.formatRelative(template.lastUsedAt!)}'),
+                  _chip(
+                    'Cập nhật: ${AppDateUtils.formatRelative(template.lastUsedAt!)}',
+                  ),
               ],
             ),
           ),
           const SectionHeader(label: 'Các bước'),
+          if (_editMode)
+            ListTile(
+              leading: const Icon(Icons.category_outlined),
+              title: const Text('Danh mục'),
+              subtitle: Text(
+                category?.name ?? template.category ?? 'Chưa phân loại',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _changeCategory,
+            ),
           if (_editMode) _editList(secondary) else _readList(secondary),
           if (_editMode)
             Padding(
@@ -258,15 +359,22 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
           leading: CircleAvatar(
             radius: 14,
             backgroundColor: AppColors.primarySoft,
-            child: Text('${it.position}',
-                style: const TextStyle(
-                    color: AppColors.primary, fontWeight: FontWeight.w600, fontSize: 12)),
+            child: Text(
+              '${it.position}',
+              style: const TextStyle(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+            ),
           ),
           title: Text(it.title),
           trailing: Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             decoration: BoxDecoration(
-              color: (it.isRequired ? AppColors.danger : secondary).withValues(alpha: 0.15),
+              color: (it.isRequired ? AppColors.danger : secondary).withValues(
+                alpha: 0.15,
+              ),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(
@@ -330,9 +438,77 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
         color: AppColors.primarySoft,
         borderRadius: BorderRadius.circular(20),
       ),
-      child: Text(label,
-          style: const TextStyle(
-              fontSize: 12, color: AppColors.primary, fontWeight: FontWeight.w500)),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 12,
+          color: AppColors.primary,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
+  }
+}
+
+class _TemplateDetailCategoryChip extends StatelessWidget {
+  final Template template;
+  final ChecklistCategory? category;
+
+  const _TemplateDetailCategoryChip({
+    required this.template,
+    required this.category,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final label = category?.name ?? template.category;
+    if (label == null || label.isEmpty) {
+      return _plainChip('Chưa phân loại');
+    }
+    final color = category?.color ?? AppColors.textSecondary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.14),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            ChecklistCategory.iconFor(category?.icon),
+            size: 14,
+            color: color,
+          ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _plainChip(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.primarySoft,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 12,
+          color: AppColors.primary,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
     );
   }
 }

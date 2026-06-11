@@ -26,7 +26,9 @@ class ApiException implements Exception {
 
   /// Có phải auth error (token hết hạn / sai).
   bool get isAuthError =>
-      statusCode == 401 || code == 'unauthorized' || code == 'invalid_credentials';
+      statusCode == 401 ||
+      code == 'unauthorized' ||
+      code == 'invalid_credentials';
 
   /// Vietnamese-localized message để show trên UI.
   String get vnMessage {
@@ -50,7 +52,9 @@ class ApiException implements Exception {
     'self_link': 'Không thể liên kết với chính nó',
     'invalid_parent': 'Việc cha không hợp lệ',
     'invalid_trigger': 'Việc trigger không hợp lệ',
+    'invalid_category': 'Danh mục không hợp lệ, vui lòng chọn lại',
     'archived': 'Đối tượng đã được lưu trữ',
+    'read_only': 'Danh mục hệ thống chỉ có thể xem',
     'invalid_range': 'Khoảng thời gian không hợp lệ',
     // 401
     'unauthorized': 'Phiên đăng nhập đã hết hạn',

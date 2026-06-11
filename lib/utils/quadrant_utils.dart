@@ -28,10 +28,9 @@ class QuadrantUtils {
   QuadrantUtils._();
 
   static Quadrant from({bool? important, bool? urgent}) {
-    if (important == null || urgent == null) return Quadrant.unclassified;
-    if (important && urgent) return Quadrant.q1;
-    if (important && !urgent) return Quadrant.q2;
-    if (!important && urgent) return Quadrant.q3;
+    if (important == true && urgent == true) return Quadrant.q1;
+    if (important == true && urgent == false) return Quadrant.q2;
+    if (important == false && urgent == true) return Quadrant.q3;
     return Quadrant.q4;
   }
 

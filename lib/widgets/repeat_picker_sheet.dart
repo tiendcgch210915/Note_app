@@ -23,10 +23,9 @@ class RepeatSettings {
 
   bool get hasRepeat => type != null;
 
-  List<int> get activeDays =>
-      (daysOfWeek ?? '').isEmpty
-          ? []
-          : daysOfWeek!.split(',').map(int.parse).toList();
+  List<int> get activeDays => (daysOfWeek ?? '').isEmpty
+      ? []
+      : daysOfWeek!.split(',').map(int.parse).toList();
 
   String get label {
     if (!hasRepeat) return 'Không lặp lại';
@@ -78,7 +77,8 @@ Future<RepeatSettings?> showRepeatPicker(
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
     ),
-    builder: (ctx) => _RepeatPickerSheet(initial: initial ?? RepeatSettings.none),
+    builder: (ctx) =>
+        _RepeatPickerSheet(initial: initial ?? RepeatSettings.none),
   );
 }
 
@@ -98,30 +98,8 @@ class _RepeatPickerSheetState extends State<_RepeatPickerSheet> {
   // Preset definitions
   static const _presets = [
     (label: 'Không lặp lại', value: RepeatSettings.none),
-    (
-      label: 'Mỗi ngày',
-      value: RepeatSettings(type: 'daily', interval: 1)
-    ),
-    (
-      label: 'Mỗi 2 ngày',
-      value: RepeatSettings(type: 'daily', interval: 2)
-    ),
-    (
-      label: 'Mỗi 3 ngày',
-      value: RepeatSettings(type: 'daily', interval: 3)
-    ),
-    (
-      label: 'Mỗi tuần',
-      value: RepeatSettings(type: 'daily', interval: 7)
-    ),
-    (
-      label: 'Các ngày trong tuần',
-      value: RepeatSettings(type: 'weekly', interval: 1, daysOfWeek: '1,2,3,4,5')
-    ),
-    (
-      label: 'Cuối tuần',
-      value: RepeatSettings(type: 'weekly', interval: 1, daysOfWeek: '6,7')
-    ),
+    (label: 'Mỗi ngày', value: RepeatSettings(type: 'daily', interval: 1)),
+    (label: 'Mỗi tuần', value: RepeatSettings(type: 'daily', interval: 7)),
   ];
 
   @override
@@ -160,23 +138,29 @@ class _RepeatPickerSheetState extends State<_RepeatPickerSheet> {
                   const Expanded(
                     child: Text(
                       'Lặp lại',
-                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                   if (_current.hasRepeat)
                     TextButton(
-                      onPressed: () => Navigator.of(context).pop(RepeatSettings.none),
+                      onPressed: () =>
+                          Navigator.of(context).pop(RepeatSettings.none),
                       child: const Text('Xoá'),
                     ),
                 ],
               ),
             ),
             const Divider(height: 1),
-            ..._presets.map((p) => _PresetTile(
-                  label: p.label,
-                  selected: _isPresetMatch(p.value),
-                  onTap: () => Navigator.of(context).pop(p.value),
-                )),
+            ..._presets.map(
+              (p) => _PresetTile(
+                label: p.label,
+                selected: _isPresetMatch(p.value),
+                onTap: () => Navigator.of(context).pop(p.value),
+              ),
+            ),
             _PresetTile(
               label: 'Tùy chỉnh...',
               selected: _isCustom(),
@@ -188,10 +172,12 @@ class _RepeatPickerSheetState extends State<_RepeatPickerSheet> {
               _EndDateTile(
                 endDate: _current.endDate,
                 onPick: (date) {
-                  setState(() => _current = _current.copyWith(
-                        endDate: date == null ? null : formatDateOnly(date),
-                        clearEndDate: date == null,
-                      ));
+                  setState(
+                    () => _current = _current.copyWith(
+                      endDate: date == null ? null : formatDateOnly(date),
+                      clearEndDate: date == null,
+                    ),
+                  );
                 },
               ),
             ],
@@ -346,8 +332,10 @@ class _CustomRepeatSheetState extends State<_CustomRepeatSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Tùy chỉnh lặp lại',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+            const Text(
+              'Tùy chỉnh lặp lại',
+              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            ),
             const SizedBox(height: 16),
             // Type selector
             Row(
@@ -384,9 +372,13 @@ class _CustomRepeatSheetState extends State<_CustomRepeatSheet> {
                   onTap: () => setState(() => _interval--),
                 ),
                 const SizedBox(width: 8),
-                Text('$_interval',
-                    style: const TextStyle(
-                        fontSize: 18, fontWeight: FontWeight.w700)),
+                Text(
+                  '$_interval',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
                 const SizedBox(width: 8),
                 _IntervalButton(
                   icon: Icons.add,
@@ -394,14 +386,18 @@ class _CustomRepeatSheetState extends State<_CustomRepeatSheet> {
                   onTap: () => setState(() => _interval++),
                 ),
                 const SizedBox(width: 12),
-                Text(_type == 'weekly' ? 'tuần' : 'ngày',
-                    style: const TextStyle(fontSize: 15)),
+                Text(
+                  _type == 'weekly' ? 'tuần' : 'ngày',
+                  style: const TextStyle(fontSize: 15),
+                ),
               ],
             ),
             if (_type == 'weekly') ...[
               const SizedBox(height: 16),
-              const Text('Các ngày trong tuần',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+              const Text(
+                'Chọn thứ lặp lại',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+              ),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,

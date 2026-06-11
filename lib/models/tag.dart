@@ -6,11 +6,7 @@ class Tag {
   final String name;
   final Color color;
 
-  const Tag({
-    required this.id,
-    required this.name,
-    required this.color,
-  });
+  const Tag({required this.id, required this.name, required this.color});
 
   factory Tag.fromJson(Map<String, dynamic> json) {
     return Tag(
@@ -21,7 +17,7 @@ class Tag {
   }
 
   Map<String, dynamic> toJson() => {
-        'name': name,
-        'color': formatColorHex(color),
-      };
+    'name': name,
+    'color': formatColorHex(color),
+  };
 }

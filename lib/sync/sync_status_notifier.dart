@@ -1,11 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-enum SyncState {
-  idle,
-  syncing,
-  pendingChanges,
-  error,
-}
+enum SyncState { idle, syncing, pendingChanges, error }
 
 class SyncStatus {
   final SyncState state;
@@ -51,10 +46,15 @@ class SyncStatusNotifier extends ValueNotifier<SyncStatus> {
       value = value.copyWith(state: SyncState.error, errorMessage: error);
     } else if (pendingCount > 0) {
       value = value.copyWith(
-          state: SyncState.pendingChanges, pendingCount: pendingCount);
+        state: SyncState.pendingChanges,
+        pendingCount: pendingCount,
+      );
     } else {
       value = value.copyWith(
-          state: SyncState.idle, pendingCount: 0, errorMessage: null);
+        state: SyncState.idle,
+        pendingCount: 0,
+        errorMessage: null,
+      );
     }
   }
 

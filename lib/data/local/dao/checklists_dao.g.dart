@@ -4,6 +4,8 @@ part of 'checklists_dao.dart';
 
 // ignore_for_file: type=lint
 mixin _$ChecklistsDaoMixin on DatabaseAccessor<AppDatabase> {
+  $ChecklistCategoriesTableTable get checklistCategoriesTable =>
+      attachedDatabase.checklistCategoriesTable;
   $ChecklistTemplatesTableTable get checklistTemplatesTable =>
       attachedDatabase.checklistTemplatesTable;
   $ChecklistTemplateItemsTableTable get checklistTemplateItemsTable =>
@@ -18,6 +20,11 @@ mixin _$ChecklistsDaoMixin on DatabaseAccessor<AppDatabase> {
 class ChecklistsDaoManager {
   final _$ChecklistsDaoMixin _db;
   ChecklistsDaoManager(this._db);
+  $$ChecklistCategoriesTableTableTableManager get checklistCategoriesTable =>
+      $$ChecklistCategoriesTableTableTableManager(
+        _db.attachedDatabase,
+        _db.checklistCategoriesTable,
+      );
   $$ChecklistTemplatesTableTableTableManager get checklistTemplatesTable =>
       $$ChecklistTemplatesTableTableTableManager(
         _db.attachedDatabase,

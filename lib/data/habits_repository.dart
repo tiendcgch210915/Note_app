@@ -4,6 +4,7 @@ import 'package:drift/drift.dart' show Value;
 
 import '../models/habit.dart';
 import '../models/habit_log.dart';
+import '../utils/habit_streak_utils.dart';
 import '../utils/json_utils.dart';
 import '../utils/uuid_utils.dart';
 import 'api_client.dart';
@@ -11,18 +12,17 @@ import 'api_exception.dart';
 import 'auth_storage.dart';
 import 'local/database.dart';
 import 'local/model_converters.dart';
-import 'local/tables.dart';
 import '../sync/connectivity_sync.dart';
 import '../sync/sync_payload.dart';
 
 /// Repository cho Group H — Habits. 11 endpoint F-H1..F-H11.
 ///
-/// Strategy mirrors TodosRepository:
-///  - Reads: REST first → cache in Drift.
-///  - Writes: REST first; on success → write Drift + enqueue.
-///            On no_connection → write Drift + enqueue (offline mode).
-///  - Streak: ONLY updated via `adoptStreak` (server-authoritative).
-///            We NEVER enqueue an `update habit` op just to change streak.
+/// Strategy:
+///  - Habit metadata reads still use REST first and cache into Drift.
+///  - Habit log writes are local-first: write Drift, enqueue sync, then
+///    ConnectivitySync pushes in the background.
+///  - Streak: derived locally from logs for fast/offline UI, then cached via
+///    `adoptStreak`. We NEVER enqueue an `update habit` op just to change it.
 class HabitsRepository {
   HabitsRepository._();
   static final HabitsRepository instance = HabitsRepository._();
@@ -40,16 +40,18 @@ class HabitsRepository {
       query: {'include_archived': includeArchived},
     );
     final items = (resp as Map<String, dynamic>)['items'] as List;
-    final habits =
-        items.map((e) => Habit.fromJson(e as Map<String, dynamic>)).toList();
+    final habits = items
+        .map((e) => Habit.fromJson(e as Map<String, dynamic>))
+        .toList();
     await _cacheHabits(habits);
-    return habits;
+    return _applyArchiveVisibility(habits, includeArchived: includeArchived);
   }
 
   // ─── F-H3 Detail with recent logs ─────────────────────────────
 
   Future<({Habit habit, List<HabitLog> recentLogs})> getDetail(
-      String id) async {
+    String id,
+  ) async {
     final resp = await _client.get('/habits/$id');
     final map = resp as Map<String, dynamic>;
     final habit = Habit.fromJson(map['habit'] as Map<String, dynamic>);
@@ -66,8 +68,9 @@ class HabitsRepository {
   Future<Habit> create(Map<String, dynamic> body) async {
     try {
       final resp = await _client.post('/habits', body: body);
-      final habit =
-          Habit.fromJson((resp as Map<String, dynamic>)['habit'] as Map<String, dynamic>);
+      final habit = Habit.fromJson(
+        (resp as Map<String, dynamic>)['habit'] as Map<String, dynamic>,
+      );
       // Server already has it — cache locally only, do NOT enqueue.
       await _cacheHabits([habit]);
       return habit;
@@ -85,11 +88,16 @@ class HabitsRepository {
       iconName: body['icon'] as String?,
       color: jsonColor(body['color'] as String? ?? '#4CAF50'),
       frequencyType: FrequencyType.parse(
-          body['frequency_type'] as String? ?? 'daily'),
-      targetPerPeriod: (body['target_per_period'] as num?)?.toInt() ?? 1,
+        body['frequency_type'] as String? ?? 'daily',
+      ),
+      targetPerPeriod:
+          (body['target_per_period'] as num?)?.toInt() ??
+          Habit.defaultTargetPerPeriod,
       activeWeekdays: _parseWeekdays(body['active_weekdays'] as String?),
       startDate: jsonDateOnly(
-          body['start_date'] as String? ?? formatDateOnly(DateTime.now())),
+        body['start_date'] as String? ?? formatDateOnly(DateTime.now()),
+      ),
+      endDate: jsonDateOnlyNullable(body['end_date'] as String?),
     );
     await _upsertHabitWithSync(habit, 'create');
     ConnectivitySync.instance.scheduleWriteSync();
@@ -101,8 +109,9 @@ class HabitsRepository {
   Future<Habit> update(String id, Map<String, dynamic> body) async {
     try {
       final resp = await _client.patch('/habits/$id', body: body);
-      final habit =
-          Habit.fromJson((resp as Map<String, dynamic>)['habit'] as Map<String, dynamic>);
+      final habit = Habit.fromJson(
+        (resp as Map<String, dynamic>)['habit'] as Map<String, dynamic>,
+      );
       // Server already has it — cache locally only, do NOT enqueue.
       await _cacheHabits([habit]);
       return habit;
@@ -142,8 +151,9 @@ class HabitsRepository {
 
   Future<Habit> archive(String id) async {
     final resp = await _client.post('/habits/$id/archive', body: const {});
-    final habit =
-        Habit.fromJson((resp as Map<String, dynamic>)['habit'] as Map<String, dynamic>);
+    final habit = Habit.fromJson(
+      (resp as Map<String, dynamic>)['habit'] as Map<String, dynamic>,
+    );
     // Server already has it — cache only, do NOT enqueue.
     await _cacheHabits([habit]);
     return habit;
@@ -151,8 +161,9 @@ class HabitsRepository {
 
   Future<Habit> unarchive(String id) async {
     final resp = await _client.post('/habits/$id/unarchive', body: const {});
-    final habit =
-        Habit.fromJson((resp as Map<String, dynamic>)['habit'] as Map<String, dynamic>);
+    final habit = Habit.fromJson(
+      (resp as Map<String, dynamic>)['habit'] as Map<String, dynamic>,
+    );
     await _cacheHabits([habit]);
     return habit;
   }
@@ -165,93 +176,73 @@ class HabitsRepository {
     bool completed = true,
     String? note,
   }) async {
-    try {
-      final resp = await _client.post(
-        '/habits/$id/logs',
-        body: {
-          'log_date': formatDateOnly(logDate),
-          'completed': completed,
-          if (note != null) 'note': note,
-        },
-      );
-      final map = resp as Map<String, dynamic>;
-      final streaks = map['streaks'] as Map<String, dynamic>;
-      final log = HabitLog.fromJson(map['log'] as Map<String, dynamic>);
-      // Server already has this log — cache locally only, do NOT enqueue.
-      await _cacheLogs([log]);
-      // Adopt server-authoritative streak (no sync enqueue for streak)
-      await _db.habitsDao.adoptStreak(
-        id,
-        (streaks['current'] as num).toInt(),
-        (streaks['longest'] as num).toInt(),
-        DateTime.now().toUtc().toIso8601String(),
-      );
-      return (
-        log: log,
-        currentStreak: (streaks['current'] as num).toInt(),
-        longestStreak: (streaks['longest'] as num).toInt(),
-      );
-    } on ApiException catch (e) {
-      if (e.code == 'no_connection') {
-        final log = await _logHabitOffline(
-          habitId: id,
-          logDate: logDate,
-          completed: completed,
-          note: note,
-        );
-        return (log: log, currentStreak: 0, longestStreak: 0);
-      }
-      rethrow;
-    }
-  }
-
-  /// Offline log creation with resurrect-local-first (contract §3.5).
-  /// HabitLog model has no userId/timestamps, so we write the companion directly.
-  Future<HabitLog> _logHabitOffline({
-    required String habitId,
-    required DateTime logDate,
-    required bool completed,
-    String? note,
-  }) async {
-    final logDateStr = formatDateOnly(logDate);
-    final now = nowIso();
-
-    // Resurrect-local-first: reuse a tombstoned log for the same (habitId, logDate)
-    final tombstone =
-        await _db.habitsDao.findSoftDeletedHabitLog(habitId, logDateStr);
-    final id = tombstone?.id ?? newId();
-    final operation = tombstone != null ? 'update' : 'create';
-
-    await _db.habitsDao.upsertHabitLog(HabitLogsTableCompanion(
-      id: Value(id),
-      habitId: Value(habitId),
-      userId: Value(_userId),
-      logDate: Value(logDateStr),
-      completed: Value(completed),
-      note: Value(note),
-      createdAt: Value(tombstone?.createdAt ?? now),
-      updatedAt: Value(now),
-      deletedAt: const Value(null), // clear tombstone when resurrecting
-    ));
-
-    final row = await _db.habitsDao.getHabitLogById(id);
-    if (row != null) {
-      await _db.syncDao.enqueueSyncOp(
-        entityType: 'habit_log',
-        entityId: id,
-        operation: operation,
-        payload: SyncPayload.encode(SyncPayload.fromHabitLog(row)),
-      );
-    }
-    ConnectivitySync.instance.scheduleWriteSync();
-
-    return HabitLog(
-      id: id,
-      habitId: habitId,
+    final log = await _upsertHabitLogLocalFirst(
+      habitId: id,
       logDate: logDate,
       completed: completed,
       note: note,
+      updateNote: note != null,
     );
+    final streaks = await _adoptEstimatedStreak(id);
+    ConnectivitySync.instance.scheduleWriteSync();
+    return (
+      log: log,
+      currentStreak: streaks.current,
+      longestStreak: streaks.longest,
+    );
+  }
+
+  Future<HabitLog> _upsertHabitLogLocalFirst({
+    required String habitId,
+    required DateTime logDate,
+    bool? completed,
+    String? note,
+    bool updateNote = false,
+  }) async {
+    final logDateStr = formatDateOnly(logDate);
+    final now = nowIso();
+    final existing = await _db.habitsDao.getHabitLogByHabitAndDate(
+      habitId,
+      logDateStr,
+    );
+
+    // Resurrect-local-first: reuse a tombstoned log for the same (habitId, logDate)
+    final tombstone = await _db.habitsDao.findSoftDeletedHabitLog(
+      habitId,
+      logDateStr,
+    );
+    final id = existing?.id ?? tombstone?.id ?? newId();
+    final operation = existing == null && tombstone == null
+        ? 'create'
+        : 'update';
+    final createdAt = existing?.createdAt ?? tombstone?.createdAt ?? now;
+
+    await _db.habitsDao.upsertHabitLog(
+      HabitLogsTableCompanion(
+        id: Value(id),
+        habitId: Value(habitId),
+        userId: Value(_userId),
+        logDate: Value(logDateStr),
+        completed: Value(completed ?? existing?.completed ?? false),
+        note: Value(updateNote ? note : existing?.note),
+        createdAt: Value(createdAt),
+        updatedAt: Value(now),
+        deletedAt: const Value(null), // clear tombstone when resurrecting
+      ),
+    );
+
+    final row = await _db.habitsDao.getHabitLogById(id);
+    if (row == null) {
+      throw const ApiException(0, 'local_write_failed', 'Không lưu được log');
+    }
+    await _db.syncDao.enqueueSyncOp(
+      entityType: 'habit_log',
+      entityId: id,
+      operation: operation,
+      payload: SyncPayload.encode(SyncPayload.fromHabitLog(row)),
+    );
+
+    return _habitLogRowToModel(row);
   }
 
   // ─── F-H8 Patch log ───────────────────────────────────────────
@@ -261,49 +252,22 @@ class HabitsRepository {
     DateTime logDate, {
     bool? completed,
     String? note,
+    bool updateNote = false,
   }) async {
-    try {
-      final resp = await _client.patch(
-        '/habits/$id/logs/${formatDateOnly(logDate)}',
-        body: {
-          if (completed != null) 'completed': completed,
-          if (note != null) 'note': note,
-        },
-      );
-      final map = resp as Map<String, dynamic>;
-      final streaks = map['streaks'] as Map<String, dynamic>;
-      final log = HabitLog.fromJson(map['log'] as Map<String, dynamic>);
-      // Server already has this — cache locally only, do NOT enqueue.
-      await _cacheLogs([log]);
-      await _db.habitsDao.adoptStreak(
-        id,
-        (streaks['current'] as num).toInt(),
-        (streaks['longest'] as num).toInt(),
-        DateTime.now().toUtc().toIso8601String(),
-      );
-      return (
-        log: log,
-        currentStreak: (streaks['current'] as num).toInt(),
-        longestStreak: (streaks['longest'] as num).toInt(),
-      );
-    } on ApiException catch (e) {
-      if (e.code == 'no_connection') {
-        // Enqueue an update for the existing log
-        final existing = await _db.habitsDao
-            .getHabitLogByHabitAndDate(id, formatDateOnly(logDate));
-        if (existing != null) {
-          await _db.syncDao.enqueueSyncOp(
-            entityType: 'habit_log',
-            entityId: existing.id,
-            operation: 'update',
-            payload: SyncPayload.encode(SyncPayload.fromHabitLog(existing)),
-          );
-          ConnectivitySync.instance.scheduleWriteSync();
-        }
-        rethrow;
-      }
-      rethrow;
-    }
+    final log = await _upsertHabitLogLocalFirst(
+      habitId: id,
+      logDate: logDate,
+      completed: completed,
+      note: note,
+      updateNote: updateNote,
+    );
+    final streaks = await _adoptEstimatedStreak(id);
+    ConnectivitySync.instance.scheduleWriteSync();
+    return (
+      log: log,
+      currentStreak: streaks.current,
+      longestStreak: streaks.longest,
+    );
   }
 
   // ─── F-H9 Delete log ──────────────────────────────────────────
@@ -313,43 +277,27 @@ class HabitsRepository {
     DateTime logDate,
   ) async {
     final now = nowIso();
-    Map<String, dynamic>? streaks;
-    bool isOffline = false;
-    try {
-      final resp =
-          await _client.delete('/habits/$id/logs/${formatDateOnly(logDate)}');
-      streaks =
-          (resp as Map<String, dynamic>)['streaks'] as Map<String, dynamic>?;
-    } on ApiException catch (e) {
-      if (e.code != 'no_connection') rethrow;
-      isOffline = true;
-    }
-
-    // Soft-delete locally regardless
-    final existing = await _db.habitsDao
-        .getHabitLogByHabitAndDate(id, formatDateOnly(logDate));
+    final existing = await _db.habitsDao.getHabitLogByHabitAndDate(
+      id,
+      formatDateOnly(logDate),
+    );
     if (existing != null) {
       await _db.habitsDao.softDeleteHabitLog(existing.id, now);
-      // Only enqueue when offline — server already processed it when online.
-      if (isOffline) {
-        await _db.syncDao.enqueueSyncOp(
-          entityType: 'habit_log',
-          entityId: existing.id,
-          operation: 'delete',
-          payload: jsonEncode({
-            'id': existing.id,
-            'deleted_at': now,
-            'updated_at': now,
-          }),
-        );
-        ConnectivitySync.instance.scheduleWriteSync();
-      }
+      await _db.syncDao.enqueueSyncOp(
+        entityType: 'habit_log',
+        entityId: existing.id,
+        operation: 'delete',
+        payload: jsonEncode({
+          'id': existing.id,
+          'deleted_at': now,
+          'updated_at': now,
+        }),
+      );
+      ConnectivitySync.instance.scheduleWriteSync();
     }
 
-    return (
-      currentStreak: (streaks?['current'] as num?)?.toInt() ?? 0,
-      longestStreak: (streaks?['longest'] as num?)?.toInt() ?? 0,
-    );
+    final streaks = await _adoptEstimatedStreak(id);
+    return (currentStreak: streaks.current, longestStreak: streaks.longest);
   }
 
   // ─── F-H10 Logs in range ──────────────────────────────────────
@@ -359,18 +307,24 @@ class HabitsRepository {
     required DateTime from,
     required DateTime to,
   }) async {
-    final resp = await _client.get(
-      '/habits/$id/logs',
-      query: {
-        'from': formatDateOnly(from),
-        'to': formatDateOnly(to),
-      },
-    );
-    final items = (resp as Map<String, dynamic>)['items'] as List;
-    final logs =
-        items.map((e) => HabitLog.fromJson(e as Map<String, dynamic>)).toList();
-    await _cacheLogs(logs);
-    return logs;
+    final localLogs = await _getLocalLogs(id, from: from, to: to);
+
+    try {
+      final resp = await _client.get(
+        '/habits/$id/logs',
+        query: {'from': formatDateOnly(from), 'to': formatDateOnly(to)},
+      );
+      final items = (resp as Map<String, dynamic>)['items'] as List;
+      final logs = items
+          .map((e) => HabitLog.fromJson(e as Map<String, dynamic>))
+          .toList();
+      await _cacheLogs(logs);
+      final mergedLogs = await _getLocalLogs(id, from: from, to: to);
+      return mergedLogs.isNotEmpty ? mergedLogs : logs;
+    } on ApiException catch (e) {
+      if (e.code == 'no_connection') return localLogs;
+      rethrow;
+    }
   }
 
   // ─── F-H11 Calendar (all habits) ──────────────────────────────
@@ -380,23 +334,33 @@ class HabitsRepository {
     required DateTime from,
     required DateTime to,
   }) async {
-    final resp = await _client.get(
-      '/habits/calendar',
-      query: {
-        'from': formatDateOnly(from),
-        'to': formatDateOnly(to),
-      },
-    );
-    final byDate =
-        (resp as Map<String, dynamic>)['by_date'] as Map<String, dynamic>? ??
-            {};
-    final result = <DateTime, Map<String, bool>>{};
-    byDate.forEach((dateStr, value) {
-      final habitsMap = value as Map<String, dynamic>;
-      result[jsonDateOnly(dateStr)] =
-          habitsMap.map((k, v) => MapEntry(k, jsonBool(v)));
-    });
-    return result;
+    final localCalendar = await _getLocalCalendar(from: from, to: to);
+
+    try {
+      final resp = await _client.get(
+        '/habits/calendar',
+        query: {'from': formatDateOnly(from), 'to': formatDateOnly(to)},
+      );
+      final byDate =
+          (resp as Map<String, dynamic>)['by_date'] as Map<String, dynamic>? ??
+          {};
+      final result = <DateTime, Map<String, bool>>{};
+      byDate.forEach((dateStr, value) {
+        final habitsMap = value as Map<String, dynamic>;
+        result[jsonDateOnly(dateStr)] = habitsMap.map(
+          (k, v) => MapEntry(k, jsonBool(v)),
+        );
+      });
+      for (final entry in localCalendar.entries) {
+        result
+            .putIfAbsent(entry.key, () => <String, bool>{})
+            .addAll(entry.value);
+      }
+      return result;
+    } on ApiException catch (e) {
+      if (e.code == 'no_connection') return localCalendar;
+      rethrow;
+    }
   }
 
   // ─── Drift helpers ────────────────────────────────────────────
@@ -417,6 +381,119 @@ class HabitsRepository {
     }
   }
 
+  Future<List<HabitLog>> _getLocalLogs(
+    String habitId, {
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final rows = await _db.habitsDao.getLogsForRange(
+      habitId,
+      formatDateOnly(from),
+      formatDateOnly(to),
+    );
+    final logs = rows.map(_habitLogRowToModel).toList();
+    logs.sort((a, b) => a.logDate.compareTo(b.logDate));
+    return logs;
+  }
+
+  Future<Map<DateTime, Map<String, bool>>> _getLocalCalendar({
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final rows = await _db.habitsDao.getAllLogsForRange(
+      formatDateOnly(from),
+      formatDateOnly(to),
+    );
+    final result = <DateTime, Map<String, bool>>{};
+    for (final row in rows) {
+      final date = jsonDateOnly(row.logDate);
+      result.putIfAbsent(date, () => <String, bool>{})[row.habitId] =
+          row.completed;
+    }
+    return result;
+  }
+
+  HabitLog _habitLogRowToModel(HabitLogRow row) {
+    return HabitLog(
+      id: row.id,
+      habitId: row.habitId,
+      logDate: jsonDateOnly(row.logDate),
+      completed: row.completed,
+      note: row.note,
+    );
+  }
+
+  Future<({int current, int longest})> _adoptEstimatedStreak(
+    String habitId,
+  ) async {
+    final habit = await _db.habitsDao.getHabitById(habitId);
+    final today = DateTime.now();
+    final todayOnly = DateTime(today.year, today.month, today.day);
+    final from = habit?.startDate != null
+        ? jsonDateOnly(habit!.startDate)
+        : todayOnly.subtract(const Duration(days: 365));
+    final logs = await _getLocalLogs(habitId, from: from, to: todayOnly);
+    final streak = deriveHabitStreakFromLogs(
+      logs: logs,
+      today: todayOnly,
+      startDate: from,
+      fallbackCurrent: habit?.currentStreak ?? 0,
+      fallbackLongest: habit?.longestStreak ?? 0,
+    );
+    final current = streak.current;
+    final longest = streak.longest;
+    if (habit != null) {
+      await _db.habitsDao.adoptStreak(habitId, current, longest, nowIso());
+    }
+    return (current: current, longest: longest);
+  }
+
+  Future<List<Habit>> _applyArchiveVisibility(
+    List<Habit> habits, {
+    required bool includeArchived,
+  }) async {
+    final visible = includeArchived
+        ? await _withCachedArchived(habits)
+        : habits.where((habit) => !habit.isArchived).toList();
+    visible.sort((a, b) {
+      final archivedOrder = (a.isArchived ? 1 : 0).compareTo(
+        b.isArchived ? 1 : 0,
+      );
+      if (archivedOrder != 0) return archivedOrder;
+      return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+    });
+    return visible;
+  }
+
+  Future<List<Habit>> _withCachedArchived(List<Habit> habits) async {
+    final byId = {for (final habit in habits) habit.id: habit};
+    final cached = await _db.habitsDao.getAllHabits();
+    for (final row in cached) {
+      if (!row.isArchived || byId.containsKey(row.id)) continue;
+      byId[row.id] = _habitRowToModel(row);
+    }
+    return byId.values.toList();
+  }
+
+  Habit _habitRowToModel(HabitRow row) {
+    return Habit(
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      iconName: row.iconName,
+      icon: Habit.iconFor(row.iconName),
+      color: jsonColor(row.color),
+      frequencyType: FrequencyType.parse(row.frequencyType),
+      targetPerPeriod: row.targetPerPeriod,
+      activeWeekdays: _parseWeekdays(row.activeWeekdays),
+      startDate: jsonDateOnly(row.startDate),
+      endDate: jsonDateOnlyNullable(row.endDate),
+      currentStreak: row.currentStreak,
+      longestStreak: row.longestStreak,
+      isArchived: row.isArchived,
+    );
+  }
+
   Future<void> _upsertHabitWithSync(Habit habit, String operation) async {
     final userId = _userId;
     await _db.habitsDao.upsertHabit(habitToCompanion(habit, userId));
@@ -430,22 +507,10 @@ class HabitsRepository {
     );
   }
 
-  Future<void> _upsertLogWithSync(HabitLog log, String operation) async {
-    final userId = _userId;
-    await _db.habitsDao.upsertHabitLog(habitLogToCompanion(log, userId));
-    final row = await _db.habitsDao.getHabitLogById(log.id);
-    if (row == null) return;
-    // Contract: tick habit_log → enqueue 'habit_log' op ONLY, NEVER 'habit' op
-    await _db.syncDao.enqueueSyncOp(
-      entityType: 'habit_log',
-      entityId: log.id,
-      operation: operation,
-      payload: SyncPayload.encode(SyncPayload.fromHabitLog(row)),
-    );
-  }
-
   Future<void> _enqueueOfflineHabitUpdate(
-      String habitId, Map<String, dynamic> patch) async {
+    String habitId,
+    Map<String, dynamic> patch,
+  ) async {
     final existing = await _db.habitsDao.getHabitById(habitId);
     if (existing == null) return;
     final payload = SyncPayload.fromHabit(existing);

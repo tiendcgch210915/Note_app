@@ -67,7 +67,8 @@ class Todo {
   final DateTime? dueAt;
   final DateTime? scheduledDate;
   final String? triggerAfterTodoId;
-  final List<String> tagIds; // dùng cho mock; backend không trả riêng — đã trong tags
+  final List<String>
+  tagIds; // dùng cho mock; backend không trả riêng — đã trong tags
   final DateTime? completedAt;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -75,14 +76,18 @@ class Todo {
   // ── Recurrence ────────────────────────────────────────────────
   /// "daily" | "weekly" | "custom" | null.
   final String? recurrenceType;
+
   /// Number of periods between occurrences (≥ 1). Defaults to 1.
   final int recurrenceInterval;
+
   /// Comma-separated ISO weekday numbers "1,3,5" (Mon=1…Sun=7).
   /// Used when recurrenceType == "weekly" or "custom".
   /// Maps to DB column `recurrenceWeekdays` / JSON key `recurrence_days_of_week`.
   final String? recurrenceDaysOfWeek;
+
   /// Inclusive end date "YYYY-MM-DD" after which no more instances are created.
   final String? recurrenceEndDate;
+
   /// null → this todo IS the recurrence template.
   /// non-null → this todo is an instance generated from that template.
   final String? recurrenceTemplateId;
@@ -161,14 +166,17 @@ class Todo {
     DateTime? startAt,
     DateTime? dueAt,
     String? triggerAfterTodoId,
+    bool clearTriggerAfterTodo = false,
     int? position,
   }) {
     return {
       if (title != null) 'title': title,
       if (description != null) 'description': description,
       if (parentId != null) 'parent_id': parentId,
-      if (clearScheduledDate) 'scheduled_date': null
-      else if (scheduledDate != null) 'scheduled_date': formatDateOnly(scheduledDate),
+      if (clearScheduledDate)
+        'scheduled_date': null
+      else if (scheduledDate != null)
+        'scheduled_date': formatDateOnly(scheduledDate),
       if (status != null) 'status': status.backendValue,
       if (isFrog != null) 'is_frog': isFrog,
       if (frogDate != null) 'frog_date': formatDateOnly(frogDate),
@@ -177,7 +185,10 @@ class Todo {
       if (estimatedMinutes != null) 'estimated_minutes': estimatedMinutes,
       if (startAt != null) 'start_at': formatIsoDate(startAt),
       if (dueAt != null) 'due_at': formatIsoDate(dueAt),
-      if (triggerAfterTodoId != null) 'trigger_after_todo_id': triggerAfterTodoId,
+      if (clearTriggerAfterTodo)
+        'trigger_after_todo_id': null
+      else if (triggerAfterTodoId != null)
+        'trigger_after_todo_id': triggerAfterTodoId,
       if (position != null) 'position': position,
     };
   }
@@ -234,10 +245,9 @@ class Todo {
   bool get isRecurring => isRecurrenceTemplate || isRecurrenceInstance;
 
   /// Parsed list of ISO weekday ints (1=Mon … 7=Sun).
-  List<int> get activeDaysOfWeek =>
-      (recurrenceDaysOfWeek ?? '').isEmpty
-          ? []
-          : recurrenceDaysOfWeek!.split(',').map(int.parse).toList();
+  List<int> get activeDaysOfWeek => (recurrenceDaysOfWeek ?? '').isEmpty
+      ? []
+      : recurrenceDaysOfWeek!.split(',').map(int.parse).toList();
 
   /// Human-readable label for the recurrence pattern (Vietnamese).
   String get recurrenceLabel {
@@ -307,15 +317,18 @@ class TodoWithRelations {
   factory TodoWithRelations.fromJson(Map<String, dynamic> json) {
     return TodoWithRelations(
       todo: Todo.fromJson(json['todo'] as Map<String, dynamic>),
-      tags: (json['tags'] as List?)
+      tags:
+          (json['tags'] as List?)
               ?.map((e) => Tag.fromJson(e as Map<String, dynamic>))
               .toList() ??
           const [],
-      subtasks: (json['subtasks'] as List?)
+      subtasks:
+          (json['subtasks'] as List?)
               ?.map((e) => Todo.fromJson(e as Map<String, dynamic>))
               .toList() ??
           const [],
-      linkedNotes: (json['linked_notes'] as List?)
+      linkedNotes:
+          (json['linked_notes'] as List?)
               ?.map((e) => LinkedTodoNote.fromJson(e as Map<String, dynamic>))
               .toList() ??
           const [],

@@ -199,19 +199,23 @@ class NoteWithRelations {
   factory NoteWithRelations.fromJson(Map<String, dynamic> json) {
     return NoteWithRelations(
       note: Note.fromJson(json['note'] as Map<String, dynamic>),
-      tags: (json['tags'] as List?)
+      tags:
+          (json['tags'] as List?)
               ?.map((e) => Tag.fromJson(e as Map<String, dynamic>))
               .toList() ??
           const [],
-      outgoing: (json['outgoing'] as List?)
+      outgoing:
+          (json['outgoing'] as List?)
               ?.map((e) => OutgoingLink.fromJson(e as Map<String, dynamic>))
               .toList() ??
           const [],
-      incoming: (json['incoming'] as List?)
+      incoming:
+          (json['incoming'] as List?)
               ?.map((e) => IncomingLink.fromJson(e as Map<String, dynamic>))
               .toList() ??
           const [],
-      todos: (json['todos'] as List?)
+      todos:
+          (json['todos'] as List?)
               ?.map((e) => LinkedTodo.fromJson(e as Map<String, dynamic>))
               .toList() ??
           const [],

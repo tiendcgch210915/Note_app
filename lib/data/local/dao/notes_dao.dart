@@ -5,7 +5,15 @@ import '../tables.dart';
 
 part 'notes_dao.g.dart';
 
-@DriftAccessor(tables: [NotesTable, NoteTagsTable, TagsTable, NoteLinksTable, NoteTodoLinksTable])
+@DriftAccessor(
+  tables: [
+    NotesTable,
+    NoteTagsTable,
+    TagsTable,
+    NoteLinksTable,
+    NoteTodoLinksTable,
+  ],
+)
 class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   NotesDao(super.db);
 
@@ -24,9 +32,9 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   // ─── Reads ────────────────────────────────────────────────────────
 
   Future<NoteRow?> getNoteById(String id) {
-    return (select(db.notesTable)
-          ..where((n) => n.id.equals(id) & n.deletedAt.isNull()))
-        .getSingleOrNull();
+    return (select(
+      db.notesTable,
+    )..where((n) => n.id.equals(id) & n.deletedAt.isNull())).getSingleOrNull();
   }
 
   Future<List<NoteRow>> getNotes({String? q, int limit = 50}) {
@@ -44,30 +52,30 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   }
 
   Future<List<TagRow>> getTagsForNote(String noteId) async {
-    final junctions = await (select(db.noteTagsTable)
-          ..where((j) => j.noteId.equals(noteId)))
-        .get();
+    final junctions = await (select(
+      db.noteTagsTable,
+    )..where((j) => j.noteId.equals(noteId))).get();
     if (junctions.isEmpty) return const [];
     final tagIds = junctions.map((j) => j.tagId).toList();
-    return (select(db.tagsTable)
-          ..where((t) => t.id.isIn(tagIds) & t.deletedAt.isNull()))
-        .get();
+    return (select(
+      db.tagsTable,
+    )..where((t) => t.id.isIn(tagIds) & t.deletedAt.isNull())).get();
   }
 
   Future<void> setNoteTags(String noteId, List<String> tagIds) async {
     await transaction(() async {
-      await (delete(db.noteTagsTable)
-            ..where((j) => j.noteId.equals(noteId)))
-          .go();
+      await (delete(
+        db.noteTagsTable,
+      )..where((j) => j.noteId.equals(noteId))).go();
       if (tagIds.isNotEmpty) {
         await batch((b) {
           b.insertAllOnConflictUpdate(
             db.noteTagsTable,
             tagIds
-                .map((tid) => NoteTagsTableCompanion.insert(
-                      noteId: noteId,
-                      tagId: tid,
-                    ))
+                .map(
+                  (tid) =>
+                      NoteTagsTableCompanion.insert(noteId: noteId, tagId: tid),
+                )
                 .toList(),
           );
         });
@@ -82,16 +90,16 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   }
 
   Future<List<NoteLinkRow>> getOutgoingLinks(String sourceNoteId) {
-    return (select(db.noteLinksTable)
-          ..where((l) =>
-              l.sourceNoteId.equals(sourceNoteId) & l.deletedAt.isNull()))
+    return (select(db.noteLinksTable)..where(
+          (l) => l.sourceNoteId.equals(sourceNoteId) & l.deletedAt.isNull(),
+        ))
         .get();
   }
 
   Future<List<NoteLinkRow>> getIncomingLinks(String targetNoteId) {
-    return (select(db.noteLinksTable)
-          ..where((l) =>
-              l.targetNoteId.equals(targetNoteId) & l.deletedAt.isNull()))
+    return (select(db.noteLinksTable)..where(
+          (l) => l.targetNoteId.equals(targetNoteId) & l.deletedAt.isNull(),
+        ))
         .get();
   }
 
@@ -111,15 +119,15 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   }
 
   Future<List<NoteTodoLinkRow>> getTodoLinksForNote(String noteId) {
-    return (select(db.noteTodoLinksTable)
-          ..where((l) => l.noteId.equals(noteId)))
-        .get();
+    return (select(
+      db.noteTodoLinksTable,
+    )..where((l) => l.noteId.equals(noteId))).get();
   }
 
   Future<void> removeNoteTodoLink(String noteId, String todoId) async {
-    await (delete(db.noteTodoLinksTable)
-          ..where((l) => l.noteId.equals(noteId) & l.todoId.equals(todoId)))
-        .go();
+    await (delete(
+      db.noteTodoLinksTable,
+    )..where((l) => l.noteId.equals(noteId) & l.todoId.equals(todoId))).go();
   }
 
   // ─── Soft delete ──────────────────────────────────────────────────
@@ -136,16 +144,17 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
   /// Self-heal: remove junction rows for tombstoned notes.
   Future<void> cleanJunctionsForDeletedNotes(List<String> tombstoneIds) async {
     if (tombstoneIds.isEmpty) return;
-    await (delete(db.noteTagsTable)
-          ..where((j) => j.noteId.isIn(tombstoneIds)))
-        .go();
-    await (delete(db.noteTodoLinksTable)
-          ..where((l) => l.noteId.isIn(tombstoneIds)))
-        .go();
-    await (delete(db.noteLinksTable)
-          ..where((l) =>
+    await (delete(
+      db.noteTagsTable,
+    )..where((j) => j.noteId.isIn(tombstoneIds))).go();
+    await (delete(
+      db.noteTodoLinksTable,
+    )..where((l) => l.noteId.isIn(tombstoneIds))).go();
+    await (delete(db.noteLinksTable)..where(
+          (l) =>
               l.sourceNoteId.isIn(tombstoneIds) |
-              l.targetNoteId.isIn(tombstoneIds)))
+              l.targetNoteId.isIn(tombstoneIds),
+        ))
         .go();
   }
 }

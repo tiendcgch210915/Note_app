@@ -17,7 +17,9 @@ class AppColors {
   static const divider = Color(0xFFE5E7EB);
 
   // ─── Dark palette ─────────────────────────────────────────────────
-  static const primaryDark = Color(0xFF818CF8); // indigo-400 — sáng hơn trên nền tối
+  static const primaryDark = Color(
+    0xFF818CF8,
+  ); // indigo-400 — sáng hơn trên nền tối
   static const primarySoftDark = Color(0xFF1E1B4B); // indigo-950
   static const surfaceDark = Color(0xFF1F2024);
   static const backgroundDark = Color(0xFF111114);
@@ -30,7 +32,9 @@ class AppColors {
   static const q1 = Color(0xFFEF4444); // đỏ — Quan trọng + Khẩn
   static const q2 = Color(0xFF3B82F6); // xanh dương — Quan trọng + Không khẩn
   static const q3 = Color(0xFFF59E0B); // vàng — Khẩn + Không quan trọng
-  static const q4 = Color(0xFF10B981); // xanh lá — Không quan trọng + Không khẩn
+  static const q4 = Color(
+    0xFF10B981,
+  ); // xanh lá — Không quan trọng + Không khẩn
   static const qUnclassified = Color(0xFF9CA3AF);
 
   // ─── Semantic ─────────────────────────────────────────────────────
@@ -52,10 +56,9 @@ class AppColors {
 
   /// Trả về màu Eisenhower theo cặp (important, urgent).
   static Color quadrantColor({bool? important, bool? urgent}) {
-    if (important == null || urgent == null) return qUnclassified;
-    if (important && urgent) return q1;
-    if (important && !urgent) return q2;
-    if (!important && urgent) return q3;
+    if (important == true && urgent == true) return q1;
+    if (important == true && urgent == false) return q2;
+    if (important == false && urgent == true) return q3;
     return q4;
   }
 }

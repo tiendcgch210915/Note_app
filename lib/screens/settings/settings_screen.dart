@@ -61,11 +61,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         radius: 30,
                         backgroundColor: AppColors.primary,
                         child: Text(
-                          (_user?.displayName ?? _user?.email ?? 'U')[0].toUpperCase(),
+                          (_user?.displayName ?? _user?.email ?? 'U')[0]
+                              .toUpperCase(),
                           style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 24),
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 24,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 16),
@@ -75,10 +77,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           children: [
                             Text(
                               _user?.displayName ?? 'Người dùng',
-                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                             const SizedBox(height: 2),
-                            Text(_user?.email ?? '', style: const TextStyle(fontSize: 13)),
+                            Text(
+                              _user?.email ?? '',
+                              style: const TextStyle(fontSize: 13),
+                            ),
                           ],
                         ),
                       ),
@@ -92,20 +100,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Backend chưa hỗ trợ update profile')),
+                      const SnackBar(
+                        content: Text('Backend chưa hỗ trợ update profile'),
+                      ),
                     );
                   },
                 ),
                 ListTile(
                   leading: const Icon(Icons.public),
                   title: const Text('Múi giờ'),
-                  trailing: Text(_user?.timezone ?? 'Asia/Ho_Chi_Minh',
-                      style: const TextStyle(fontSize: 13)),
+                  trailing: Text(
+                    _user?.timezone ?? 'Asia/Ho_Chi_Minh',
+                    style: const TextStyle(fontSize: 13),
+                  ),
                 ),
                 SwitchListTile(
                   value: isDark,
-                  onChanged: (v) =>
-                      controller?.mode.value = v ? ThemeMode.dark : ThemeMode.light,
+                  onChanged: (v) => controller?.mode.value = v
+                      ? ThemeMode.dark
+                      : ThemeMode.light,
                   secondary: const Icon(Icons.dark_mode_outlined),
                   title: const Text('Chế độ tối'),
                 ),
@@ -126,10 +139,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       context: context,
                       applicationName: 'Productivity',
                       applicationVersion: '1.0.0',
-                      applicationIcon: const Icon(Icons.task_alt,
-                          color: AppColors.primary, size: 32),
+                      applicationIcon: const Icon(
+                        Icons.task_alt,
+                        color: AppColors.primary,
+                        size: 32,
+                      ),
                       children: const [
-                        Text('App năng suất cá nhân: Todo, Note, Habit, Checklist.'),
+                        Text(
+                          'App năng suất cá nhân: Todo, Note, Habit, Checklist.',
+                        ),
                       ],
                     );
                   },
@@ -137,8 +155,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.logout, color: AppColors.danger),
-                  title: const Text('Đăng xuất',
-                      style: TextStyle(color: AppColors.danger)),
+                  title: const Text(
+                    'Đăng xuất',
+                    style: TextStyle(color: AppColors.danger),
+                  ),
                   onTap: _logout,
                 ),
               ],

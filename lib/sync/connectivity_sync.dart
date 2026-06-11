@@ -25,9 +25,7 @@ class ConnectivitySync {
     _wasOffline = _isOffline(initial);
 
     // Subscribe to changes
-    _sub = Connectivity()
-        .onConnectivityChanged
-        .listen(_onConnectivityChanged);
+    _sub = Connectivity().onConnectivityChanged.listen(_onConnectivityChanged);
   }
 
   Future<void> dispose() async {

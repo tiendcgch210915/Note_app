@@ -22,9 +22,9 @@ class HabitsDao extends DatabaseAccessor<AppDatabase> with _$HabitsDaoMixin {
   }
 
   Future<HabitRow?> getHabitById(String id) {
-    return (select(db.habitsTable)
-          ..where((h) => h.id.equals(id) & h.deletedAt.isNull()))
-        .getSingleOrNull();
+    return (select(
+      db.habitsTable,
+    )..where((h) => h.id.equals(id) & h.deletedAt.isNull())).getSingleOrNull();
   }
 
   Future<List<HabitRow>> getActiveHabits() {
@@ -47,9 +47,13 @@ class HabitsDao extends DatabaseAccessor<AppDatabase> with _$HabitsDaoMixin {
     );
   }
 
-  /// Adopt streak values from server (no sync enqueue – server is authoritative).
+  /// Cache streak values derived from logs or adopted from server.
   Future<void> adoptStreak(
-      String habitId, int currentStreak, int longestStreak, String updatedAt) async {
+    String habitId,
+    int currentStreak,
+    int longestStreak,
+    String updatedAt,
+  ) async {
     await (update(db.habitsTable)..where((h) => h.id.equals(habitId))).write(
       HabitsTableCompanion(
         currentStreak: Value(currentStreak),
@@ -66,42 +70,59 @@ class HabitsDao extends DatabaseAccessor<AppDatabase> with _$HabitsDaoMixin {
   }
 
   Future<HabitLogRow?> getHabitLogById(String id) {
-    return (select(db.habitLogsTable)
-          ..where((l) => l.id.equals(id) & l.deletedAt.isNull()))
-        .getSingleOrNull();
+    return (select(
+      db.habitLogsTable,
+    )..where((l) => l.id.equals(id) & l.deletedAt.isNull())).getSingleOrNull();
   }
 
   Future<HabitLogRow?> getHabitLogByHabitAndDate(
-      String habitId, String logDate) {
-    return (select(db.habitLogsTable)
-          ..where((l) =>
+    String habitId,
+    String logDate,
+  ) {
+    return (select(db.habitLogsTable)..where(
+          (l) =>
               l.habitId.equals(habitId) &
               l.logDate.equals(logDate) &
-              l.deletedAt.isNull()))
+              l.deletedAt.isNull(),
+        ))
         .getSingleOrNull();
   }
 
   /// Resurrect-local-first (contract §3.5): find a soft-deleted log for the
   /// same (habitId, logDate) so callers can reuse its id instead of minting
   /// a new one when creating a log for a date that was previously deleted.
-  Future<HabitLogRow?> findSoftDeletedHabitLog(
-      String habitId, String logDate) {
-    return (select(db.habitLogsTable)
-          ..where((l) =>
+  Future<HabitLogRow?> findSoftDeletedHabitLog(String habitId, String logDate) {
+    return (select(db.habitLogsTable)..where(
+          (l) =>
               l.habitId.equals(habitId) &
               l.logDate.equals(logDate) &
-              l.deletedAt.isNotNull()))
+              l.deletedAt.isNotNull(),
+        ))
         .getSingleOrNull();
   }
 
   Future<List<HabitLogRow>> getLogsForRange(
-      String habitId, String fromDate, String toDate) {
-    return (select(db.habitLogsTable)
-          ..where((l) =>
+    String habitId,
+    String fromDate,
+    String toDate,
+  ) {
+    return (select(db.habitLogsTable)..where(
+          (l) =>
               l.habitId.equals(habitId) &
               l.logDate.isBiggerOrEqualValue(fromDate) &
               l.logDate.isSmallerOrEqualValue(toDate) &
-              l.deletedAt.isNull()))
+              l.deletedAt.isNull(),
+        ))
+        .get();
+  }
+
+  Future<List<HabitLogRow>> getAllLogsForRange(String fromDate, String toDate) {
+    return (select(db.habitLogsTable)..where(
+          (l) =>
+              l.logDate.isBiggerOrEqualValue(fromDate) &
+              l.logDate.isSmallerOrEqualValue(toDate) &
+              l.deletedAt.isNull(),
+        ))
         .get();
   }
 

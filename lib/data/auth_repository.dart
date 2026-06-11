@@ -23,20 +23,22 @@ class AuthRepository {
       if (displayName != null && displayName.trim().isNotEmpty)
         'display_name': displayName.trim(),
     };
-    final resp = await _client.post('/auth/register', body: body, requireAuth: false);
+    final resp = await _client.post(
+      '/auth/register',
+      body: body,
+      requireAuth: false,
+    );
     return _saveAuthResponse(resp as Map<String, dynamic>);
   }
 
   /// POST /api/v1/auth/login
-  Future<User> login({
-    required String email,
-    required String password,
-  }) async {
-    final body = {
-      'email': email.trim().toLowerCase(),
-      'password': password,
-    };
-    final resp = await _client.post('/auth/login', body: body, requireAuth: false);
+  Future<User> login({required String email, required String password}) async {
+    final body = {'email': email.trim().toLowerCase(), 'password': password};
+    final resp = await _client.post(
+      '/auth/login',
+      body: body,
+      requireAuth: false,
+    );
     return _saveAuthResponse(resp as Map<String, dynamic>);
   }
 

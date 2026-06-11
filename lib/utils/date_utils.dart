@@ -3,17 +3,38 @@ class AppDateUtils {
   AppDateUtils._();
 
   static const List<String> _weekdaysShort = [
-    'T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN',
+    'T2',
+    'T3',
+    'T4',
+    'T5',
+    'T6',
+    'T7',
+    'CN',
   ];
 
   static const List<String> _weekdaysLong = [
-    'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm',
-    'Thứ Sáu', 'Thứ Bảy', 'Chủ Nhật',
+    'Thứ Hai',
+    'Thứ Ba',
+    'Thứ Tư',
+    'Thứ Năm',
+    'Thứ Sáu',
+    'Thứ Bảy',
+    'Chủ Nhật',
   ];
 
   static const List<String> _monthsShort = [
-    'Thg 1', 'Thg 2', 'Thg 3', 'Thg 4', 'Thg 5', 'Thg 6',
-    'Thg 7', 'Thg 8', 'Thg 9', 'Thg 10', 'Thg 11', 'Thg 12',
+    'Thg 1',
+    'Thg 2',
+    'Thg 3',
+    'Thg 4',
+    'Thg 5',
+    'Thg 6',
+    'Thg 7',
+    'Thg 8',
+    'Thg 9',
+    'Thg 10',
+    'Thg 11',
+    'Thg 12',
   ];
 
   /// "T2 18/05" — short header for dashboard.
@@ -28,7 +49,9 @@ class AppDateUtils {
   static String formatDashboardTitle(DateTime date, {DateTime? anchor}) {
     final now = anchor ?? DateTime.now();
     if (isSameDay(date, now)) return 'Hôm nay, ${formatDashboardDate(date)}';
-    if (isSameDay(date, now.subtract(const Duration(days: 1)))) return 'Hôm qua';
+    if (isSameDay(date, now.subtract(const Duration(days: 1)))) {
+      return 'Hôm qua';
+    }
     if (isSameDay(date, now.add(const Duration(days: 1)))) return 'Ngày mai';
     return formatDashboardDate(date);
   }

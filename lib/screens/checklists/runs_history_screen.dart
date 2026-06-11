@@ -37,7 +37,9 @@ class _RunsHistoryScreenState extends State<RunsHistoryScreen> {
       });
     } on ApiException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.vnMessage)));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.vnMessage)));
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -66,7 +68,10 @@ class _RunsHistoryScreenState extends State<RunsHistoryScreen> {
         title: const Text('Xóa khỏi lịch sử?'),
         content: const Text('Hành động này không thể hoàn tác.'),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Hủy')),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Hủy'),
+          ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
             child: const Text('Xóa', style: TextStyle(color: AppColors.danger)),
@@ -88,46 +93,49 @@ class _RunsHistoryScreenState extends State<RunsHistoryScreen> {
       body: _loading && _runs.isEmpty
           ? const Center(child: CircularProgressIndicator())
           : _runs.isEmpty
-              ? const EmptyState(icon: Icons.history, title: 'Chưa có run nào')
-              : RefreshIndicator(
-                  onRefresh: _refresh,
-                  child: NotificationListener<ScrollNotification>(
-                    onNotification: (n) {
-                      if (n.metrics.pixels > n.metrics.maxScrollExtent - 200) {
-                        _loadMore();
-                      }
-                      return false;
-                    },
-                    child: ListView.separated(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _runs.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 8),
-                      itemBuilder: (ctx, i) {
-                        final r = _runs[i];
-                        return Container(
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).cardTheme.color,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: ListTile(
-                            leading: const Icon(Icons.checklist),
-                            title: Text(r.displayName),
-                            subtitle: Text(AppDateUtils.formatRelative(r.startedAt)),
-                            trailing: _chip(r.status),
-                            onTap: () async {
-                              await Navigator.of(context).push(
-                                MaterialPageRoute(
-                                    builder: (_) => RunDetailScreen(runId: r.id)),
-                              );
-                              _refresh();
-                            },
-                            onLongPress: () => _deleteRun(r),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
+          ? const EmptyState(icon: Icons.history, title: 'Chưa có run nào')
+          : RefreshIndicator(
+              onRefresh: _refresh,
+              child: NotificationListener<ScrollNotification>(
+                onNotification: (n) {
+                  if (n.metrics.pixels > n.metrics.maxScrollExtent - 200) {
+                    _loadMore();
+                  }
+                  return false;
+                },
+                child: ListView.separated(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _runs.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (ctx, i) {
+                    final r = _runs[i];
+                    return Container(
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).cardTheme.color,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: ListTile(
+                        leading: const Icon(Icons.checklist),
+                        title: Text(r.displayName),
+                        subtitle: Text(
+                          AppDateUtils.formatRelative(r.startedAt),
+                        ),
+                        trailing: _chip(r.status),
+                        onTap: () async {
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => RunDetailScreen(runId: r.id),
+                            ),
+                          );
+                          _refresh();
+                        },
+                        onLongPress: () => _deleteRun(r),
+                      ),
+                    );
+                  },
                 ),
+              ),
+            ),
     );
   }
 
@@ -150,8 +158,10 @@ class _RunsHistoryScreenState extends State<RunsHistoryScreen> {
         color: c.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(20),
       ),
-      child: Text(s.label,
-          style: TextStyle(fontSize: 11, color: c, fontWeight: FontWeight.w600)),
+      child: Text(
+        s.label,
+        style: TextStyle(fontSize: 11, color: c, fontWeight: FontWeight.w600),
+      ),
     );
   }
 }

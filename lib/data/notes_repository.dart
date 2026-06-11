@@ -61,7 +61,8 @@ class NotesRepository {
     final map = resp as Map<String, dynamic>;
     return NoteWithRelations(
       note: Note.fromJson(map['note'] as Map<String, dynamic>),
-      tags: (map['tags'] as List?)
+      tags:
+          (map['tags'] as List?)
               ?.map((e) => Tag.fromJson(e as Map<String, dynamic>))
               .toList() ??
           const [],
@@ -88,14 +89,20 @@ class NotesRepository {
       if (title != null) 'title': title,
       if (type != null) 'type': type.backendValue,
       if (clearBody) 'body': null else if (body != null) 'body': body,
-      if (clearCornellCue) 'cornell_cue': null
-      else if (cornellCue != null) 'cornell_cue': cornellCue,
-      if (clearCornellSummary) 'cornell_summary': null
-      else if (cornellSummary != null) 'cornell_summary': cornellSummary,
+      if (clearCornellCue)
+        'cornell_cue': null
+      else if (cornellCue != null)
+        'cornell_cue': cornellCue,
+      if (clearCornellSummary)
+        'cornell_summary': null
+      else if (cornellSummary != null)
+        'cornell_summary': cornellSummary,
       if (isPinned != null) 'is_pinned': isPinned,
     };
     final resp = await _client.patch('/notes/$id', body: reqBody);
-    return Note.fromJson((resp as Map<String, dynamic>)['note'] as Map<String, dynamic>);
+    return Note.fromJson(
+      (resp as Map<String, dynamic>)['note'] as Map<String, dynamic>,
+    );
   }
 
   // ─── F-B5 Delete ────────────────────────────────────────────────
@@ -104,7 +111,11 @@ class NotesRepository {
   }
 
   // ─── F-C1 Add link ──────────────────────────────────────────────
-  Future<OutgoingLink> addLink(String sourceId, String targetId, {String? label}) async {
+  Future<OutgoingLink> addLink(
+    String sourceId,
+    String targetId, {
+    String? label,
+  }) async {
     final resp = await _client.post(
       '/notes/$sourceId/links',
       body: {
@@ -112,7 +123,8 @@ class NotesRepository {
         if (label != null && label.isNotEmpty) 'label': label,
       },
     );
-    final linkJson = (resp as Map<String, dynamic>)['link'] as Map<String, dynamic>;
+    final linkJson =
+        (resp as Map<String, dynamic>)['link'] as Map<String, dynamic>;
     // Backend chỉ trả link, không target_title — set tạm rỗng, caller refetch detail.
     return OutgoingLink(
       id: linkJson['id'] as String,
@@ -133,15 +145,14 @@ class NotesRepository {
   Future<List<IncomingLink>> getBacklinks(String id) async {
     final resp = await _client.get('/notes/$id/backlinks');
     final items = (resp as Map<String, dynamic>)['items'] as List;
-    return items.map((e) => IncomingLink.fromJson(e as Map<String, dynamic>)).toList();
+    return items
+        .map((e) => IncomingLink.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   // ─── F-D1 Link todo ─────────────────────────────────────────────
   Future<void> linkTodo(String noteId, String todoId) async {
-    await _client.post(
-      '/notes/$noteId/todo-links',
-      body: {'todoId': todoId},
-    );
+    await _client.post('/notes/$noteId/todo-links', body: {'todoId': todoId});
   }
 
   // ─── F-D2 Unlink todo ───────────────────────────────────────────
@@ -162,7 +173,9 @@ class NotesRepository {
       if (color != null) 'color': color,
     };
     final resp = await _client.post('/notes/$noteId/tags', body: body);
-    return Tag.fromJson((resp as Map<String, dynamic>)['tag'] as Map<String, dynamic>);
+    return Tag.fromJson(
+      (resp as Map<String, dynamic>)['tag'] as Map<String, dynamic>,
+    );
   }
 
   // ─── F-E2 Detach tag ────────────────────────────────────────────

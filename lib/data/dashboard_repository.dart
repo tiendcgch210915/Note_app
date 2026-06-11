@@ -1,4 +1,5 @@
 import '../models/dashboard.dart';
+import '../utils/date_utils.dart';
 import '../utils/json_utils.dart';
 import 'api_client.dart';
 
@@ -10,18 +11,20 @@ class DashboardRepository {
 
   /// F-D1 Today summary.
   Future<DashboardSnapshot> today({DateTime? date}) async {
+    final localDate = AppDateUtils.dateOnly(date ?? DateTime.now());
     final resp = await _client.get(
       '/dashboard/today',
-      query: date == null ? null : {'date': formatDateOnly(date)},
+      query: {'date': formatDateOnly(localDate)},
     );
     return DashboardSnapshot.fromJson(resp as Map<String, dynamic>);
   }
 
   /// F-D2 Eisenhower detail (chứa by_quadrant preview todos).
   Future<EisenhowerDetail> eisenhower({DateTime? date}) async {
+    final localDate = AppDateUtils.dateOnly(date ?? DateTime.now());
     final resp = await _client.get(
       '/dashboard/eisenhower',
-      query: date == null ? null : {'date': formatDateOnly(date)},
+      query: {'date': formatDateOnly(localDate)},
     );
     return EisenhowerDetail.fromJson(resp as Map<String, dynamic>);
   }
@@ -31,15 +34,17 @@ class DashboardRepository {
     required DateTime from,
     required DateTime to,
   }) async {
-    final resp = await _client.get('/dashboard/calendar', query: {
-      'from': formatDateOnly(from),
-      'to': formatDateOnly(to),
-    });
-    final daysMap = (resp as Map<String, dynamic>)['days'] as Map<String, dynamic>? ?? {};
+    final resp = await _client.get(
+      '/dashboard/calendar',
+      query: {'from': formatDateOnly(from), 'to': formatDateOnly(to)},
+    );
+    final daysMap =
+        (resp as Map<String, dynamic>)['days'] as Map<String, dynamic>? ?? {};
     final result = <DateTime, CalendarDay>{};
     daysMap.forEach((dateStr, value) {
-      result[jsonDateOnly(dateStr)] =
-          CalendarDay.fromJson(value as Map<String, dynamic>);
+      result[jsonDateOnly(dateStr)] = CalendarDay.fromJson(
+        value as Map<String, dynamic>,
+      );
     });
     return result;
   }

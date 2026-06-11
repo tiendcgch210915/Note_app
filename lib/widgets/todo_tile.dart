@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/todo.dart';
 import '../theme/app_colors.dart';
 import '../utils/date_utils.dart';
+import 'duration_picker_sheet.dart';
 
 /// 1 hàng todo theo style Microsoft To Do.
 class TodoTile extends StatelessWidget {
@@ -21,8 +22,12 @@ class TodoTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textPrimary = isDark ? AppColors.textPrimaryDark : AppColors.textPrimary;
-    final textSecondary = isDark ? AppColors.textSecondaryDark : AppColors.textSecondary;
+    final textPrimary = isDark
+        ? AppColors.textPrimaryDark
+        : AppColors.textPrimary;
+    final textSecondary = isDark
+        ? AppColors.textSecondaryDark
+        : AppColors.textSecondary;
     final divider = isDark ? AppColors.dividerDark : AppColors.divider;
     final done = todo.isDone;
 
@@ -34,33 +39,40 @@ class TodoTile extends StatelessWidget {
       subtitleChips.add(_chip(Icons.star, 'Quan trọng', Colors.amber));
     }
     if (todo.dueAt != null) {
-      subtitleChips.add(_chip(
-        Icons.calendar_today,
-        AppDateUtils.formatRelative(todo.dueAt!),
-        textSecondary,
-      ));
+      subtitleChips.add(
+        _chip(
+          Icons.calendar_today,
+          AppDateUtils.formatRelative(todo.dueAt!),
+          textSecondary,
+        ),
+      );
     }
     if (todo.estimatedMinutes != null) {
-      subtitleChips.add(_chip(
-        Icons.hourglass_empty,
-        '${todo.estimatedMinutes}p',
-        textSecondary,
-      ));
+      subtitleChips.add(
+        _chip(
+          Icons.hourglass_empty,
+          formatDurationMinutesShort(todo.estimatedMinutes!),
+          textSecondary,
+        ),
+      );
     }
     if (todo.isRecurring) {
-      subtitleChips.add(_chip(
-        Icons.repeat,
-        todo.isRecurrenceTemplate
-            ? todo.recurrenceLabel
-            : 'Lặp lại',
-        AppColors.primary,
-      ));
+      subtitleChips.add(
+        _chip(
+          Icons.repeat,
+          todo.isRecurrenceTemplate ? todo.recurrenceLabel : 'Lặp lại',
+          AppColors.primary,
+        ),
+      );
     }
 
     return InkWell(
       onTap: onTap,
       child: Container(
-        padding: EdgeInsets.symmetric(horizontal: 16, vertical: compact ? 8 : 12),
+        padding: EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: compact ? 8 : 12,
+        ),
         decoration: BoxDecoration(
           border: Border(bottom: BorderSide(color: divider)),
         ),
@@ -96,11 +108,7 @@ class TodoTile extends StatelessWidget {
                   ),
                   if (subtitleChips.isNotEmpty) ...[
                     const SizedBox(height: 4),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 4,
-                      children: subtitleChips,
-                    ),
+                    Wrap(spacing: 8, runSpacing: 4, children: subtitleChips),
                   ],
                 ],
               ),

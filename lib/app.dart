@@ -14,8 +14,8 @@ import 'theme/app_theme.dart';
 /// Controller cho ThemeMode — expose qua AppThemeScope (InheritedWidget).
 class AppThemeController {
   final ValueNotifier<ThemeMode> mode;
-  AppThemeController({ThemeMode initial = ThemeMode.system})
-      : mode = ValueNotifier(initial);
+  AppThemeController({ThemeMode initial = ThemeMode.dark})
+    : mode = ValueNotifier(initial);
 }
 
 class AppThemeScope extends InheritedWidget {
@@ -90,7 +90,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     // Register post-pull hook so SyncWorker can trigger recurrence instance
     // generation without importing TodosRepository (circular dep guard).
     SyncWorker.registerPostPullHook(
-        TodosRepository.instance.ensureAllRecurrenceInstances);
+      TodosRepository.instance.ensureAllRecurrenceInstances,
+    );
 
     // 6. Listen for 401 → force back to login
     needsReLoginNotifier.stream.listen((_) {
@@ -111,7 +112,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _theme.mode.dispose();
-    ConnectivitySync.instance.dispose(); // fire-and-forget (returns Future, ignore result)
+    ConnectivitySync.instance
+        .dispose(); // fire-and-forget (returns Future, ignore result)
     super.dispose();
   }
 

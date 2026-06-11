@@ -42,8 +42,10 @@ enum RunStatus {
 class Run {
   final String id;
   final String templateId;
+
   /// Custom name given when the run was started (optional).
   final String? name;
+
   /// Template title embedded by the server in list/detail responses.
   final String? templateTitle;
   final RunStatus status;

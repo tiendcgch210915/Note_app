@@ -5,9 +5,11 @@ class Template {
   final String id;
   final String title;
   final String? description;
+
   /// Server lưu string identifier (vd "sun", "code"). UI map về IconData khi render.
   final String? icon;
   final String? category;
+  final String? categoryId;
   final bool isSystem;
   final int timesUsed;
   final DateTime? lastUsedAt;
@@ -20,6 +22,7 @@ class Template {
     this.description,
     this.icon,
     this.category,
+    this.categoryId,
     this.isSystem = false,
     this.timesUsed = 0,
     this.lastUsedAt,
@@ -34,6 +37,7 @@ class Template {
       description: json['description'] as String?,
       icon: json['icon'] as String?,
       category: json['category'] as String?,
+      categoryId: json['category_id'] as String?,
       isSystem: jsonBool(json['is_system']),
       timesUsed: (json['times_used'] as num?)?.toInt() ?? 0,
       lastUsedAt: jsonDateNullable(json['last_used_at'] as String?),
@@ -43,11 +47,12 @@ class Template {
   }
 
   Map<String, dynamic> toJson() => {
-        'title': title,
-        'description': description,
-        'icon': icon,
-        'category': category,
-      };
+    'title': title,
+    'description': description,
+    'icon': icon,
+    'category': category,
+    'category_id': categoryId,
+  };
 
   /// Helper map icon identifier string → IconData. Mở rộng khi cần.
   static IconData iconFor(String? identifier) {

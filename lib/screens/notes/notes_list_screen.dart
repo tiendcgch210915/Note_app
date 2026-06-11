@@ -124,7 +124,11 @@ class _NotesListScreenState extends State<NotesListScreen> {
               children: const [
                 Text(
                   'Notes',
-                  style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, letterSpacing: -0.5),
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.5,
+                  ),
                 ),
               ],
             ),
@@ -141,9 +145,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
               ),
             ),
           ),
-          Expanded(
-            child: _buildBody(notes),
-          ),
+          Expanded(child: _buildBody(notes)),
         ],
       ),
     );

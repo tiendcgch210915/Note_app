@@ -62,11 +62,18 @@ class _TodosListScreenState extends State<TodosListScreen> {
       final doneRes = results[2] as ({List<Todo> items, String? nextCursor});
 
       // Chỉ giữ todo CHƯA done ở "Hôm nay" — done sẽ nằm trong section "Đã xong".
-      final todayList =
-          dayTodos.map((d) => d.todo).where((t) => !t.isDone).toList();
+      final todayList = dayTodos
+          .map((d) => d.todo)
+          .where((t) => !t.isDone)
+          .toList();
       final todayIds = todayList.map((t) => t.id).toSet();
+      final blockedRecurringSeries = _activeRecurringSeriesKeys(
+        todayList,
+        allRes.items,
+      );
 
       final upcoming = <Todo>[];
+      final nearestUpcomingBySeries = <String, Todo>{};
       final overdue = <Todo>[];
       final unscheduled = <Todo>[];
       for (final t in allRes.items) {
@@ -76,11 +83,22 @@ class _TodosListScreenState extends State<TodosListScreen> {
         if (t.scheduledDate == null) {
           unscheduled.add(t);
         } else if (AppDateUtils.isFuture(t.scheduledDate!)) {
+          final seriesKey = _recurringSeriesKey(t);
+          if (seriesKey != null) {
+            if (blockedRecurringSeries.contains(seriesKey)) continue;
+            final current = nearestUpcomingBySeries[seriesKey];
+            if (current == null ||
+                t.scheduledDate!.isBefore(current.scheduledDate!)) {
+              nearestUpcomingBySeries[seriesKey] = t;
+            }
+            continue;
+          }
           upcoming.add(t);
         } else if (AppDateUtils.isPast(t.scheduledDate!)) {
           overdue.add(t);
         }
       }
+      upcoming.addAll(nearestUpcomingBySeries.values);
       upcoming.sort((a, b) => a.scheduledDate!.compareTo(b.scheduledDate!));
       overdue.sort((a, b) => b.scheduledDate!.compareTo(a.scheduledDate!));
       // Unscheduled: mới nhất lên đầu
@@ -91,13 +109,16 @@ class _TodosListScreenState extends State<TodosListScreen> {
         _upcoming = upcoming;
         _overdue = overdue;
         _unscheduled = unscheduled;
-        _done = doneRes.items;
+        _done = _sortDoneNewestFirst(doneRes.items);
         _doneCursor = doneRes.nextCursor;
       });
     } on ApiException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.vnMessage), backgroundColor: AppColors.danger),
+          SnackBar(
+            content: Text(e.vnMessage),
+            backgroundColor: AppColors.danger,
+          ),
         );
       }
     } finally {
@@ -105,20 +126,56 @@ class _TodosListScreenState extends State<TodosListScreen> {
     }
   }
 
+  Set<String> _activeRecurringSeriesKeys(
+    List<Todo> todayList,
+    List<Todo> allTodos,
+  ) {
+    final keys = <String>{};
+    for (final t in todayList) {
+      final key = _recurringSeriesKey(t);
+      if (key != null) keys.add(key);
+    }
+    for (final t in allTodos) {
+      if (t.parentId != null || t.isDone || t.scheduledDate == null) continue;
+      if (AppDateUtils.isFuture(t.scheduledDate!)) continue;
+      final key = _recurringSeriesKey(t);
+      if (key != null) keys.add(key);
+    }
+    return keys;
+  }
+
+  String? _recurringSeriesKey(Todo t) {
+    if (t.recurrenceTemplateId != null) return t.recurrenceTemplateId;
+    if (t.isRecurrenceTemplate) return t.id;
+    return null;
+  }
+
   /// Đánh dấu done ở state local — TodoTile sẽ render strikethrough ngay.
   void _markDoneLocally(String id) {
     List<Todo> applyDone(List<Todo> list) => list
-        .map((t) => t.id == id
-            ? t.copyWith(
-                status: TodoStatus.done,
-                completedAt: DateTime.now(),
-              )
-            : t)
+        .map(
+          (t) => t.id == id
+              ? t.copyWith(status: TodoStatus.done, completedAt: DateTime.now())
+              : t,
+        )
         .toList();
     _today = applyDone(_today);
     _upcoming = applyDone(_upcoming);
     _overdue = applyDone(_overdue);
     _unscheduled = applyDone(_unscheduled);
+  }
+
+  void _moveCompletedTodoToDone(Todo completedTodo) {
+    final id = completedTodo.id;
+    _today.removeWhere((t) => t.id == id);
+    _upcoming.removeWhere((t) => t.id == id);
+    _overdue.removeWhere((t) => t.id == id);
+    _unscheduled.removeWhere((t) => t.id == id);
+    _done = _sortDoneNewestFirst([
+      completedTodo,
+      ..._done.where((t) => t.id != id),
+    ]);
+    _fadingIds.remove(id);
   }
 
   Future<void> _toggleDone(Todo t) async {
@@ -157,12 +214,17 @@ class _TodosListScreenState extends State<TodosListScreen> {
       if (!mounted) return;
 
       // 7. Habit stacking popup nếu có triggered_todos.
-      await showHabitStackingDialog(context, result.triggeredTodos, _openDetail);
+      await showHabitStackingDialog(
+        context,
+        result.triggeredTodos,
+        _openDetail,
+      );
       if (!mounted) return;
 
-      // 8. Refresh — todo biến mất khỏi section hiện tại, xuất hiện ở "Đã xong".
-      setState(() => _fadingIds.remove(t.id));
-      _refresh();
+      // 8. Move locally before clearing the fade state so the tile cannot
+      // reappear in its old section while the refresh is still in flight.
+      setState(() => _moveCompletedTodoToDone(result.todo));
+      await _refresh();
     } on ApiException catch (e) {
       // Rollback animation state nếu API fail.
       if (mounted) {
@@ -174,16 +236,16 @@ class _TodosListScreenState extends State<TodosListScreen> {
   }
 
   void _openDetail(Todo t) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => TodoDetailScreen(todoId: t.id)),
-    );
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => TodoDetailScreen(todoId: t.id)));
     if (mounted) _refresh();
   }
 
   Future<void> _openCreate() async {
-    final created = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => const TodoCreateScreen()),
-    );
+    final created = await Navigator.of(
+      context,
+    ).push<bool>(MaterialPageRoute(builder: (_) => const TodoCreateScreen()));
     if (created == true && mounted) _refresh();
   }
 
@@ -205,10 +267,13 @@ class _TodosListScreenState extends State<TodosListScreen> {
   }
 
   Widget _filterTile(BuildContext ctx, String value, String label) {
+    // ignore: deprecated_member_use
     return RadioListTile<String>(
       value: value,
+      // ignore: deprecated_member_use
       groupValue: _filter,
       title: Text(label),
+      // ignore: deprecated_member_use
       onChanged: (v) {
         setState(() => _filter = v ?? 'all');
         Navigator.of(ctx).pop();
@@ -224,6 +289,22 @@ class _TodosListScreenState extends State<TodosListScreen> {
       default:
         return list;
     }
+  }
+
+  List<Todo> _sortDoneNewestFirst(List<Todo> todos) {
+    final sorted = [...todos];
+    sorted.sort((a, b) {
+      final byDoneTime = _doneSortTime(b).compareTo(_doneSortTime(a));
+      if (byDoneTime != 0) return byDoneTime;
+      final byCreatedAt = b.createdAt.compareTo(a.createdAt);
+      if (byCreatedAt != 0) return byCreatedAt;
+      return b.id.compareTo(a.id);
+    });
+    return sorted;
+  }
+
+  DateTime _doneSortTime(Todo todo) {
+    return todo.completedAt ?? todo.updatedAt;
   }
 
   void _showError(String msg) {
@@ -245,10 +326,7 @@ class _TodosListScreenState extends State<TodosListScreen> {
           child: Align(
             heightFactor: value.clamp(0.0, 1.0),
             alignment: Alignment.topCenter,
-            child: Opacity(
-              opacity: value.clamp(0.0, 1.0),
-              child: child,
-            ),
+            child: Opacity(opacity: value.clamp(0.0, 1.0), child: child),
           ),
         );
       },
@@ -263,7 +341,9 @@ class _TodosListScreenState extends State<TodosListScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final secondary = isDark ? AppColors.textSecondaryDark : AppColors.textSecondary;
+    final secondary = isDark
+        ? AppColors.textSecondaryDark
+        : AppColors.textSecondary;
 
     if (_loading &&
         _today.isEmpty &&
@@ -275,15 +355,19 @@ class _TodosListScreenState extends State<TodosListScreen> {
     }
 
     final today = _filter == 'done' ? <Todo>[] : _applyFilter(_today);
-    final upcoming =
-        _filter == 'done' || _filter == 'today' ? <Todo>[] : _applyFilter(_upcoming);
-    final overdue =
-        _filter == 'done' || _filter == 'today' ? <Todo>[] : _applyFilter(_overdue);
-    final unscheduled =
-        _filter == 'done' || _filter == 'today' ? <Todo>[] : _applyFilter(_unscheduled);
-    final done = _filter == 'today' ? <Todo>[] : _done;
+    final upcoming = _filter == 'done' || _filter == 'today'
+        ? <Todo>[]
+        : _applyFilter(_upcoming);
+    final overdue = _filter == 'done' || _filter == 'today'
+        ? <Todo>[]
+        : _applyFilter(_overdue);
+    final unscheduled = _filter == 'done' || _filter == 'today'
+        ? <Todo>[]
+        : _applyFilter(_unscheduled);
+    final done = _filter == 'today' ? <Todo>[] : _sortDoneNewestFirst(_done);
 
-    final isEmpty = today.isEmpty &&
+    final isEmpty =
+        today.isEmpty &&
         upcoming.isEmpty &&
         overdue.isEmpty &&
         unscheduled.isEmpty &&
@@ -307,7 +391,10 @@ class _TodosListScreenState extends State<TodosListScreen> {
             padding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
             child: Row(
               children: [
-                Text(_filterLabel(), style: TextStyle(fontSize: 13, color: secondary)),
+                Text(
+                  _filterLabel(),
+                  style: TextStyle(fontSize: 13, color: secondary),
+                ),
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.filter_list, size: 20),
@@ -334,9 +421,12 @@ class _TodosListScreenState extends State<TodosListScreen> {
           ],
           if (done.isNotEmpty) ...[
             SectionHeader(
-              label: '✅ Đã xong (${done.length}${_doneCursor != null ? '+' : ''})',
+              label:
+                  '✅ Đã xong (${done.length}${_doneCursor != null ? '+' : ''})',
               trailing: IconButton(
-                icon: Icon(_doneExpanded ? Icons.expand_less : Icons.expand_more),
+                icon: Icon(
+                  _doneExpanded ? Icons.expand_less : Icons.expand_more,
+                ),
                 onPressed: () => setState(() => _doneExpanded = !_doneExpanded),
               ),
             ),

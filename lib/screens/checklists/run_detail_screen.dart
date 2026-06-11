@@ -91,7 +91,9 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
     if (action == null) return;
     if (action == 'done' || action == 'skipped') {
       try {
-        final newStatus = action == 'done' ? RunItemStatus.done : RunItemStatus.skipped;
+        final newStatus = action == 'done'
+            ? RunItemStatus.done
+            : RunItemStatus.skipped;
         final updated = await ChecklistsRepository.instance.updateRunItem(
           widget.runId,
           item.id,
@@ -122,7 +124,10 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
           decoration: const InputDecoration(hintText: 'Tối đa 1000 ký tự'),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Hủy')),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Hủy'),
+          ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
             child: const Text('Lưu'),
@@ -151,9 +156,9 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
       await ChecklistsRepository.instance.completeRun(widget.runId);
       if (mounted) {
         Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Hoàn tất run! 🎉')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Hoàn tất run! 🎉')));
       }
     } on ApiException catch (e) {
       if (e.code == 'incomplete_required' && mounted) {
@@ -171,10 +176,16 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
         title: const Text('Hủy bỏ run?'),
         content: const Text('Tiến độ hiện tại sẽ được lưu là Abandoned.'),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Không')),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Không'),
+          ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Hủy bỏ', style: TextStyle(color: AppColors.danger)),
+            child: const Text(
+              'Hủy bỏ',
+              style: TextStyle(color: AppColors.danger),
+            ),
           ),
         ],
       ),
@@ -210,20 +221,28 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
     }
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final divider = isDark ? AppColors.dividerDark : AppColors.divider;
-    final secondary = isDark ? AppColors.textSecondaryDark : AppColors.textSecondary;
+    final secondary = isDark
+        ? AppColors.textSecondaryDark
+        : AppColors.textSecondary;
     final done = _items.where((i) => i.status == RunItemStatus.done).length;
     final requiredPending = _items
         .where((i) => i.isRequired && i.status == RunItemStatus.pending)
         .length;
-    final progress = _items.isEmpty ? 0.0 : (done / _items.length).clamp(0.0, 1.0);
-    final canComplete = requiredPending == 0 && _run!.status == RunStatus.inProgress;
+    final progress = _items.isEmpty
+        ? 0.0
+        : (done / _items.length).clamp(0.0, 1.0);
+    final canComplete =
+        requiredPending == 0 && _run!.status == RunStatus.inProgress;
 
     return Scaffold(
       appBar: AppBar(
         title: Text(_run!.name ?? 'Run'),
         actions: [
           if (_run!.status == RunStatus.inProgress)
-            IconButton(icon: const Icon(Icons.close), onPressed: _confirmAbandon),
+            IconButton(
+              icon: const Icon(Icons.close),
+              onPressed: _confirmAbandon,
+            ),
         ],
       ),
       body: Column(
@@ -233,8 +252,10 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('$done/${_items.length} bước hoàn thành',
-                    style: TextStyle(fontSize: 13, color: secondary)),
+                Text(
+                  '$done/${_items.length} bước hoàn thành',
+                  style: TextStyle(fontSize: 13, color: secondary),
+                ),
                 const SizedBox(height: 6),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),
@@ -304,16 +325,22 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
               children: [
                 if (isSkipped)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.warning.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Text('Bỏ qua',
-                        style: TextStyle(
-                            fontSize: 11,
-                            color: AppColors.warning,
-                            fontWeight: FontWeight.w600)),
+                    child: const Text(
+                      'Bỏ qua',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: AppColors.warning,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   )
                 else
                   Icon(
@@ -333,7 +360,10 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
                   ),
                 ),
                 if (!it.isRequired)
-                  Text('Tùy chọn', style: TextStyle(fontSize: 11, color: secondary)),
+                  Text(
+                    'Tùy chọn',
+                    style: TextStyle(fontSize: 11, color: secondary),
+                  ),
               ],
             ),
             if (it.note != null && it.note!.isNotEmpty)
@@ -341,7 +371,11 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
                 padding: const EdgeInsets.only(left: 36, top: 4),
                 child: Text(
                   '📝 ${it.note}',
-                  style: TextStyle(fontSize: 12, color: secondary, fontStyle: FontStyle.italic),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: secondary,
+                    fontStyle: FontStyle.italic,
+                  ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),

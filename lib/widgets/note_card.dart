@@ -13,8 +13,12 @@ class NoteCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textPrimary = isDark ? AppColors.textPrimaryDark : AppColors.textPrimary;
-    final textSecondary = isDark ? AppColors.textSecondaryDark : AppColors.textSecondary;
+    final textPrimary = isDark
+        ? AppColors.textPrimaryDark
+        : AppColors.textPrimary;
+    final textSecondary = isDark
+        ? AppColors.textSecondaryDark
+        : AppColors.textSecondary;
     final cardColor = isDark ? AppColors.surfaceDark : AppColors.surface;
 
     return InkWell(
@@ -61,7 +65,11 @@ class NoteCard extends StatelessWidget {
             if (note.previewBody.isNotEmpty)
               Text(
                 note.previewBody,
-                style: TextStyle(fontSize: 14, color: textSecondary, height: 1.4),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: textSecondary,
+                  height: 1.4,
+                ),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -75,32 +83,50 @@ class NoteCard extends StatelessWidget {
                 if (note.type == NoteType.cornell) ...[
                   const SizedBox(width: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.primarySoft,
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: const Text(
                       'Cornell',
-                      style: TextStyle(fontSize: 10, color: AppColors.primary, fontWeight: FontWeight.w600),
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: AppColors.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
                 ],
                 const Spacer(),
-                ...note.tags.take(2).map((t) => Padding(
-                      padding: const EdgeInsets.only(left: 4),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: t.color.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          t.name,
-                          style: TextStyle(fontSize: 11, color: t.color, fontWeight: FontWeight.w500),
+                ...note.tags
+                    .take(2)
+                    .map(
+                      (t) => Padding(
+                        padding: const EdgeInsets.only(left: 4),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: t.color.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            t.name,
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: t.color,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
                         ),
                       ),
-                    )),
+                    ),
               ],
             ),
           ],

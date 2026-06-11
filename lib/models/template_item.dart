@@ -29,8 +29,8 @@ class TemplateItem {
   }
 
   Map<String, dynamic> toJson() => {
-        'title': title,
-        'description': description,
-        'is_required': isRequired,
-      };
+    'title': title,
+    'description': description,
+    'is_required': isRequired,
+  };
 }

@@ -30,7 +30,10 @@ class ApiClient {
 
   final http.Client _http = http.Client();
 
-  Map<String, String> _headers({bool requireAuth = true, bool hasBody = false}) {
+  Map<String, String> _headers({
+    bool requireAuth = true,
+    bool hasBody = false,
+  }) {
     final headers = <String, String>{
       // Only declare Content-Type when sending a body.
       // DELETE with Content-Type: application/json but no body triggers 400
@@ -56,7 +59,9 @@ class ApiClient {
       if (v == null) return;
       queryParams[k] = v.toString();
     });
-    return uri.replace(queryParameters: {...uri.queryParameters, ...queryParams});
+    return uri.replace(
+      queryParameters: {...uri.queryParameters, ...queryParams},
+    );
   }
 
   Future<dynamic> get(
@@ -83,10 +88,7 @@ class ApiClient {
     return _send('PATCH', path, body: body, requireAuth: requireAuth);
   }
 
-  Future<dynamic> delete(
-    String path, {
-    bool requireAuth = true,
-  }) async {
+  Future<dynamic> delete(String path, {bool requireAuth = true}) async {
     return _send('DELETE', path, requireAuth: requireAuth);
   }
 
@@ -99,7 +101,10 @@ class ApiClient {
   }) async {
     final uri = _buildUri(path, query);
     final encodedBody = body == null ? null : jsonEncode(body);
-    final headers = _headers(requireAuth: requireAuth, hasBody: encodedBody != null);
+    final headers = _headers(
+      requireAuth: requireAuth,
+      hasBody: encodedBody != null,
+    );
 
     try {
       late http.Response resp;
@@ -141,7 +146,11 @@ class ApiClient {
       }
 
       // 5xx
-      throw ApiException(resp.statusCode, 'server_error', 'Server error: ${resp.statusCode}');
+      throw ApiException(
+        resp.statusCode,
+        'server_error',
+        'Server error: ${resp.statusCode}',
+      );
     } on SocketException {
       throw const ApiException(0, 'no_connection', 'Không có kết nối mạng');
     } on TimeoutException {

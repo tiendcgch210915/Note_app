@@ -81,6 +81,7 @@ class TodosTable extends Table with Timestamps {
   // Recurrence columns.
   TextColumn get recurrenceType => text().nullable()();
   IntColumn get recurrenceInterval => integer().nullable()();
+
   /// Stored as "1,3,5" (Mon=1…Sun=7); JSON key: recurrence_days_of_week.
   TextColumn get recurrenceWeekdays => text().nullable()();
   TextColumn get recurrenceEndDate => text().nullable()(); // "YYYY-MM-DD"
@@ -236,6 +237,24 @@ class HabitLogsTable extends Table with Timestamps {
 // Checklist templates
 // ─────────────────────────────────────────────────────────────
 
+@DataClassName('ChecklistCategoryRow')
+class ChecklistCategoriesTable extends Table with Timestamps {
+  @override
+  String get tableName => 'checklist_categories';
+
+  TextColumn get id => text()();
+  TextColumn get userId => text()();
+  TextColumn get name => text()();
+  TextColumn get slug => text()();
+  TextColumn get icon => text().nullable()();
+  TextColumn get color => text().withDefault(const Constant('#4F46E5'))();
+  IntColumn get sortOrder => integer().withDefault(const Constant(0))();
+  BoolColumn get isSystem => boolean().withDefault(const Constant(false))();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
 @DataClassName('TemplateRow')
 class ChecklistTemplatesTable extends Table with Timestamps {
   @override
@@ -247,6 +266,7 @@ class ChecklistTemplatesTable extends Table with Timestamps {
   TextColumn get description => text().nullable()();
   TextColumn get icon => text().nullable()();
   TextColumn get category => text().nullable()();
+  TextColumn get categoryId => text().nullable()();
   // M-RECON: isSystem column
   BoolColumn get isSystem => boolean().withDefault(const Constant(false))();
   IntColumn get timesUsed => integer().withDefault(const Constant(0))();
@@ -312,6 +332,7 @@ class ChecklistRunItemsTable extends Table with Timestamps {
   BoolColumn get isRequired => boolean().withDefault(const Constant(false))();
   TextColumn get status =>
       text().withDefault(const Constant('pending'))(); // pending/done/skipped
+  TextColumn get completedAt => text().nullable()();
   TextColumn get note => text().nullable()();
   IntColumn get orderIndex => integer().withDefault(const Constant(0))();
 
@@ -351,11 +372,13 @@ class SyncQueueTable extends Table {
 
   /// Auto-increment PK (simple integer for ordering)
   IntColumn get id => integer().autoIncrement()();
-  TextColumn get entityType => text()(); // 'todo','note','tag','habit','habit_log','checklist_template','checklist_template_item','checklist_run','checklist_run_item','user'
+  TextColumn get entityType =>
+      text()(); // 'todo','note','tag','habit','habit_log','checklist_template','checklist_template_item','checklist_run','checklist_run_item','user'
   TextColumn get entityId => text()();
   TextColumn get operation => text()(); // 'create' | 'update' | 'delete'
   TextColumn get payload => text()(); // JSON string of the full entity or patch
   IntColumn get retryCount => integer().withDefault(const Constant(0))();
+
   /// Epoch millis; null = ready now
   IntColumn get nextRetryAt => integer().nullable()();
   TextColumn get createdAt => text()();

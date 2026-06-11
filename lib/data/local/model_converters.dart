@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 
 import 'database.dart'; // provides generated *TableCompanion types from database.g.dart
+import '../../models/checklist_category.dart';
 import '../../models/habit.dart';
 import '../../models/habit_log.dart';
 import '../../models/note.dart';
@@ -12,7 +13,6 @@ import '../../models/template_item.dart';
 import '../../models/todo.dart';
 import '../../utils/json_utils.dart';
 import '../../utils/uuid_utils.dart';
-import 'tables.dart';
 
 /// Converters between domain models (used by UI) and Drift companion objects
 /// (used for local DB writes).
@@ -41,22 +41,26 @@ TodosTableCompanion todoToCompanion(Todo todo, String userId) =>
       status: Value(todo.status.backendValue),
       position: Value(todo.position),
       isFrog: Value(todo.isFrog),
-      frogDate: Value(todo.frogDate != null ? formatDateOnly(todo.frogDate!) : null),
+      frogDate: Value(
+        todo.frogDate != null ? formatDateOnly(todo.frogDate!) : null,
+      ),
       isImportant: Value(todo.isImportant),
       isUrgent: Value(todo.isUrgent),
       estimatedMinutes: Value(todo.estimatedMinutes),
       actualMinutes: Value(todo.actualMinutes),
       startAt: Value(todo.startAt?.toUtc().toIso8601String()),
       dueAt: Value(todo.dueAt?.toUtc().toIso8601String()),
-      scheduledDate:
-          Value(todo.scheduledDate != null ? formatDateOnly(todo.scheduledDate!) : null),
+      scheduledDate: Value(
+        todo.scheduledDate != null ? formatDateOnly(todo.scheduledDate!) : null,
+      ),
       triggerAfterTodoId: Value(todo.triggerAfterTodoId),
       completedAt: Value(todo.completedAt?.toUtc().toIso8601String()),
       createdAt: Value(todo.createdAt.toUtc().toIso8601String()),
       updatedAt: Value(todo.updatedAt.toUtc().toIso8601String()),
       recurrenceType: Value(todo.recurrenceType),
-      recurrenceInterval:
-          Value(todo.recurrenceType != null ? todo.recurrenceInterval : null),
+      recurrenceInterval: Value(
+        todo.recurrenceType != null ? todo.recurrenceInterval : null,
+      ),
       recurrenceWeekdays: Value(todo.recurrenceDaysOfWeek),
       recurrenceEndDate: Value(todo.recurrenceEndDate),
       recurrenceTemplateId: Value(todo.recurrenceTemplateId),
@@ -92,8 +96,9 @@ HabitsTableCompanion habitToCompanion(Habit habit, String userId) =>
       targetPerPeriod: Value(habit.targetPerPeriod),
       activeWeekdays: Value(habit.activeWeekdays?.join(',') ?? ''),
       startDate: Value(formatDateOnly(habit.startDate)),
-      endDate:
-          Value(habit.endDate != null ? formatDateOnly(habit.endDate!) : null),
+      endDate: Value(
+        habit.endDate != null ? formatDateOnly(habit.endDate!) : null,
+      ),
       currentStreak: Value(habit.currentStreak),
       longestStreak: Value(habit.longestStreak),
       isArchived: Value(habit.isArchived),
@@ -103,8 +108,7 @@ HabitsTableCompanion habitToCompanion(Habit habit, String userId) =>
 
 // ─── HabitLog ─────────────────────────────────────────────────────────────
 
-HabitLogsTableCompanion habitLogToCompanion(
-        HabitLog log, String userId) =>
+HabitLogsTableCompanion habitLogToCompanion(HabitLog log, String userId) =>
     HabitLogsTableCompanion(
       id: Value(log.id),
       habitId: Value(log.habitId),
@@ -116,38 +120,60 @@ HabitLogsTableCompanion habitLogToCompanion(
       updatedAt: Value(nowIso()),
     );
 
+// ─── Checklist category ───────────────────────────────────────────────────
+
+ChecklistCategoriesTableCompanion checklistCategoryToCompanion(
+  ChecklistCategory category,
+) => ChecklistCategoriesTableCompanion(
+  id: Value(category.id),
+  userId: Value(category.userId),
+  name: Value(category.name),
+  slug: Value(category.slug),
+  icon: Value(category.icon),
+  color: Value(formatColorHex(category.color)),
+  sortOrder: Value(category.sortOrder),
+  isSystem: Value(category.isSystem),
+  createdAt: Value(category.createdAt.toUtc().toIso8601String()),
+  updatedAt: Value(category.updatedAt.toUtc().toIso8601String()),
+  deletedAt: Value(category.deletedAt?.toUtc().toIso8601String()),
+);
+
 // ─── Template ─────────────────────────────────────────────────────────────
 
 ChecklistTemplatesTableCompanion templateToCompanion(
-        Template template, String? userId) =>
-    ChecklistTemplatesTableCompanion(
-      id: Value(template.id),
-      userId: Value(userId),
-      title: Value(template.title),
-      description: Value(template.description),
-      icon: Value(template.icon),
-      category: Value(template.category),
-      isSystem: Value(template.isSystem),
-      timesUsed: Value(template.timesUsed),
-      lastUsedAt: Value(template.lastUsedAt?.toUtc().toIso8601String()),
-      createdAt: Value(template.createdAt.toUtc().toIso8601String()),
-      updatedAt: Value(template.updatedAt.toUtc().toIso8601String()),
-    );
+  Template template,
+  String? userId,
+) => ChecklistTemplatesTableCompanion(
+  id: Value(template.id),
+  userId: Value(userId),
+  title: Value(template.title),
+  description: Value(template.description),
+  icon: Value(template.icon),
+  category: Value(template.category),
+  categoryId: Value(template.categoryId),
+  isSystem: Value(template.isSystem),
+  timesUsed: Value(template.timesUsed),
+  lastUsedAt: Value(template.lastUsedAt?.toUtc().toIso8601String()),
+  createdAt: Value(template.createdAt.toUtc().toIso8601String()),
+  updatedAt: Value(template.updatedAt.toUtc().toIso8601String()),
+);
 
 // ─── TemplateItem ─────────────────────────────────────────────────────────
 
 ChecklistTemplateItemsTableCompanion templateItemToCompanion(
-        TemplateItem item) =>
-    ChecklistTemplateItemsTableCompanion(
-      id: Value(item.id),
-      templateId: Value(item.templateId),
-      title: Value(item.title),
-      description: Value(item.description),
-      isRequired: Value(item.isRequired),
-      orderIndex: Value(item.position), // model uses 'position', Drift table uses 'orderIndex'
-      createdAt: Value(nowIso()),
-      updatedAt: Value(nowIso()),
-    );
+  TemplateItem item,
+) => ChecklistTemplateItemsTableCompanion(
+  id: Value(item.id),
+  templateId: Value(item.templateId),
+  title: Value(item.title),
+  description: Value(item.description),
+  isRequired: Value(item.isRequired),
+  orderIndex: Value(
+    item.position,
+  ), // model uses 'position', Drift table uses 'orderIndex'
+  createdAt: Value(nowIso()),
+  updatedAt: Value(nowIso()),
+);
 
 // ─── Run ──────────────────────────────────────────────────────────────────
 
@@ -173,8 +199,11 @@ ChecklistRunItemsTableCompanion runItemToCompanion(RunItem item) =>
       title: Value(item.title),
       isRequired: Value(item.isRequired),
       status: Value(item.status.backendValue),
+      completedAt: Value(item.completedAt?.toUtc().toIso8601String()),
       note: Value(item.note),
-      orderIndex: Value(item.position), // model uses 'position', Drift table uses 'orderIndex'
+      orderIndex: Value(
+        item.position,
+      ), // model uses 'position', Drift table uses 'orderIndex'
       createdAt: Value(nowIso()),
       updatedAt: Value(nowIso()),
     );

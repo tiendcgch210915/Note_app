@@ -3,19 +3,26 @@ import '../theme/app_colors.dart';
 import '../utils/date_utils.dart';
 
 /// Ô lịch hiển thị 1 ngày, dùng cho CalendarScreen.
-/// Quá khứ (hoặc hôm nay) → hiện score 0..100. Tương lai → hiện số todo.
 class CalendarDayCell extends StatelessWidget {
   final DateTime date;
+  final bool isFuture;
   final int? score; // 0..100 nếu past/today
-  final int? todoCount; // nếu future
+  final int totalTodos;
+  final int doneTodos;
+  final int habitsTotal;
+  final int habitsCompleted;
   final bool isToday;
   final VoidCallback? onTap;
 
   const CalendarDayCell({
     super.key,
     required this.date,
+    required this.isFuture,
     this.score,
-    this.todoCount,
+    this.totalTodos = 0,
+    this.doneTodos = 0,
+    this.habitsTotal = 0,
+    this.habitsCompleted = 0,
     this.isToday = false,
     this.onTap,
   });
@@ -23,10 +30,13 @@ class CalendarDayCell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textPrimary = isDark ? AppColors.textPrimaryDark : AppColors.textPrimary;
-    final textSecondary = isDark ? AppColors.textSecondaryDark : AppColors.textSecondary;
+    final textPrimary = isDark
+        ? AppColors.textPrimaryDark
+        : AppColors.textPrimary;
+    final textSecondary = isDark
+        ? AppColors.textSecondaryDark
+        : AppColors.textSecondary;
     final cardColor = isDark ? AppColors.surfaceDark : AppColors.surface;
-    final divider = isDark ? AppColors.dividerDark : AppColors.divider;
     final primary = isDark ? AppColors.primaryDark : AppColors.primary;
 
     return InkWell(
@@ -42,9 +52,30 @@ class CalendarDayCell extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              AppDateUtils.weekdayShort(date.weekday),
-              style: TextStyle(fontSize: 11, color: textSecondary, fontWeight: FontWeight.w500),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    AppDateUtils.weekdayShort(date.weekday),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: textSecondary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                if (!isFuture && score != null)
+                  Text(
+                    '${score!.clamp(0, 100)}',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      color: AppColors.danger,
+                      fontWeight: FontWeight.w800,
+                      height: 1,
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(height: 2),
             Text(
@@ -58,29 +89,45 @@ class CalendarDayCell extends StatelessWidget {
               ),
             ),
             const Spacer(),
-            if (score != null) ...[
-              Text(
-                '$score/100',
-                style: TextStyle(fontSize: 13, color: primary, fontWeight: FontWeight.w600),
+            if (isFuture) ...[
+              _MetricLine(label: '$totalTodos todos', color: textSecondary),
+              const SizedBox(height: 3),
+              _MetricLine(label: '$habitsTotal habits', color: textSecondary),
+            ] else ...[
+              _MetricLine(
+                label: '$doneTodos/$totalTodos todos',
+                color: textSecondary,
               ),
-              const SizedBox(height: 4),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  value: (score! / 100).clamp(0.0, 1.0),
-                  minHeight: 4,
-                  backgroundColor: divider,
-                  valueColor: AlwaysStoppedAnimation(primary),
-                ),
-              ),
-            ] else if (todoCount != null) ...[
-              Text(
-                '$todoCount việc',
-                style: TextStyle(fontSize: 14, color: textSecondary),
+              const SizedBox(height: 3),
+              _MetricLine(
+                label: '$habitsCompleted/$habitsTotal habits',
+                color: textSecondary,
               ),
             ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _MetricLine extends StatelessWidget {
+  final String label;
+  final Color color;
+
+  const _MetricLine({required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        fontSize: 12,
+        height: 1.1,
+        color: color,
+        fontWeight: FontWeight.w600,
       ),
     );
   }

@@ -26,8 +26,7 @@ class RecurrenceHelper {
     if (template.recurrenceEndDate != null) {
       final end = _parseDateOnly(template.recurrenceEndDate!);
       if (end != null) {
-        final endInclusive =
-            end.add(const Duration(days: 1)); // make exclusive
+        final endInclusive = end.add(const Duration(days: 1)); // make exclusive
         if (endInclusive.isBefore(effectiveHorizon)) {
           effectiveHorizon = endInclusive;
         }
@@ -186,8 +185,7 @@ class RecurrenceHelper {
     while (weekStart.isBefore(end)) {
       for (final day in activeDays) {
         final candidate = weekStart.add(Duration(days: day - 1));
-        if (!candidate.isBefore(_dateOnly(start)) &&
-            candidate.isBefore(end)) {
+        if (!candidate.isBefore(_dateOnly(start)) && candidate.isBefore(end)) {
           out.add(candidate);
         }
       }
@@ -203,7 +201,10 @@ class RecurrenceHelper {
       final parts = s.split('-');
       if (parts.length != 3) return null;
       return DateTime.utc(
-          int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+        int.parse(parts[0]),
+        int.parse(parts[1]),
+        int.parse(parts[2]),
+      );
     } catch (_) {
       return null;
     }
