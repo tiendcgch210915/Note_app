@@ -108,6 +108,34 @@ void main() {
     expect(streak.longest, 3);
   });
 
+  test('habit streak uses yesterday when today has not been logged', () {
+    final today = DateTime(2026, 6, 11);
+    final streak = deriveHabitStreakFromCompletionMap(
+      completedByDate: {
+        DateTime(2026, 6, 8): false,
+        DateTime(2026, 6, 9): true,
+        DateTime(2026, 6, 10): true,
+      },
+      today: today,
+      startDate: DateTime(2026, 6, 1),
+    );
+
+    expect(streak.current, 2);
+    expect(streak.longest, 2);
+  });
+
+  test('habit streak is zero when today and yesterday are both unlogged', () {
+    final today = DateTime(2026, 6, 11);
+    final streak = deriveHabitStreakFromCompletionMap(
+      completedByDate: {DateTime(2026, 6, 9): true},
+      today: today,
+      startDate: DateTime(2026, 6, 1),
+    );
+
+    expect(streak.current, 0);
+    expect(streak.longest, 1);
+  });
+
   test('habit streak resets current when today is marked incomplete', () {
     final today = DateTime(2026, 6, 11);
     final streak = deriveHabitStreakFromCompletionMap(

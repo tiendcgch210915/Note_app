@@ -51,6 +51,7 @@ class Run {
   final RunStatus status;
   final DateTime startedAt;
   final DateTime? completedAt;
+  final int? durationMs;
 
   const Run({
     required this.id,
@@ -60,6 +61,7 @@ class Run {
     this.status = RunStatus.inProgress,
     required this.startedAt,
     this.completedAt,
+    this.durationMs,
   });
 
   factory Run.fromJson(Map<String, dynamic> json) {
@@ -71,9 +73,17 @@ class Run {
       status: RunStatus.parse(json['status'] as String? ?? 'in_progress'),
       startedAt: jsonDate(json['started_at'] as String),
       completedAt: jsonDateNullable(json['completed_at'] as String?),
+      durationMs: _durationMsFromJson(json['duration_ms']),
     );
   }
 
   /// Best display name: custom run name → template title → fallback.
   String get displayName => name ?? templateTitle ?? 'Checklist';
+}
+
+int? _durationMsFromJson(dynamic value) {
+  if (value == null) return null;
+  if (value is int && value >= 0) return value;
+  if (value is num && value >= 0 && value % 1 == 0) return value.toInt();
+  return null;
 }

@@ -3,6 +3,7 @@ import '../models/todo.dart';
 import '../theme/app_colors.dart';
 import '../utils/date_utils.dart';
 import 'duration_picker_sheet.dart';
+import 'tag_chip.dart';
 
 /// 1 hàng todo theo style Microsoft To Do.
 class TodoTile extends StatelessWidget {
@@ -109,6 +110,10 @@ class TodoTile extends StatelessWidget {
                   if (subtitleChips.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Wrap(spacing: 8, runSpacing: 4, children: subtitleChips),
+                  ],
+                  if (todo.tags.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    TodoTagWrap(tags: todo.tags),
                   ],
                 ],
               ),

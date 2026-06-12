@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../data/api_exception.dart';
 import '../../data/todos_repository.dart';
+import '../../models/tag.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/date_utils.dart';
 import '../../utils/json_utils.dart';
@@ -8,7 +9,9 @@ import '../../utils/quadrant_utils.dart';
 import '../../utils/todo_trigger_picker.dart';
 import '../../widgets/duration_picker_sheet.dart';
 import '../../widgets/repeat_picker_sheet.dart';
+import '../../widgets/tag_chip.dart';
 import '../../widgets/todo_flag_button.dart';
+import '../../widgets/todo_tag_selector_sheet.dart';
 
 /// Form tạo todo mới. Submit gọi F-T1 POST /todos.
 class TodoCreateScreen extends StatefulWidget {
@@ -28,7 +31,7 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
   bool _frog = false;
   bool _important = false;
   bool _urgent = false;
-  final Set<String> _tagNames = {};
+  List<Tag> _tags = [];
   String? _triggerTodoId;
   String? _triggerTodoTitle;
   RepeatSettings _repeat = RepeatSettings.none;
@@ -69,7 +72,8 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
               if (_estimated != null) 'estimated_minutes': _estimated,
               if (_triggerTodoId != null)
                 'trigger_after_todo_id': _triggerTodoId,
-              if (_tagNames.isNotEmpty) 'tags': _tagNames.toList(),
+              if (_tags.isNotEmpty)
+                'tag_ids': _tags.map((tag) => tag.id).toList(),
               if (_repeat.hasRepeat) ...{
                 'recurrence_type': _repeat.type,
                 'recurrence_interval': _repeat.interval,
@@ -346,16 +350,20 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  ..._tagNames.map(
-                    (name) => Chip(
-                      label: Text(name),
-                      onDeleted: () => setState(() => _tagNames.remove(name)),
+                  if (_tags.isNotEmpty)
+                    TodoTagWrap(
+                      tags: _tags,
+                      compact: false,
+                      onDeleted: (tag) => setState(
+                        () => _tags = _tags
+                            .where((item) => item.id != tag.id)
+                            .toList(),
+                      ),
                     ),
-                  ),
                   ActionChip(
-                    avatar: const Icon(Icons.add, size: 16),
-                    label: const Text('Thêm tag'),
-                    onPressed: _addTag,
+                    avatar: const Icon(Icons.local_offer_outlined, size: 16),
+                    label: Text(_tags.isEmpty ? 'Chọn tag' : 'Sửa tag'),
+                    onPressed: _pickTags,
                   ),
                 ],
               ),
@@ -435,31 +443,13 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
     setState(() => _estimated = custom);
   }
 
-  Future<void> _addTag() async {
-    final ctrl = TextEditingController();
-    final name = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Thêm tag'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Tên tag (1-64 ký tự)'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Hủy'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
-            child: const Text('Thêm'),
-          ),
-        ],
-      ),
+  Future<void> _pickTags() async {
+    final selected = await showTodoTagSelectorSheet(
+      context,
+      initialTags: _tags,
     );
-    if (name == null || name.isEmpty) return;
-    setState(() => _tagNames.add(name));
+    if (selected == null || !mounted) return;
+    setState(() => _tags = selected);
   }
 
   Future<void> _pickTriggerTodo() async {

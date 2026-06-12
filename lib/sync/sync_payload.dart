@@ -154,6 +154,19 @@ class SyncPayload {
     'icon': row.icon,
     'category': row.category,
     'category_id': row.categoryId,
+    'sort_order': row.sortOrder,
+    'created_at': row.createdAt,
+    'updated_at': row.updatedAt,
+    'deleted_at': row.deletedAt,
+  };
+
+  // ─── Checklist template order ────────────────────────────────────
+
+  static Map<String, dynamic> fromTemplateOrder(TemplateOrderRow row) => {
+    'id': row.id,
+    'user_id': row.userId,
+    'template_id': row.templateId,
+    'sort_order': row.sortOrder,
     'created_at': row.createdAt,
     'updated_at': row.updatedAt,
     'deleted_at': row.deletedAt,
@@ -183,6 +196,7 @@ class SyncPayload {
     'name': row.name,
     'status': row.status,
     'completed_at': row.completedAt,
+    'duration_ms': row.durationMs,
     'started_at':
         row.createdAt, // stored in createdAt, contract key = started_at
     'created_at': row.createdAt,
@@ -241,6 +255,7 @@ const _entityOrder = [
   'habit',
   'checklist_category',
   'checklist_template',
+  'checklist_template_order',
   'note',
   'todo',
   'checklist_template_item',

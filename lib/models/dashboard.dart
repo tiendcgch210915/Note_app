@@ -1,4 +1,5 @@
 import '../utils/json_utils.dart';
+import 'tag.dart';
 
 const List<String> dashboardQuadrantKeys = ['q1', 'q2', 'q3', 'q4'];
 
@@ -129,6 +130,8 @@ class DashboardEisenhowerTodo {
   final bool isFrog;
   final DateTime? frogDate;
   final String quadrant;
+  final List<Tag> tags;
+  final List<String> tagIds;
 
   const DashboardEisenhowerTodo({
     required this.id,
@@ -140,6 +143,8 @@ class DashboardEisenhowerTodo {
     required this.isFrog,
     required this.frogDate,
     required this.quadrant,
+    this.tags = const [],
+    this.tagIds = const [],
   });
 
   factory DashboardEisenhowerTodo.fromJson(
@@ -152,6 +157,14 @@ class DashboardEisenhowerTodo {
         _quadrantKey(json['quadrant']) ??
         _quadrantKey(fallbackQuadrant) ??
         _quadrantFromFlags(important: important, urgent: urgent);
+    final tags = _asList(json['tags'])
+        .map(_asMap)
+        .whereType<Map<String, dynamic>>()
+        .map(Tag.fromJson)
+        .toList(growable: false);
+    final tagIds =
+        (json['tag_ids'] as List?)?.map((e) => e as String).toList() ??
+        tags.map((tag) => tag.id).toList();
     return DashboardEisenhowerTodo(
       id: _stringValue(json['id']),
       title: _stringValue(json['title'], fallback: 'Không có tiêu đề'),
@@ -162,6 +175,8 @@ class DashboardEisenhowerTodo {
       isFrog: jsonBool(json['is_frog']),
       frogDate: _dateOnlyNullable(json['frog_date']),
       quadrant: quadrant,
+      tags: tags,
+      tagIds: tagIds,
     );
   }
 

@@ -50,6 +50,7 @@ void main() {
       'icon': 'code',
       'category': 'Code',
       'category_id': 'cat-1',
+      'sort_order': 12,
       'is_system': 0,
       'times_used': 2,
       'last_used_at': null,
@@ -59,6 +60,7 @@ void main() {
 
     expect(template.categoryId, 'cat-1');
     expect(template.category, 'Code');
+    expect(template.sortOrder, 12);
     expect(template.isSystem, isFalse);
   });
 }

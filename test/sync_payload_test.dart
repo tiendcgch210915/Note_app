@@ -55,6 +55,7 @@ void main() {
         userId: 'user-1',
         title: 'Morning',
         isSystem: true,
+        sortOrder: 7,
         timesUsed: 3,
         lastUsedAt: iso,
         createdAt: iso,
@@ -63,8 +64,27 @@ void main() {
     );
 
     expect(payload, isNot(contains('is_system')));
+    expect(payload['sort_order'], 7);
     expect(payload, isNot(contains('times_used')));
     expect(payload, isNot(contains('last_used_at')));
+  });
+
+  test('checklist template order payload matches sync contract', () {
+    final payload = SyncPayload.fromTemplateOrder(
+      const TemplateOrderRow(
+        id: 'order-1',
+        userId: 'user-1',
+        templateId: 'template-1',
+        sortOrder: 2,
+        createdAt: iso,
+        updatedAt: iso,
+      ),
+    );
+
+    expect(payload['id'], 'order-1');
+    expect(payload['template_id'], 'template-1');
+    expect(payload['sort_order'], 2);
+    expect(payload['deleted_at'], isNull);
   });
 
   test('checklist run payload includes created_at and started_at', () {
@@ -75,6 +95,7 @@ void main() {
         userId: 'user-1',
         status: 'in_progress',
         completedAt: null,
+        durationMs: 90000,
         createdAt: iso,
         updatedAt: iso,
       ),
@@ -82,6 +103,7 @@ void main() {
 
     expect(payload['started_at'], iso);
     expect(payload['created_at'], iso);
+    expect(payload['duration_ms'], 90000);
   });
 
   test(
@@ -129,6 +151,25 @@ void main() {
     );
 
     expect(payload['trigger_after_todo_id'], 'todo-a');
+  });
+
+  test('todo payload sends tag_ids as full replacement', () {
+    final payload = SyncPayload.fromTodo(
+      const TodoRow(
+        id: 'todo-tagged',
+        userId: 'user-1',
+        title: 'Tagged',
+        status: 'open',
+        position: 0,
+        isFrog: false,
+        createdAt: iso,
+        updatedAt: iso,
+      ),
+      const ['tag-1', 'tag-2'],
+      const [],
+    );
+
+    expect(payload['tag_ids'], ['tag-1', 'tag-2']);
   });
 
   test('subtask todo payload strips parent-owned metadata', () {

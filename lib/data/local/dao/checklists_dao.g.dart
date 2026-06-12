@@ -8,6 +8,8 @@ mixin _$ChecklistsDaoMixin on DatabaseAccessor<AppDatabase> {
       attachedDatabase.checklistCategoriesTable;
   $ChecklistTemplatesTableTable get checklistTemplatesTable =>
       attachedDatabase.checklistTemplatesTable;
+  $ChecklistTemplateOrdersTableTable get checklistTemplateOrdersTable =>
+      attachedDatabase.checklistTemplateOrdersTable;
   $ChecklistTemplateItemsTableTable get checklistTemplateItemsTable =>
       attachedDatabase.checklistTemplateItemsTable;
   $ChecklistRunsTableTable get checklistRunsTable =>
@@ -29,6 +31,12 @@ class ChecklistsDaoManager {
       $$ChecklistTemplatesTableTableTableManager(
         _db.attachedDatabase,
         _db.checklistTemplatesTable,
+      );
+  $$ChecklistTemplateOrdersTableTableTableManager
+  get checklistTemplateOrdersTable =>
+      $$ChecklistTemplateOrdersTableTableTableManager(
+        _db.attachedDatabase,
+        _db.checklistTemplateOrdersTable,
       );
   $$ChecklistTemplateItemsTableTableTableManager
   get checklistTemplateItemsTable =>

@@ -88,6 +88,14 @@ class ApiClient {
     return _send('PATCH', path, body: body, requireAuth: requireAuth);
   }
 
+  Future<dynamic> put(
+    String path, {
+    Object? body,
+    bool requireAuth = true,
+  }) async {
+    return _send('PUT', path, body: body, requireAuth: requireAuth);
+  }
+
   Future<dynamic> delete(String path, {bool requireAuth = true}) async {
     return _send('DELETE', path, requireAuth: requireAuth);
   }
@@ -117,6 +125,9 @@ class ApiClient {
           break;
         case 'PATCH':
           resp = await _http.patch(uri, headers: headers, body: encodedBody);
+          break;
+        case 'PUT':
+          resp = await _http.put(uri, headers: headers, body: encodedBody);
           break;
         case 'DELETE':
           resp = await _http.delete(uri, headers: headers);

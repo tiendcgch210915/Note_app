@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../data/api_exception.dart';
 import '../../data/checklists_repository.dart';
 import '../../models/checklist_category.dart';
 import '../../models/template.dart';
 import '../../models/template_item.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/checklist_step_text_utils.dart';
 import '../../utils/date_utils.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/section_header.dart';
@@ -77,10 +79,11 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
       _items.insert(newIndex, item);
     });
     try {
-      await ChecklistsRepository.instance.reorderItems(
+      final items = await ChecklistsRepository.instance.reorderItems(
         widget.templateId,
         _items.map((i) => i.id).toList(),
       );
+      if (mounted) setState(() => _items = items);
     } on ApiException catch (e) {
       if (mounted) {
         _showError(e.vnMessage);
@@ -120,6 +123,82 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
         isRequired: true,
       );
       setState(() => _items = [..._items, item]);
+    } on ApiException catch (e) {
+      if (mounted) _showError(e.vnMessage);
+    }
+  }
+
+  Future<void> _showPasteStepsSheet() async {
+    final clipboard = await Clipboard.getData('text/plain');
+    if (!mounted) return;
+    final ctrl = TextEditingController(text: clipboard?.text ?? '');
+    final raw = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) {
+        final bottom = MediaQuery.viewInsetsOf(ctx).bottom;
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(20, 8, 20, 20 + bottom),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Dán nhiều bước',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: ctrl,
+                  autofocus: true,
+                  minLines: 5,
+                  maxLines: 10,
+                  decoration: const InputDecoration(
+                    hintText: 'Mỗi dòng là một bước',
+                    alignLabelWithHint: true,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 46,
+                  child: ElevatedButton.icon(
+                    onPressed: () => Navigator.of(ctx).pop(ctrl.text),
+                    icon: const Icon(Icons.content_paste_go_outlined),
+                    label: const Text('Thêm vào checklist'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    ctrl.dispose();
+    if (raw == null) return;
+    await _appendPastedSteps(parseChecklistStepLines(raw));
+  }
+
+  Future<void> _appendPastedSteps(List<String> titles) async {
+    if (titles.isEmpty) {
+      _showError('Không tìm thấy bước hợp lệ');
+      return;
+    }
+    try {
+      final created = <TemplateItem>[];
+      for (final title in titles) {
+        created.add(
+          await ChecklistsRepository.instance.addItem(
+            widget.templateId,
+            title: title,
+            isRequired: true,
+          ),
+        );
+      }
+      if (!mounted) return;
+      setState(() => _items = [..._items, ...created]);
     } on ApiException catch (e) {
       if (mounted) _showError(e.vnMessage);
     }
@@ -329,10 +408,24 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
           if (_editMode)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: OutlinedButton.icon(
-                onPressed: _addItem,
-                icon: const Icon(Icons.add),
-                label: const Text('Thêm bước'),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _showPasteStepsSheet,
+                      icon: const Icon(Icons.content_paste_outlined),
+                      label: const Text('Dán bước'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: _addItem,
+                      icon: const Icon(Icons.add),
+                      label: const Text('Thêm bước'),
+                    ),
+                  ),
+                ],
               ),
             ),
         ],

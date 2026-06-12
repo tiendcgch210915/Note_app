@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/dashboard.dart';
 import '../theme/app_colors.dart';
 import '../utils/quadrant_utils.dart';
+import 'tag_chip.dart';
 
 /// 2x2 grid hiển thị count + preview todos cho mỗi quadrant.
 /// previews là Map từ 'q1'/'q2'/'q3'/'q4' tới dashboard todos.
@@ -115,11 +116,21 @@ class _QuadrantCard extends StatelessWidget {
                 .map(
                   (t) => Padding(
                     padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      '· ${t.title}',
-                      style: TextStyle(fontSize: 10, color: secondary),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '· ${t.title}',
+                          style: TextStyle(fontSize: 10, color: secondary),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (t.tags.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 2, left: 8),
+                            child: TodoTagWrap(tags: t.tags.take(2).toList()),
+                          ),
+                      ],
                     ),
                   ),
                 ),

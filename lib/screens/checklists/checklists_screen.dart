@@ -80,6 +80,43 @@ class _ChecklistsScreenState extends State<ChecklistsScreen>
     if (mounted) _refresh();
   }
 
+  void _reorderTemplates(int oldIndex, int newIndex) {
+    if (oldIndex == newIndex) return;
+    final previous = List<Template>.from(_templates);
+    final next = List<Template>.from(_templates);
+    final targetIndex = newIndex > oldIndex ? newIndex - 1 : newIndex;
+    final moved = next.removeAt(oldIndex);
+    next.insert(targetIndex, moved);
+    final ordered = [
+      for (var i = 0; i < next.length; i++) next[i].copyWith(sortOrder: i + 1),
+    ];
+    setState(() => _templates = ordered);
+    _persistTemplateOrder(ordered, previous);
+  }
+
+  Future<void> _persistTemplateOrder(
+    List<Template> ordered,
+    List<Template> previous,
+  ) async {
+    try {
+      final saved = await ChecklistsRepository.instance.reorderTemplates(
+        templates: ordered,
+        categoryId: _selectedCategoryId,
+        uncategorized: _showUncategorized,
+      );
+      if (!mounted) return;
+      setState(() => _templates = saved);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _templates = previous);
+      _showError(e.vnMessage);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _templates = previous);
+      _showError('Không thể lưu thứ tự checklist');
+    }
+  }
+
   Future<void> _deleteRun(Run run) async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -161,6 +198,7 @@ class _ChecklistsScreenState extends State<ChecklistsScreen>
                   selectedCategoryId: _selectedCategoryId,
                   showUncategorized: _showUncategorized,
                   onFilterChanged: _selectCategoryFilter,
+                  onReorder: _reorderTemplates,
                   onChanged: _refresh,
                 ),
                 _RunsTab(
@@ -180,6 +218,7 @@ class _TemplatesTab extends StatelessWidget {
   final String? selectedCategoryId;
   final bool showUncategorized;
   final void Function(String? categoryId, {bool uncategorized}) onFilterChanged;
+  final ReorderCallback onReorder;
   final VoidCallback onChanged;
   const _TemplatesTab({
     required this.templates,
@@ -187,6 +226,7 @@ class _TemplatesTab extends StatelessWidget {
     required this.selectedCategoryId,
     required this.showUncategorized,
     required this.onFilterChanged,
+    required this.onReorder,
     required this.onChanged,
   });
 
@@ -197,120 +237,163 @@ class _TemplatesTab extends StatelessWidget {
     };
     return RefreshIndicator(
       onRefresh: () async => onChanged(),
-      child: ListView(
+      child: ReorderableListView.builder(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-        children: [
-          _CategoryFilterBar(
-            categories: categories,
-            selectedCategoryId: selectedCategoryId,
-            showUncategorized: showUncategorized,
-            onChanged: onFilterChanged,
-          ),
-          const SizedBox(height: 12),
-          if (templates.isEmpty)
-            const Padding(
-              padding: EdgeInsets.only(top: 48),
-              child: EmptyState(
-                icon: Icons.checklist,
-                title: 'Chưa có template nào',
+        physics: const AlwaysScrollableScrollPhysics(),
+        buildDefaultDragHandles: false,
+        onReorder: onReorder,
+        header: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _CategoryFilterBar(
+              categories: categories,
+              selectedCategoryId: selectedCategoryId,
+              showUncategorized: showUncategorized,
+              onChanged: onFilterChanged,
+            ),
+            const SizedBox(height: 12),
+            if (templates.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(top: 48),
+                child: EmptyState(
+                  icon: Icons.checklist,
+                  title: 'Chưa có template nào',
+                ),
               ),
-            )
-          else
-            ...templates.map((t) {
-              final category = t.categoryId == null
-                  ? null
-                  : categoryById[t.categoryId];
-              final categoryLabel = category?.name ?? t.category;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).cardTheme.color,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: ListTile(
-                    leading: Icon(
-                      Template.iconFor(t.icon),
-                      color: AppColors.primary,
+          ],
+        ),
+        itemCount: templates.length,
+        proxyDecorator: (child, index, animation) {
+          return Material(
+            color: Colors.transparent,
+            elevation: 8,
+            borderRadius: BorderRadius.circular(12),
+            child: child,
+          );
+        },
+        itemBuilder: (ctx, i) {
+          final t = templates[i];
+          final category = t.categoryId == null
+              ? null
+              : categoryById[t.categoryId];
+          final categoryLabel = category?.name ?? t.category;
+          return Padding(
+            key: ValueKey('checklist-template-${t.id}'),
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Container(
+              decoration: BoxDecoration(
+                color: Theme.of(context).cardTheme.color,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: ListTile(
+                leading: Icon(
+                  Template.iconFor(t.icon),
+                  color: AppColors.primary,
+                ),
+                title: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        t.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                    title: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            t.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                    if (t.isSystem)
+                      Container(
+                        margin: const EdgeInsets.only(left: 6),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.primarySoft,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Text(
+                          'Hệ thống',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
-                        if (t.isSystem)
-                          Container(
-                            margin: const EdgeInsets.only(left: 6),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppColors.primarySoft,
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Text(
-                              'Hệ thống',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: AppColors.primary,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                    subtitle: categoryLabel == null || categoryLabel.isEmpty
-                        ? null
-                        : Align(
-                            alignment: Alignment.centerLeft,
-                            child: _TemplateCategoryChip(
-                              template: t,
-                              category: category,
-                            ),
-                          ),
-                    trailing: TextButton.icon(
+                      ),
+                  ],
+                ),
+                subtitle: categoryLabel == null || categoryLabel.isEmpty
+                    ? null
+                    : Align(
+                        alignment: Alignment.centerLeft,
+                        child: _TemplateCategoryChip(
+                          template: t,
+                          category: category,
+                        ),
+                      ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextButton.icon(
                       icon: const Icon(Icons.play_arrow, size: 18),
                       label: const Text('Bắt đầu'),
                       onPressed: () async {
                         try {
                           final res = await ChecklistsRepository.instance
                               .startRun(templateId: t.id, name: t.title);
-                          if (!context.mounted) return;
+                          if (!ctx.mounted) return;
                           onChanged();
-                          Navigator.of(context).push(
+                          Navigator.of(ctx).push(
                             MaterialPageRoute(
                               builder: (_) =>
                                   RunDetailScreen(runId: res.run.id),
                             ),
                           );
                         } on ApiException catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
+                          if (ctx.mounted) {
+                            ScaffoldMessenger.of(ctx).showSnackBar(
                               SnackBar(content: Text(e.vnMessage)),
                             );
                           }
                         }
                       },
                     ),
-                    onTap: () async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              TemplateDetailScreen(templateId: t.id),
-                        ),
-                      );
-                      onChanged();
-                    },
-                  ),
+                    _TemplateReorderHandle(index: i),
+                  ],
                 ),
-              );
-            }),
-        ],
+                onTap: () async {
+                  await Navigator.of(ctx).push(
+                    MaterialPageRoute(
+                      builder: (_) => TemplateDetailScreen(templateId: t.id),
+                    ),
+                  );
+                  onChanged();
+                },
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _TemplateReorderHandle extends StatelessWidget {
+  final int index;
+
+  const _TemplateReorderHandle({required this.index});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).iconTheme.color?.withValues(alpha: 0.72);
+    return ReorderableDragStartListener(
+      index: index,
+      child: Semantics(
+        label: 'Kéo để sắp xếp checklist',
+        button: true,
+        child: SizedBox.square(
+          dimension: 44,
+          child: Center(child: Icon(Icons.drag_handle_rounded, color: color)),
+        ),
       ),
     );
   }
@@ -506,7 +589,6 @@ class _ChecklistCategoriesScreenState
     try {
       await ChecklistsRepository.instance.createCategory(
         name: draft.name,
-        slug: draft.slug,
         icon: draft.icon,
         color: draft.color,
         sortOrder: draft.sortOrder,
@@ -514,6 +596,8 @@ class _ChecklistCategoriesScreenState
       await _load();
     } on ApiException catch (e) {
       if (mounted) _showError(_categoryErrorMessage(e));
+    } catch (_) {
+      if (mounted) _showError('Không thể tạo danh mục');
     }
   }
 
@@ -529,7 +613,6 @@ class _ChecklistCategoriesScreenState
     try {
       await ChecklistsRepository.instance.updateCategory(category, {
         'name': draft.name,
-        if (draft.slug != null && draft.slug!.isNotEmpty) 'slug': draft.slug,
         'icon': draft.icon,
         'color': draft.color,
         'sort_order': draft.sortOrder,
@@ -537,6 +620,8 @@ class _ChecklistCategoriesScreenState
       await _load();
     } on ApiException catch (e) {
       if (mounted) _showError(_categoryErrorMessage(e));
+    } catch (_) {
+      if (mounted) _showError('Không thể lưu danh mục');
     }
   }
 
@@ -571,7 +656,7 @@ class _ChecklistCategoriesScreenState
   }
 
   String _categoryErrorMessage(ApiException e) {
-    if (e.code == 'duplicate') return 'Tên hoặc slug danh mục đã tồn tại';
+    if (e.code == 'duplicate') return 'Tên danh mục đã tồn tại';
     if (e.code == 'read_only') return 'Danh mục hệ thống chỉ có thể xem';
     if (e.code == 'not_found') return 'Không tìm thấy danh mục';
     return e.vnMessage;
@@ -672,11 +757,7 @@ class _CategoryListTile extends StatelessWidget {
           ),
         ),
         title: Text(category.name),
-        subtitle: Text(
-          category.isSystem
-              ? 'Hệ thống · ${category.slug}'
-              : 'Của tôi · ${category.slug}',
-        ),
+        subtitle: Text(category.isSystem ? 'Hệ thống' : 'Của tôi'),
         trailing: category.isSystem
             ? const Icon(Icons.lock_outline, size: 18)
             : PopupMenuButton<String>(
@@ -703,18 +784,86 @@ class _CategoryListTile extends StatelessWidget {
 
 class _CategoryDraft {
   final String name;
-  final String? slug;
   final String? icon;
   final String color;
   final int sortOrder;
 
   const _CategoryDraft({
     required this.name,
-    required this.slug,
     required this.icon,
     required this.color,
     required this.sortOrder,
   });
+}
+
+class _SortOrderStepper extends StatelessWidget {
+  final int value;
+  final ValueChanged<int> onChanged;
+
+  const _SortOrderStepper({required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final borderColor = Theme.of(
+      context,
+    ).colorScheme.outline.withValues(alpha: 0.24);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Thứ tự sắp xếp',
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          height: 46,
+          decoration: BoxDecoration(
+            border: Border.all(color: borderColor),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              _stepButton(
+                icon: Icons.add_rounded,
+                onPressed: () => onChanged(value + 1),
+              ),
+              Expanded(
+                child: Center(
+                  child: Text(
+                    '$value',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+              _stepButton(
+                icon: Icons.remove_rounded,
+                onPressed: value <= 0 ? null : () => onChanged(value - 1),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _stepButton({
+    required IconData icon,
+    required VoidCallback? onPressed,
+  }) {
+    return SizedBox.square(
+      dimension: 46,
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Icon(icon),
+        color: AppColors.primary,
+        disabledColor: AppColors.textSecondary.withValues(alpha: 0.38),
+        splashRadius: 22,
+      ),
+    );
+  }
 }
 
 class _CategoryEditorSheet extends StatefulWidget {
@@ -730,12 +879,7 @@ class _CategoryEditorSheetState extends State<_CategoryEditorSheet> {
   late final TextEditingController _name = TextEditingController(
     text: widget.category?.name ?? '',
   );
-  late final TextEditingController _slug = TextEditingController(
-    text: widget.category?.slug ?? '',
-  );
-  late final TextEditingController _sortOrder = TextEditingController(
-    text: (widget.category?.sortOrder ?? 0).toString(),
-  );
+  late int _sortOrder = widget.category?.sortOrder ?? 0;
   late String _icon = widget.category?.icon ?? 'checklist';
   late String _color = _formatColor(
     widget.category?.color ?? AppColors.primary,
@@ -768,8 +912,6 @@ class _CategoryEditorSheetState extends State<_CategoryEditorSheet> {
   @override
   void dispose() {
     _name.dispose();
-    _slug.dispose();
-    _sortOrder.dispose();
     super.dispose();
   }
 
@@ -780,10 +922,9 @@ class _CategoryEditorSheetState extends State<_CategoryEditorSheet> {
     Navigator.of(context).pop(
       _CategoryDraft(
         name: name,
-        slug: _slug.text.trim().isEmpty ? null : _slug.text.trim(),
         icon: _icon,
         color: _color,
-        sortOrder: int.tryParse(_sortOrder.text.trim()) ?? 0,
+        sortOrder: _sortOrder,
       ),
     );
   }
@@ -812,19 +953,10 @@ class _CategoryEditorSheetState extends State<_CategoryEditorSheet> {
                 autofocus: true,
                 decoration: const InputDecoration(labelText: 'Tên'),
               ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _slug,
-                decoration: const InputDecoration(
-                  labelText: 'Slug',
-                  hintText: 'code-review',
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: _sortOrder,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Thứ tự sắp xếp'),
+              const SizedBox(height: 14),
+              _SortOrderStepper(
+                value: _sortOrder,
+                onChanged: (value) => setState(() => _sortOrder = value),
               ),
               const SizedBox(height: 14),
               const Text(
@@ -936,9 +1068,7 @@ class _RunsTab extends StatelessWidget {
             child: ListTile(
               leading: const Icon(Icons.checklist),
               title: Text(r.displayName),
-              subtitle: Text(
-                'Bắt đầu: ${AppDateUtils.formatRelative(r.startedAt)}',
-              ),
+              subtitle: Text(_runSubtitle(r)),
               trailing: _RunStatusChip(status: r.status),
               onTap: () async {
                 await Navigator.of(context).push(
@@ -955,6 +1085,25 @@ class _RunsTab extends StatelessWidget {
       ),
     );
   }
+}
+
+String _runSubtitle(Run run) {
+  final started = 'Bắt đầu: ${AppDateUtils.formatRelative(run.startedAt)}';
+  final durationMs = run.durationMs;
+  if (durationMs == null) return started;
+  return '$started - Thời lượng: ${_formatDurationMs(durationMs)}';
+}
+
+String _formatDurationMs(int durationMs) {
+  final totalSeconds = Duration(milliseconds: durationMs).inSeconds;
+  final hours = totalSeconds ~/ 3600;
+  final minutes = (totalSeconds % 3600) ~/ 60;
+  final seconds = totalSeconds % 60;
+  final mm = minutes.toString().padLeft(2, '0');
+  final ss = seconds.toString().padLeft(2, '0');
+  if (hours == 0) return '$mm:$ss';
+  final hh = hours.toString().padLeft(2, '0');
+  return '$hh:$mm:$ss';
 }
 
 class _RunStatusChip extends StatelessWidget {

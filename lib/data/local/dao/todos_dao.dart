@@ -5,7 +5,7 @@ import '../tables.dart';
 
 part 'todos_dao.g.dart';
 
-@DriftAccessor(tables: [TodosTable, TodoTagsTable, TagsTable])
+@DriftAccessor(tables: [TodosTable, TodoTagsTable, TagsTable, NoteTagsTable])
 class TodosDao extends DatabaseAccessor<AppDatabase> with _$TodosDaoMixin {
   TodosDao(super.db);
 
@@ -107,6 +107,52 @@ class TodosDao extends DatabaseAccessor<AppDatabase> with _$TodosDaoMixin {
     await into(db.tagsTable).insertOnConflictUpdate(row);
   }
 
+  Future<void> upsertTags(List<TagsTableCompanion> rows) async {
+    if (rows.isEmpty) return;
+    await batch((b) {
+      b.insertAllOnConflictUpdate(db.tagsTable, rows);
+    });
+  }
+
+  Future<TagRow?> getTagById(String id) {
+    return (select(
+      db.tagsTable,
+    )..where((t) => t.id.equals(id) & t.deletedAt.isNull())).getSingleOrNull();
+  }
+
+  Future<List<TagRow>> getTags({
+    String? q,
+    bool onlyUsedByTodos = false,
+  }) async {
+    final rows =
+        await (select(db.tagsTable)
+              ..where((t) => t.deletedAt.isNull())
+              ..orderBy([(t) => OrderingTerm.asc(t.name)]))
+            .get();
+    final usedIds = onlyUsedByTodos
+        ? (await select(db.todoTagsTable).get()).map((j) => j.tagId).toSet()
+        : null;
+    final needle = q == null || q.trim().isEmpty ? null : _normalizeTagName(q);
+    return rows
+        .where((row) {
+          if (usedIds != null && !usedIds.contains(row.id)) return false;
+          if (needle == null) return true;
+          return _normalizeTagName(row.name).contains(needle);
+        })
+        .toList(growable: false);
+  }
+
+  Future<TagRow?> findTagByNameInsensitive(String name, String userId) async {
+    final normalized = _normalizeTagName(name);
+    final rows = await (select(
+      db.tagsTable,
+    )..where((t) => t.userId.equals(userId) & t.deletedAt.isNull())).get();
+    for (final row in rows) {
+      if (_normalizeTagName(row.name) == normalized) return row;
+    }
+    return null;
+  }
+
   /// Resurrect-local-first (contract §3.3): find a soft-deleted tag with the
   /// same (name, userId) so callers can reuse its id instead of minting a new
   /// one — avoids a server-side duplicate when re-creating a previously deleted tag.
@@ -118,6 +164,33 @@ class TodosDao extends DatabaseAccessor<AppDatabase> with _$TodosDaoMixin {
               t.deletedAt.isNotNull(),
         ))
         .getSingleOrNull();
+  }
+
+  Future<TagRow?> findSoftDeletedTagByNameInsensitive(
+    String name,
+    String userId,
+  ) async {
+    final normalized = _normalizeTagName(name);
+    final rows = await (select(
+      db.tagsTable,
+    )..where((t) => t.userId.equals(userId) & t.deletedAt.isNotNull())).get();
+    for (final row in rows) {
+      if (_normalizeTagName(row.name) == normalized) return row;
+    }
+    return null;
+  }
+
+  Future<void> softDeleteTag(String id, String deletedAtIso) async {
+    await transaction(() async {
+      await (update(db.tagsTable)..where((t) => t.id.equals(id))).write(
+        TagsTableCompanion(
+          deletedAt: Value(deletedAtIso),
+          updatedAt: Value(deletedAtIso),
+        ),
+      );
+      await (delete(db.todoTagsTable)..where((j) => j.tagId.equals(id))).go();
+      await (delete(db.noteTagsTable)..where((j) => j.tagId.equals(id))).go();
+    });
   }
 
   Future<void> setTodoTags(String todoId, List<String> tagIds) async {
@@ -141,6 +214,23 @@ class TodosDao extends DatabaseAccessor<AppDatabase> with _$TodosDaoMixin {
         });
       }
     });
+  }
+
+  Future<void> touchTodo(String todoId, String updatedAtIso) async {
+    await (update(db.todosTable)..where((t) => t.id.equals(todoId))).write(
+      TodosTableCompanion(updatedAt: Value(updatedAtIso)),
+    );
+  }
+
+  Future<List<TodoRow>> getTodosForTag(String tagId) async {
+    final links = await (select(
+      db.todoTagsTable,
+    )..where((j) => j.tagId.equals(tagId))).get();
+    if (links.isEmpty) return const [];
+    final todoIds = links.map((j) => j.todoId).toList();
+    return (select(
+      db.todosTable,
+    )..where((t) => t.id.isIn(todoIds) & t.deletedAt.isNull())).get();
   }
 
   // ─── Soft delete ──────────────────────────────────────────────────
@@ -246,5 +336,9 @@ class TodosDao extends DatabaseAccessor<AppDatabase> with _$TodosDaoMixin {
             updatedAt: Value(deletedAtIso),
           ),
         );
+  }
+
+  static String _normalizeTagName(String value) {
+    return value.trim().replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
   }
 }

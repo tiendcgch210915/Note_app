@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../data/api_exception.dart';
 import '../../data/todos_repository.dart';
+import '../../models/tag.dart';
 import '../../models/todo.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/date_utils.dart';
@@ -10,7 +11,9 @@ import '../../utils/todo_trigger_picker.dart';
 import '../../widgets/duration_picker_sheet.dart';
 import '../../widgets/repeat_picker_sheet.dart';
 import '../../widgets/section_header.dart';
+import '../../widgets/tag_chip.dart';
 import '../../widgets/todo_flag_button.dart';
+import '../../widgets/todo_tag_selector_sheet.dart';
 
 /// Màn hình "chỉnh sửa" — chỉnh tất cả properties của todo:
 /// meta (ngày làm, hạn chót, ước lượng), classify Eisenhower, frog, tags,
@@ -155,6 +158,55 @@ class _TodoEditScreenState extends State<TodoEditScreen> {
         linkedNotes: _detail!.linkedNotes,
       );
     });
+  }
+
+  Future<void> _pickTags() async {
+    final detail = _detail;
+    if (detail == null) return;
+    final selected = await showTodoTagSelectorSheet(
+      context,
+      initialTags: detail.tags,
+    );
+    if (selected == null || !mounted) return;
+
+    final previous = detail;
+    final optimisticTodo = detail.todo.copyWith(
+      tags: selected,
+      tagIds: selected.map((tag) => tag.id).toList(),
+      tagsLoaded: true,
+    );
+    setState(() {
+      _detail = TodoWithRelations(
+        todo: optimisticTodo,
+        tags: selected,
+        subtasks: detail.subtasks,
+        linkedNotes: detail.linkedNotes,
+      );
+    });
+
+    try {
+      final saved = await TodosRepository.instance.replaceTags(
+        detail.todo.id,
+        tags: selected,
+      );
+      if (!mounted) return;
+      setState(() {
+        _detail = TodoWithRelations(
+          todo: detail.todo.copyWith(
+            tags: saved,
+            tagIds: saved.map((tag) => tag.id).toList(),
+            tagsLoaded: true,
+          ),
+          tags: saved,
+          subtasks: detail.subtasks,
+          linkedNotes: detail.linkedNotes,
+        );
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _detail = previous);
+      _showError(e.vnMessage);
+    }
   }
 
   void _rollbackTodo(Todo previous) {
@@ -438,6 +490,7 @@ class _TodoEditScreenState extends State<TodoEditScreen> {
               triggerTodoTitle: _triggerTodoTitle,
               onPickTriggerTodo: _pickTriggerTodo,
               onClearTriggerTodo: _clearTriggerTodo,
+              onPickTags: _pickTags,
             ),
             const SectionHeader(label: 'Note liên quan'),
             if (_detail!.linkedNotes.isEmpty)
@@ -609,7 +662,7 @@ class _PriorityFlagsPanel extends StatelessWidget {
 
 class _MetaList extends StatelessWidget {
   final Todo todo;
-  final List tags;
+  final List<Tag> tags;
   final Color secondary;
   final VoidCallback onMoveToDay;
   final VoidCallback onPickEstimate;
@@ -617,6 +670,7 @@ class _MetaList extends StatelessWidget {
   final String? triggerTodoTitle;
   final VoidCallback onPickTriggerTodo;
   final VoidCallback onClearTriggerTodo;
+  final VoidCallback onPickTags;
   const _MetaList({
     required this.todo,
     required this.tags,
@@ -627,6 +681,7 @@ class _MetaList extends StatelessWidget {
     required this.triggerTodoTitle,
     required this.onPickTriggerTodo,
     required this.onClearTriggerTodo,
+    required this.onPickTags,
   });
 
   @override
@@ -712,33 +767,26 @@ class _MetaList extends StatelessWidget {
           ),
           onTap: onPickTriggerTodo,
         ),
-        if (tags.isNotEmpty)
-          ListTile(
-            leading: const Icon(Icons.local_offer_outlined, size: 20),
-            title: Wrap(
-              spacing: 6,
-              children: tags.map<Widget>((tag) {
-                return Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 2,
+        ListTile(
+          leading: const Icon(Icons.local_offer_outlined, size: 20),
+          title: tags.isEmpty
+              ? Align(
+                  alignment: Alignment.centerLeft,
+                  child: ActionChip(
+                    avatar: const Icon(Icons.local_offer_outlined, size: 16),
+                    label: const Text('Chọn tag'),
+                    onPressed: onPickTags,
                   ),
-                  decoration: BoxDecoration(
-                    color: tag.color.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    tag.name,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: tag.color,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
+                )
+              : TodoTagWrap(tags: tags),
+          trailing: tags.isEmpty
+              ? null
+              : IconButton(
+                  icon: const Icon(Icons.edit, size: 18),
+                  onPressed: onPickTags,
+                ),
+          onTap: onPickTags,
+        ),
       ],
     );
   }

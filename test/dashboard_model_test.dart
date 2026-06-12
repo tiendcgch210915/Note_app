@@ -51,6 +51,16 @@ void main() {
             'is_frog': false,
             'frog_date': null,
             'quadrant': 'q1',
+            'tags': [
+              {
+                'id': 'tag-1',
+                'name': 'Work',
+                'color': '#3366ff',
+                'created_at': '2026-06-10T00:00:00.000Z',
+                'updated_at': '2026-06-10T00:00:00.000Z',
+              },
+            ],
+            'tag_ids': ['tag-1'],
           },
         ],
         'q2': [
@@ -91,6 +101,8 @@ void main() {
     expect(detail.counts.keys, orderedEquals(dashboardQuadrantKeys));
     expect(detail.byQuadrant.keys, orderedEquals(dashboardQuadrantKeys));
     expect(detail.byQuadrant['q1']!.single.id, 'todo-q1');
+    expect(detail.byQuadrant['q1']!.single.tags.single.name, 'Work');
+    expect(detail.byQuadrant['q1']!.single.tagIds, ['tag-1']);
     expect(detail.byQuadrant['q2'], isEmpty);
     expect(detail.byQuadrant['q3']!.single.quadrant, 'q3');
     expect(detail.byQuadrant['q4']!.single.id, 'legacy-unclassified');

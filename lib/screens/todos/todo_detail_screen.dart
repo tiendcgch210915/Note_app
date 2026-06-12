@@ -10,6 +10,7 @@ import '../../utils/habit_stacking_dialog.dart';
 import '../../widgets/duration_picker_sheet.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/section_header.dart';
+import '../../widgets/tag_chip.dart';
 import 'todo_edit_screen.dart';
 
 /// TodoDetailScreen — màn hình "xem" đơn giản:
@@ -490,6 +491,11 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
                   onToggle: _toggleComplete,
                   onSave: (newTitle) => _saveTitle(todo.id, newTitle),
                 ),
+                if (_detail!.tags.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: TodoTagWrap(tags: _detail!.tags, compact: false),
+                  ),
                 const Divider(height: 1),
                 const SectionHeader(label: 'Việc con'),
                 if (_detail!.subtasks.isEmpty && !_draftingSubtask)

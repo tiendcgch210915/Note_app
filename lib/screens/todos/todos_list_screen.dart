@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import '../../data/api_exception.dart';
+import '../../data/tags_repository.dart';
 import '../../data/todos_repository.dart';
+import '../../models/tag.dart';
 import '../../models/todo.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/date_utils.dart';
 import '../../utils/habit_stacking_dialog.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/section_header.dart';
+import '../../widgets/tag_chip.dart';
 import '../../widgets/todo_tile.dart';
 import 'todo_create_screen.dart';
 import 'todo_detail_screen.dart';
@@ -28,6 +31,7 @@ class _TodosListScreenState extends State<TodosListScreen> {
   bool _loading = false;
   bool _doneExpanded = false;
   String _filter = 'all';
+  Tag? _tagFilter;
 
   /// IDs đang trong quá trình fade-out sau khi user tick complete.
   /// Khi 1 id ở đây, hàng tương ứng được wrap trong animation
@@ -48,12 +52,17 @@ class _TodosListScreenState extends State<TodosListScreen> {
     setState(() => _loading = true);
     try {
       // Fetch song song. "Đã xong" chỉ lấy top-level (parent_id null).
+      final selectedTagId = _tagFilter?.id;
       final today = TodosRepository.instance.getDay(DateTime.now());
-      final all = TodosRepository.instance.list(limit: 100);
+      final all = TodosRepository.instance.list(
+        limit: 100,
+        tagId: selectedTagId,
+      );
       final done = TodosRepository.instance.list(
         status: TodoStatus.done,
         parentId: 'null',
         limit: 20,
+        tagId: selectedTagId,
       );
       final results = await Future.wait([today, all, done]);
       if (!mounted) return;
@@ -62,10 +71,18 @@ class _TodosListScreenState extends State<TodosListScreen> {
       final doneRes = results[2] as ({List<Todo> items, String? nextCursor});
 
       // Chỉ giữ todo CHƯA done ở "Hôm nay" — done sẽ nằm trong section "Đã xong".
-      final todayList = dayTodos
-          .map((d) => d.todo)
-          .where((t) => !t.isDone)
-          .toList();
+      final todayList = selectedTagId == null
+          ? dayTodos.map((d) => d.todo).where((t) => !t.isDone).toList()
+          : allRes.items
+                .where(
+                  (t) =>
+                      !t.isDone &&
+                      t.parentId == null &&
+                      t.scheduledDate != null &&
+                      AppDateUtils.isToday(t.scheduledDate!) &&
+                      t.tagIds.contains(selectedTagId),
+                )
+                .toList();
       final todayIds = todayList.map((t) => t.id).toSet();
       final blockedRecurringSeries = _activeRecurringSeriesKeys(
         todayList,
@@ -252,32 +269,25 @@ class _TodosListScreenState extends State<TodosListScreen> {
   void _openFilterSheet() {
     showModalBottomSheet<void>(
       context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _filterTile(ctx, 'all', 'Tất cả'),
-            _filterTile(ctx, 'today', 'Hôm nay'),
-            _filterTile(ctx, 'important', 'Quan trọng'),
-            _filterTile(ctx, 'done', 'Đã hoàn thành'),
-          ],
-        ),
+      showDragHandle: true,
+      builder: (ctx) => _TodoFilterSheet(
+        filter: _filter,
+        tagFilter: _tagFilter,
+        onFilterChanged: (value) {
+          setState(() => _filter = value);
+          Navigator.of(ctx).pop();
+        },
+        onTagChanged: (tag) {
+          setState(() => _tagFilter = tag);
+          Navigator.of(ctx).pop();
+          _refresh();
+        },
+        onClearTag: () {
+          setState(() => _tagFilter = null);
+          Navigator.of(ctx).pop();
+          _refresh();
+        },
       ),
-    );
-  }
-
-  Widget _filterTile(BuildContext ctx, String value, String label) {
-    // ignore: deprecated_member_use
-    return RadioListTile<String>(
-      value: value,
-      // ignore: deprecated_member_use
-      groupValue: _filter,
-      title: Text(label),
-      // ignore: deprecated_member_use
-      onChanged: (v) {
-        setState(() => _filter = v ?? 'all');
-        Navigator.of(ctx).pop();
-      },
     );
   }
 
@@ -395,6 +405,10 @@ class _TodosListScreenState extends State<TodosListScreen> {
                   _filterLabel(),
                   style: TextStyle(fontSize: 13, color: secondary),
                 ),
+                if (_tagFilter != null) ...[
+                  const SizedBox(width: 8),
+                  Flexible(child: TodoTagChip(tag: _tagFilter!)),
+                ],
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.filter_list, size: 20),
@@ -440,13 +454,120 @@ class _TodosListScreenState extends State<TodosListScreen> {
   String _filterLabel() {
     switch (_filter) {
       case 'today':
-        return 'Lọc: Hôm nay';
+        return _tagFilter == null ? 'Lọc: Hôm nay' : 'Hôm nay';
       case 'important':
-        return 'Lọc: Quan trọng';
+        return _tagFilter == null ? 'Lọc: Quan trọng' : 'Quan trọng';
       case 'done':
-        return 'Lọc: Đã hoàn thành';
+        return _tagFilter == null ? 'Lọc: Đã hoàn thành' : 'Đã hoàn thành';
       default:
-        return 'Tất cả việc';
+        return _tagFilter == null ? 'Tất cả việc' : 'Tag';
     }
+  }
+}
+
+class _TodoFilterSheet extends StatefulWidget {
+  final String filter;
+  final Tag? tagFilter;
+  final ValueChanged<String> onFilterChanged;
+  final ValueChanged<Tag> onTagChanged;
+  final VoidCallback onClearTag;
+
+  const _TodoFilterSheet({
+    required this.filter,
+    required this.tagFilter,
+    required this.onFilterChanged,
+    required this.onTagChanged,
+    required this.onClearTag,
+  });
+
+  @override
+  State<_TodoFilterSheet> createState() => _TodoFilterSheetState();
+}
+
+class _TodoFilterSheetState extends State<_TodoFilterSheet> {
+  List<Tag> _tags = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTags();
+  }
+
+  Future<void> _loadTags() async {
+    try {
+      final tags = await TagsRepository.instance.list(scope: 'todo');
+      if (mounted) setState(() => _tags = tags);
+    } on ApiException {
+      if (mounted) setState(() => _tags = const []);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.62,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          children: [
+            const Text(
+              'Bộ lọc',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            _filterTile('all', 'Tất cả'),
+            _filterTile('today', 'Hôm nay'),
+            _filterTile('important', 'Quan trọng'),
+            _filterTile('done', 'Đã hoàn thành'),
+            const Divider(),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.local_offer_outlined),
+              title: const Text('Tag'),
+              trailing: widget.tagFilter == null
+                  ? null
+                  : IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: widget.onClearTag,
+                    ),
+            ),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final tag in _tags)
+                    TodoTagChip(
+                      tag: tag,
+                      compact: false,
+                      onTap: () => widget.onTagChanged(tag),
+                    ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _filterTile(String value, String label) {
+    final selected = widget.filter == value;
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(
+        selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+        color: selected ? AppColors.primary : null,
+      ),
+      title: Text(label),
+      onTap: () => widget.onFilterChanged(value),
+    );
   }
 }

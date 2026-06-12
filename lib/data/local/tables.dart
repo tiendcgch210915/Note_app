@@ -269,8 +269,23 @@ class ChecklistTemplatesTable extends Table with Timestamps {
   TextColumn get categoryId => text().nullable()();
   // M-RECON: isSystem column
   BoolColumn get isSystem => boolean().withDefault(const Constant(false))();
+  IntColumn get sortOrder => integer().withDefault(const Constant(0))();
   IntColumn get timesUsed => integer().withDefault(const Constant(0))();
   TextColumn get lastUsedAt => text().nullable()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+}
+
+@DataClassName('TemplateOrderRow')
+class ChecklistTemplateOrdersTable extends Table with Timestamps {
+  @override
+  String get tableName => 'checklist_template_orders';
+
+  TextColumn get id => text()();
+  TextColumn get userId => text()();
+  TextColumn get templateId => text()();
+  IntColumn get sortOrder => integer().withDefault(const Constant(0))();
 
   @override
   Set<Column> get primaryKey => {id};
@@ -311,6 +326,7 @@ class ChecklistRunsTable extends Table with Timestamps {
   TextColumn get name => text().nullable()();
   TextColumn get status => text().withDefault(const Constant('in_progress'))();
   TextColumn get completedAt => text().nullable()();
+  IntColumn get durationMs => integer().nullable()();
 
   @override
   Set<Column> get primaryKey => {id};

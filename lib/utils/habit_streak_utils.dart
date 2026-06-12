@@ -37,23 +37,27 @@ HabitStreak deriveHabitStreakFromCompletionMap({
       AppDateUtils.dateOnly(entry.key): entry.value,
   };
   final todayOnly = AppDateUtils.dateOnly(today);
+  final hasTodayLog = normalized.containsKey(todayOnly);
+  final currentAnchor = hasTodayLog
+      ? todayOnly
+      : todayOnly.subtract(const Duration(days: 1));
   final habitStart = AppDateUtils.dateOnly(startDate);
-  var firstObserved = todayOnly;
+  var firstObserved = currentAnchor;
   for (final date in normalized.keys) {
     if (date.isBefore(firstObserved)) firstObserved = date;
   }
   final from = firstObserved.isAfter(habitStart) ? firstObserved : habitStart;
 
   var current = 0;
-  var cursor = todayOnly;
+  var cursor = currentAnchor;
   while (!cursor.isBefore(from) && normalized[cursor] == true) {
     current++;
     cursor = cursor.subtract(const Duration(days: 1));
   }
 
-  final observedWindowDays = todayOnly.isBefore(from)
+  final observedWindowDays = currentAnchor.isBefore(from)
       ? 0
-      : todayOnly.difference(from).inDays + 1;
+      : currentAnchor.difference(from).inDays + 1;
   if (observedWindowDays > 0 &&
       current >= observedWindowDays &&
       fallbackCurrent > current) {
@@ -62,8 +66,9 @@ HabitStreak deriveHabitStreakFromCompletionMap({
 
   var longest = 0;
   var run = 0;
-  if (!todayOnly.isBefore(from)) {
-    final totalDays = todayOnly.difference(from).inDays;
+  final longestAnchor = hasTodayLog ? todayOnly : currentAnchor;
+  if (!longestAnchor.isBefore(from)) {
+    final totalDays = longestAnchor.difference(from).inDays;
     for (var i = 0; i <= totalDays; i++) {
       final date = from.add(Duration(days: i));
       if (normalized[date] == true) {

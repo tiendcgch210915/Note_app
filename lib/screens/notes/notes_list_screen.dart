@@ -6,7 +6,7 @@ import '../../models/note.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/note_card.dart';
-import 'note_editor_screen.dart';
+import 'note_detail_screen.dart';
 
 class NotesListScreen extends StatefulWidget {
   const NotesListScreen({super.key});
@@ -205,7 +205,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
             onTap: () async {
               await Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => NoteEditorScreen(noteId: n.id),
+                  builder: (_) => NoteDetailScreen(noteId: n.id),
                 ),
               );
               if (mounted) _refresh();

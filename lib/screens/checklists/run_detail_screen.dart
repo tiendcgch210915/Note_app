@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../data/api_exception.dart';
 import '../../data/checklists_repository.dart';
@@ -20,11 +22,19 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
   Run? _run;
   List<RunItem> _items = [];
   bool _loading = false;
+  Timer? _timer;
+  Duration _elapsed = Duration.zero;
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -35,7 +45,9 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
       setState(() {
         _run = res.run;
         _items = res.items;
+        _elapsed = _elapsedForRun(res.run);
       });
+      _startTimerIfNeeded(res.run);
     } on ApiException catch (e) {
       if (mounted) _showError(e.vnMessage);
     } finally {
@@ -153,7 +165,11 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
 
   Future<void> _complete() async {
     try {
-      await ChecklistsRepository.instance.completeRun(widget.runId);
+      await ChecklistsRepository.instance.completeRun(
+        widget.runId,
+        durationMs: _currentDurationMs(),
+      );
+      _timer?.cancel();
       if (mounted) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(
@@ -193,6 +209,7 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
     if (confirm != true) return;
     try {
       await ChecklistsRepository.instance.abandonRun(widget.runId);
+      _timer?.cancel();
       if (mounted) Navigator.of(context).pop();
     } on ApiException catch (e) {
       if (mounted) _showError(e.vnMessage);
@@ -203,6 +220,33 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), backgroundColor: AppColors.danger),
     );
+  }
+
+  void _startTimerIfNeeded(Run run) {
+    _timer?.cancel();
+    _timer = null;
+    if (run.status != RunStatus.inProgress) return;
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      final current = _run;
+      if (!mounted || current == null) return;
+      setState(() => _elapsed = _elapsedForRun(current));
+    });
+  }
+
+  Duration _elapsedForRun(Run run) {
+    if (run.status == RunStatus.completed && run.durationMs != null) {
+      return Duration(milliseconds: run.durationMs!);
+    }
+    if (run.status != RunStatus.inProgress) return Duration.zero;
+    final elapsed = DateTime.now().toUtc().difference(run.startedAt.toUtc());
+    return elapsed.isNegative ? Duration.zero : elapsed;
+  }
+
+  int? _currentDurationMs() {
+    final run = _run;
+    if (run == null || run.status != RunStatus.inProgress) return null;
+    final elapsed = _elapsedForRun(run).inMilliseconds;
+    return elapsed < 0 ? 0 : elapsed;
   }
 
   @override
@@ -252,9 +296,19 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  '$done/${_items.length} bước hoàn thành',
-                  style: TextStyle(fontSize: 13, color: secondary),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '$done/${_items.length} bước hoàn thành',
+                        style: TextStyle(fontSize: 13, color: secondary),
+                      ),
+                    ),
+                    _RunTimerPill(
+                      duration: _elapsed,
+                      isRunning: _run!.status == RunStatus.inProgress,
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 6),
                 ClipRRect(
@@ -385,4 +439,51 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
       ),
     );
   }
+}
+
+class _RunTimerPill extends StatelessWidget {
+  final Duration duration;
+  final bool isRunning;
+
+  const _RunTimerPill({required this.duration, required this.isRunning});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isRunning ? AppColors.primary : AppColors.textSecondary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.timer_outlined, size: 14, color: color),
+          const SizedBox(width: 5),
+          Text(
+            _formatRunDuration(duration),
+            style: TextStyle(
+              fontSize: 12,
+              color: color,
+              fontWeight: FontWeight.w700,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+String _formatRunDuration(Duration duration) {
+  final totalSeconds = duration.inSeconds < 0 ? 0 : duration.inSeconds;
+  final hours = totalSeconds ~/ 3600;
+  final minutes = (totalSeconds % 3600) ~/ 60;
+  final seconds = totalSeconds % 60;
+  final mm = minutes.toString().padLeft(2, '0');
+  final ss = seconds.toString().padLeft(2, '0');
+  if (hours == 0) return '$mm:$ss';
+  final hh = hours.toString().padLeft(2, '0');
+  return '$hh:$mm:$ss';
 }

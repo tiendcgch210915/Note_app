@@ -265,6 +265,12 @@ class SyncWorker {
     switch (entityType) {
       case 'todo':
         await _db.todosDao.upsertTodo(_todoCompanionFromJson(serverVersion));
+        final tagIds =
+            (serverVersion['tag_ids'] as List?)
+                ?.map((e) => e as String)
+                .toList() ??
+            const <String>[];
+        await _db.todosDao.setTodoTags(localEntityId, tagIds);
         break;
 
       case 'note':
@@ -335,6 +341,12 @@ class SyncWorker {
       case 'checklist_template':
         await _db.checklistsDao.upsertTemplate(
           _templateCompanionFromJson(serverVersion),
+        );
+        break;
+
+      case 'checklist_template_order':
+        await _db.checklistsDao.upsertTemplateOrder(
+          _templateOrderCompanionFromJson(serverVersion),
         );
         break;
 
@@ -841,6 +853,31 @@ class SyncWorker {
     );
 
     await _processEntityList<Map<String, dynamic>>(
+      changes['checklist_template_orders'] as List? ?? const [],
+      entityType: 'checklist_template_order',
+      tombstoneRecord: recordTombstone,
+      applyDeleted: (map) async =>
+          await _db.checklistsDao.softDeleteTemplateOrder(
+            map['id'] as String,
+            map['deleted_at'] as String,
+          ),
+      applyUpsert: (map) async {
+        final id = map['id'] as String;
+        if (await _shouldSkipLww(
+          'checklist_template_order',
+          id,
+          map['updated_at'] as String,
+        )) {
+          return;
+        }
+        await _db.checklistsDao.upsertTemplateOrder(
+          _templateOrderCompanionFromJson(map),
+        );
+        await _db.syncDao.removeOpsForEntity('checklist_template_order', id);
+      },
+    );
+
+    await _processEntityList<Map<String, dynamic>>(
       changes['checklist_template_items'] as List? ?? const [],
       entityType: 'checklist_template_item',
       tombstoneRecord: recordTombstone,
@@ -985,6 +1022,10 @@ class SyncWorker {
         return (await _db.checklistsDao.getCategoryById(entityId))?.updatedAt;
       case 'checklist_template':
         return (await _db.checklistsDao.getTemplateById(entityId))?.updatedAt;
+      case 'checklist_template_order':
+        return (await _db.checklistsDao.getTemplateOrderById(
+          entityId,
+        ))?.updatedAt;
       case 'checklist_template_item':
         return (await (_db.select(
           _db.checklistTemplateItemsTable,
@@ -1195,8 +1236,21 @@ class SyncWorker {
     category: Value(j['category'] as String?),
     categoryId: Value(j['category_id'] as String?),
     isSystem: Value(_parseBool(j['is_system'])),
+    sortOrder: Value((j['sort_order'] as num?)?.toInt() ?? 0),
     timesUsed: Value((j['times_used'] as num?)?.toInt() ?? 0),
     lastUsedAt: Value(j['last_used_at'] as String?),
+    createdAt: Value(_req(j, 'created_at')),
+    updatedAt: Value(_req(j, 'updated_at')),
+    deletedAt: Value(j['deleted_at'] as String?),
+  );
+
+  static ChecklistTemplateOrdersTableCompanion _templateOrderCompanionFromJson(
+    Map<String, dynamic> j,
+  ) => ChecklistTemplateOrdersTableCompanion(
+    id: Value(_req(j, 'id')),
+    userId: Value(j['user_id'] as String? ?? ''),
+    templateId: Value(_req(j, 'template_id')),
+    sortOrder: Value((j['sort_order'] as num?)?.toInt() ?? 0),
     createdAt: Value(_req(j, 'created_at')),
     updatedAt: Value(_req(j, 'updated_at')),
     deletedAt: Value(j['deleted_at'] as String?),
@@ -1226,6 +1280,7 @@ class SyncWorker {
     name: Value(j['name'] as String?),
     status: Value(j['status'] as String? ?? 'in_progress'),
     completedAt: Value(j['completed_at'] as String?),
+    durationMs: Value((j['duration_ms'] as num?)?.toInt()),
     // server sends 'started_at'; stored locally in the createdAt column
     createdAt: Value(
       j['started_at'] as String? ??

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/material.dart';
+
 import '../models/tag.dart';
 import '../models/todo.dart';
 import '../utils/json_utils.dart';
@@ -11,6 +13,7 @@ import 'api_exception.dart';
 import 'auth_storage.dart';
 import 'local/database.dart';
 import 'local/model_converters.dart';
+import 'tags_repository.dart';
 import '../sync/connectivity_sync.dart';
 import '../sync/sync_payload.dart';
 
@@ -41,6 +44,7 @@ class TodosRepository {
     String? parentId,
     String? q,
     String? tag,
+    String? tagId,
   }) async {
     final query = <String, dynamic>{
       if (cursor != null) 'cursor': cursor,
@@ -51,6 +55,7 @@ class TodosRepository {
       if (isFrog != null) 'is_frog': isFrog,
       if (parentId != null) 'parent_id': parentId,
       if (q != null && q.isNotEmpty) 'q': q,
+      if (tagId != null && tagId.isNotEmpty) 'tag_id': tagId,
       if (tag != null && tag.isNotEmpty) 'tag': tag,
     };
     final resp = await _client.get('/todos', query: query);
@@ -123,14 +128,20 @@ class TodosRepository {
   Future<TodoWithRelations?> getLocalDetail(String id) async {
     final row = await _db.todosDao.getTodoById(id);
     if (row == null) return null;
-    final todo = _todoRowToModel(row);
+    final baseTodo = _todoRowToModel(row);
     final subtasks = await _db.todosDao.getSubtasks(id);
-    final tags = todo.parentId == null
+    final tags = baseTodo.parentId == null
         ? await _db.todosDao.getTagsForTodo(id)
         : const <TagRow>[];
+    final tagModels = tags.map(_tagRowToModel).toList();
+    final todo = baseTodo.copyWith(
+      tags: tagModels,
+      tagIds: tagModels.map((tag) => tag.id).toList(),
+      tagsLoaded: true,
+    );
     return TodoWithRelations(
       todo: todo,
-      tags: tags.map(_tagRowToModel).toList(),
+      tags: tagModels,
       subtasks: subtasks.map(_todoRowToModel).toList(),
       linkedNotes: const [],
     );
@@ -166,6 +177,9 @@ class TodosRepository {
     final now = DateTime.now().toUtc();
     final id = newId();
     final parentId = body['parent_id'] as String?;
+    final tags = parentId == null
+        ? await _resolveTagsForLocalBody(body)
+        : const <Tag>[];
     final position = body.containsKey('position')
         ? (body['position'] as num?)?.toInt() ?? 0
         : parentId == null
@@ -189,6 +203,9 @@ class TodosRepository {
       isUrgent: body['is_urgent'] as bool?,
       estimatedMinutes: (body['estimated_minutes'] as num?)?.toInt(),
       triggerAfterTodoId: body['trigger_after_todo_id'] as String?,
+      tags: tags,
+      tagIds: tags.map((tag) => tag.id).toList(),
+      tagsLoaded: true,
       createdAt: now,
       updatedAt: now,
       recurrenceType: body['recurrence_type'] as String?,
@@ -197,11 +214,11 @@ class TodosRepository {
       recurrenceEndDate: body['recurrence_end_date'] as String?,
     );
     final normalizedTodo = _normalizeSubtask(todo);
-    await _upsertTodoWithSync(normalizedTodo, const [], 'create');
+    await _upsertTodoWithSync(normalizedTodo, tags, 'create');
     ConnectivitySync.instance.scheduleWriteSync();
     return TodoWithRelations(
       todo: normalizedTodo,
-      tags: const [],
+      tags: tags,
       subtasks: const [],
       linkedNotes: const [],
     );
@@ -218,7 +235,7 @@ class TodosRepository {
         ),
       );
       // Server already has this — cache locally only, do NOT enqueue.
-      await _db.todosDao.upsertTodo(todoToCompanion(todo, _userId));
+      await _cacheTodos([todo]);
       if (todo.isRecurrenceTemplate) {
         await _ensureInstancesExist(todo);
       }
@@ -453,16 +470,98 @@ class TodosRepository {
       if (name != null) 'name': name,
       if (color != null) 'color': color,
     };
-    final resp = await _client.post('/todos/$todoId/tags', body: body);
-    return Tag.fromJson(
-      (resp as Map<String, dynamic>)['tag'] as Map<String, dynamic>,
-    );
+    try {
+      final resp = await _client.post('/todos/$todoId/tags', body: body);
+      final tag = Tag.fromJson(
+        (resp as Map<String, dynamic>)['tag'] as Map<String, dynamic>,
+      );
+      await _db.todosDao.upsertTag(tagToCompanion(tag, _userId));
+      final existing = await _db.todosDao.getTagsForTodo(todoId);
+      final tagIds = {...existing.map((row) => row.id), tag.id}.toList();
+      await _db.todosDao.setTodoTags(todoId, tagIds);
+      return tag;
+    } on ApiException catch (e) {
+      if (e.code != 'no_connection') rethrow;
+      final localRow = tagId == null
+          ? null
+          : await _db.todosDao.getTagById(tagId);
+      final tag = localRow != null
+          ? _tagRowToModel(localRow)
+          : await TagsRepository.instance.createLocal(
+              name: name ?? '',
+              color: color == null ? jsonColor('#888888') : jsonColor(color),
+            );
+      final existing = await _db.todosDao.getTagsForTodo(todoId);
+      final tags = [
+        ...existing.map(_tagRowToModel).where((item) => item.id != tag.id),
+        tag,
+      ];
+      await replaceTagsLocalFirst(todoId, tags);
+      return tag;
+    }
   }
 
   // ─── F-T15 Detach tag ─────────────────────────────────────────
 
   Future<void> detachTag(String todoId, String tagId) async {
-    await _client.delete('/todos/$todoId/tags/$tagId');
+    try {
+      await _client.delete('/todos/$todoId/tags/$tagId');
+      final existing = await _db.todosDao.getTagsForTodo(todoId);
+      await _db.todosDao.setTodoTags(
+        todoId,
+        existing.map((row) => row.id).where((id) => id != tagId).toList(),
+      );
+    } on ApiException catch (e) {
+      if (e.code != 'no_connection') rethrow;
+      final existing = await _db.todosDao.getTagsForTodo(todoId);
+      await replaceTagsLocalFirst(
+        todoId,
+        existing.map(_tagRowToModel).where((tag) => tag.id != tagId).toList(),
+      );
+    }
+  }
+
+  Future<List<Tag>> replaceTags(
+    String todoId, {
+    List<Tag> tags = const [],
+    List<String> names = const [],
+  }) async {
+    final normalizedNames = names
+        .map(TagsRepository.normalizeTagName)
+        .where((name) => name.isNotEmpty)
+        .toList();
+    final body = <String, dynamic>{
+      if (tags.isNotEmpty || normalizedNames.isEmpty)
+        'tag_ids': tags.map((tag) => tag.id).toList(),
+      if (normalizedNames.isNotEmpty) 'tags': normalizedNames,
+    };
+    try {
+      final resp = await _client.put('/todos/$todoId/tags', body: body);
+      final map = resp as Map<String, dynamic>;
+      final resultTags = ((map['tags'] as List?) ?? const [])
+          .map((e) => Tag.fromJson(e as Map<String, dynamic>))
+          .toList();
+      await _cacheTagsForTodo(todoId, resultTags);
+      return resultTags;
+    } on ApiException catch (e) {
+      if (e.code != 'no_connection') rethrow;
+      final resolved = [
+        ...tags,
+        for (final name in names)
+          await TagsRepository.instance.createLocal(
+            name: name,
+            color: _defaultTagColor(name),
+          ),
+      ];
+      return replaceTagsLocalFirst(todoId, _dedupeTags(resolved));
+    }
+  }
+
+  Future<List<Tag>> replaceTagsLocalFirst(String todoId, List<Tag> tags) async {
+    final deduped = _dedupeTags(tags);
+    await _cacheTagsForTodo(todoId, deduped, enqueueUpdate: true);
+    ConnectivitySync.instance.scheduleWriteSync();
+    return deduped;
   }
 
   // ─── Drift helpers ────────────────────────────────────────────
@@ -530,7 +629,15 @@ class TodosRepository {
   }
 
   Tag _tagRowToModel(TagRow row) {
-    return Tag(id: row.id, name: row.name, color: jsonColor(row.color));
+    return Tag(
+      id: row.id,
+      userId: row.userId,
+      name: row.name,
+      color: jsonColor(row.color),
+      createdAt: jsonDateNullable(row.createdAt),
+      updatedAt: jsonDateNullable(row.updatedAt),
+      deletedAt: jsonDateNullable(row.deletedAt),
+    );
   }
 
   Todo _normalizeSubtask(Todo todo) {
@@ -541,7 +648,9 @@ class TodosRepository {
       title: todo.title,
       status: todo.status,
       position: todo.position,
+      tags: const [],
       tagIds: const [],
+      tagsLoaded: true,
       completedAt: todo.completedAt,
       createdAt: todo.createdAt,
       updatedAt: todo.updatedAt,
@@ -551,19 +660,118 @@ class TodosRepository {
   Future<void> _cacheTodos(List<Todo> todos) async {
     if (todos.isEmpty) return;
     final userId = _userId;
+    final normalized = todos.map(_normalizeSubtask).toList();
+    final tags = <Tag>[];
+    for (final todo in normalized) {
+      tags.addAll(todo.tags);
+    }
+    if (tags.isNotEmpty) {
+      await _db.todosDao.upsertTags(
+        tags.map((tag) => tagToCompanion(tag, userId)).toList(),
+      );
+    }
     await _db.todosDao.upsertTodos(
-      todos.map((t) => todoToCompanion(t, userId)).toList(),
+      normalized.map((t) => todoToCompanion(t, userId)).toList(),
     );
+    for (final todo in normalized) {
+      if (todo.parentId != null || !todo.tagsLoaded) continue;
+      await _db.todosDao.setTodoTags(todo.id, todo.tagIds);
+    }
   }
 
   /// Cache a single todo + its tags to Drift.  Used on REST-success paths —
   /// server already has the entity so we do NOT enqueue a sync op.
   Future<void> _cacheTodoWithTags(Todo todo, List<Tag> tags) async {
-    await _db.todosDao.upsertTodo(todoToCompanion(todo, _userId));
+    final normalized = _normalizeSubtask(
+      todo.copyWith(
+        tags: tags,
+        tagIds: tags.map((t) => t.id).toList(),
+        tagsLoaded: true,
+      ),
+    );
+    if (tags.isNotEmpty) {
+      await _db.todosDao.upsertTags(
+        tags.map((tag) => tagToCompanion(tag, _userId)).toList(),
+      );
+    }
+    await _db.todosDao.upsertTodo(todoToCompanion(normalized, _userId));
     final tagIds = todo.parentId == null
         ? tags.map((t) => t.id).toList()
         : const <String>[];
     await _db.todosDao.setTodoTags(todo.id, tagIds);
+  }
+
+  Future<void> _cacheTagsForTodo(
+    String todoId,
+    List<Tag> tags, {
+    bool enqueueUpdate = false,
+  }) async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final tagIds = tags.map((tag) => tag.id).toList();
+    await _db.todosDao.upsertTags(
+      tags.map((tag) => tagToCompanion(tag, _userId)).toList(),
+    );
+    await _db.todosDao.setTodoTags(todoId, tagIds);
+    await _db.todosDao.touchTodo(todoId, now);
+    if (enqueueUpdate) {
+      await _enqueueTodoUpdate(todoId);
+    }
+  }
+
+  Future<List<Tag>> _resolveTagsForLocalBody(Map<String, dynamic> body) async {
+    final result = <Tag>[];
+    final seen = <String>{};
+
+    final tagIds =
+        (body['tag_ids'] as List?)?.whereType<String>().toList() ?? const [];
+    for (final id in tagIds) {
+      final row = await _db.todosDao.getTagById(id);
+      if (row == null || seen.contains(row.id)) continue;
+      result.add(_tagRowToModel(row));
+      seen.add(row.id);
+    }
+
+    final names =
+        (body['tags'] as List?)?.whereType<String>().toList() ?? const [];
+    for (final name in names) {
+      final normalized = TagsRepository.normalizeTagName(name);
+      if (normalized.isEmpty) continue;
+      final tag = await TagsRepository.instance.createLocal(
+        name: normalized,
+        color: _defaultTagColor(normalized),
+      );
+      if (seen.contains(tag.id)) continue;
+      result.add(tag);
+      seen.add(tag.id);
+    }
+    return result;
+  }
+
+  List<Tag> _dedupeTags(List<Tag> tags) {
+    final seen = <String>{};
+    final result = <Tag>[];
+    for (final tag in tags) {
+      if (seen.contains(tag.id)) continue;
+      seen.add(tag.id);
+      result.add(tag);
+    }
+    return result;
+  }
+
+  Color _defaultTagColor(String name) {
+    const palette = [
+      '#6366f1',
+      '#22c55e',
+      '#f59e0b',
+      '#ef4444',
+      '#ec4899',
+      '#06b6d4',
+      '#a855f7',
+      '#64748b',
+    ];
+    final index =
+        name.runes.fold<int>(0, (sum, rune) => sum + rune) % palette.length;
+    return jsonColor(palette[index]);
   }
 
   Future<int> _nextSubtaskPosition(String parentId) async {
@@ -584,6 +792,11 @@ class TodosRepository {
     String operation,
   ) async {
     final userId = _userId;
+    if (tags.isNotEmpty) {
+      await _db.todosDao.upsertTags(
+        tags.map((tag) => tagToCompanion(tag, userId)).toList(),
+      );
+    }
     await _db.todosDao.upsertTodo(todoToCompanion(todo, userId));
     final tagIds = tags.map((t) => t.id).toList();
     await _db.todosDao.setTodoTags(todo.id, tagIds);
@@ -608,7 +821,12 @@ class TodosRepository {
   ) async {
     final existing = await _db.todosDao.getTodoById(todoId);
     if (existing == null) return;
-    final payload = SyncPayload.fromTodo(existing, const [], const []);
+    final tagIds = existing.parentId == null
+        ? (await _db.todosDao.getTagsForTodo(
+            todoId,
+          )).map((tag) => tag.id).toList()
+        : const <String>[];
+    final payload = SyncPayload.fromTodo(existing, tagIds, const []);
     final merged = {...payload, ...patch};
     await _db.syncDao.enqueueSyncOp(
       entityType: 'todo',
@@ -666,7 +884,9 @@ class TodosRepository {
       triggerAfterTodoId: body.containsKey('trigger_after_todo_id')
           ? body['trigger_after_todo_id'] as String?
           : current.triggerAfterTodoId,
+      tags: current.tags,
       tagIds: current.tagIds,
+      tagsLoaded: current.tagsLoaded,
       completedAt: body.containsKey('completed_at')
           ? _dateTimeFromJson(body['completed_at'])
           : current.completedAt,

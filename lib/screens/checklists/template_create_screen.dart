@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../data/api_exception.dart';
 import '../../data/checklists_repository.dart';
 import '../../models/checklist_category.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/checklist_step_text_utils.dart';
 import '../../widgets/primary_button.dart';
 
 class _DraftItem {
@@ -20,7 +22,6 @@ class TemplateCreateScreen extends StatefulWidget {
 
 class _TemplateCreateScreenState extends State<TemplateCreateScreen> {
   final _title = TextEditingController();
-  final _desc = TextEditingController();
   final String _iconName = 'checklist';
   List<ChecklistCategory> _categories = [];
   String? _categoryId;
@@ -30,6 +31,11 @@ class _TemplateCreateScreenState extends State<TemplateCreateScreen> {
     _DraftItem(title: ''),
     _DraftItem(title: ''),
   ];
+  final List<TextEditingController> _itemControllers = [
+    TextEditingController(),
+    TextEditingController(),
+  ];
+  final List<FocusNode> _itemFocusNodes = [FocusNode(), FocusNode()];
 
   @override
   void initState() {
@@ -40,7 +46,12 @@ class _TemplateCreateScreenState extends State<TemplateCreateScreen> {
   @override
   void dispose() {
     _title.dispose();
-    _desc.dispose();
+    for (final controller in _itemControllers) {
+      controller.dispose();
+    }
+    for (final node in _itemFocusNodes) {
+      node.dispose();
+    }
     super.dispose();
   }
 
@@ -75,7 +86,7 @@ class _TemplateCreateScreenState extends State<TemplateCreateScreen> {
           .toList();
       await ChecklistsRepository.instance.createTemplate(
         title: _title.text.trim(),
-        description: _desc.text.trim().isEmpty ? null : _desc.text.trim(),
+        description: null,
         icon: _iconName,
         categoryId: _categoryId,
         items: items,
@@ -87,9 +98,130 @@ class _TemplateCreateScreenState extends State<TemplateCreateScreen> {
       ).showSnackBar(const SnackBar(content: Text('Đã tạo template')));
     } on ApiException catch (e) {
       if (mounted) _showError(e.vnMessage);
+    } catch (_) {
+      if (mounted) _showError('Không thể tạo template');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+
+  void _addStep() {
+    setState(() {
+      _items.add(_DraftItem());
+      _itemControllers.add(TextEditingController());
+      _itemFocusNodes.add(FocusNode());
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _itemFocusNodes.last.requestFocus();
+    });
+  }
+
+  void _removeStep(int index) {
+    setState(() {
+      _items.removeAt(index);
+      _itemControllers.removeAt(index).dispose();
+      _itemFocusNodes.removeAt(index).dispose();
+    });
+  }
+
+  void _reorderSteps(int oldIndex, int newIndex) {
+    setState(() {
+      if (newIndex > oldIndex) newIndex--;
+      final item = _items.removeAt(oldIndex);
+      final controller = _itemControllers.removeAt(oldIndex);
+      final focusNode = _itemFocusNodes.removeAt(oldIndex);
+      _items.insert(newIndex, item);
+      _itemControllers.insert(newIndex, controller);
+      _itemFocusNodes.insert(newIndex, focusNode);
+    });
+  }
+
+  Future<void> _showPasteStepsSheet() async {
+    final clipboard = await Clipboard.getData('text/plain');
+    if (!mounted) return;
+    final ctrl = TextEditingController(text: clipboard?.text ?? '');
+    final raw = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) {
+        final bottom = MediaQuery.viewInsetsOf(ctx).bottom;
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(20, 8, 20, 20 + bottom),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Dán nhiều bước',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: ctrl,
+                  autofocus: true,
+                  minLines: 5,
+                  maxLines: 10,
+                  decoration: const InputDecoration(
+                    hintText: 'Mỗi dòng là một bước',
+                    alignLabelWithHint: true,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 46,
+                  child: ElevatedButton.icon(
+                    onPressed: () => Navigator.of(ctx).pop(ctrl.text),
+                    icon: const Icon(Icons.content_paste_go_outlined),
+                    label: const Text('Thêm vào checklist'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+    ctrl.dispose();
+    if (raw == null) return;
+    _insertPastedSteps(parseChecklistStepLines(raw));
+  }
+
+  void _insertPastedSteps(List<String> titles) {
+    if (titles.isEmpty) {
+      _showError('Không tìm thấy bước hợp lệ');
+      return;
+    }
+    final insertIndex = _nextAppendIndex();
+    setState(() {
+      var index = insertIndex;
+      for (final title in titles) {
+        if (index < _items.length && _items[index].title.trim().isEmpty) {
+          _items[index].title = title;
+          _itemControllers[index].text = title;
+        } else {
+          _items.insert(index, _DraftItem(title: title));
+          _itemControllers.insert(index, TextEditingController(text: title));
+          _itemFocusNodes.insert(index, FocusNode());
+        }
+        index++;
+      }
+      if (_items.every((item) => item.title.trim().isNotEmpty)) {
+        _items.add(_DraftItem());
+        _itemControllers.add(TextEditingController());
+        _itemFocusNodes.add(FocusNode());
+      }
+    });
+  }
+
+  int _nextAppendIndex() {
+    for (var i = _items.length - 1; i >= 0; i--) {
+      if (_items[i].title.trim().isNotEmpty) return i + 1;
+    }
+    return 0;
   }
 
   void _showError(String msg) {
@@ -133,12 +265,6 @@ class _TemplateCreateScreenState extends State<TemplateCreateScreen> {
                   decoration: const InputDecoration(hintText: 'Tên template'),
                 ),
                 const SizedBox(height: 12),
-                TextField(
-                  controller: _desc,
-                  maxLines: 2,
-                  decoration: const InputDecoration(hintText: 'Mô tả'),
-                ),
-                const SizedBox(height: 12),
                 _CategoryPickerTile(
                   categories: _categories,
                   selectedId: _categoryId,
@@ -148,13 +274,19 @@ class _TemplateCreateScreenState extends State<TemplateCreateScreen> {
             ),
           ),
           const Divider(height: 1),
-          const Padding(
+          Padding(
             padding: EdgeInsets.fromLTRB(16, 12, 16, 0),
             child: Row(
               children: [
-                Text(
+                const Text(
                   'Các bước',
                   style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                ),
+                const Spacer(),
+                TextButton.icon(
+                  onPressed: _showPasteStepsSheet,
+                  icon: const Icon(Icons.content_paste_outlined, size: 18),
+                  label: const Text('Dán bước'),
                 ),
               ],
             ),
@@ -163,13 +295,7 @@ class _TemplateCreateScreenState extends State<TemplateCreateScreen> {
             child: ReorderableListView.builder(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
               itemCount: _items.length,
-              onReorder: (oldIndex, newIndex) {
-                setState(() {
-                  if (newIndex > oldIndex) newIndex--;
-                  final item = _items.removeAt(oldIndex);
-                  _items.insert(newIndex, item);
-                });
-              },
+              onReorder: _reorderSteps,
               itemBuilder: (ctx, i) {
                 final item = _items[i];
                 return Padding(
@@ -189,7 +315,8 @@ class _TemplateCreateScreenState extends State<TemplateCreateScreen> {
                       ),
                       Expanded(
                         child: TextFormField(
-                          initialValue: item.title,
+                          controller: _itemControllers[i],
+                          focusNode: _itemFocusNodes[i],
                           onChanged: (v) => item.title = v,
                           decoration: InputDecoration(
                             hintText: 'Bước ${i + 1}',
@@ -204,7 +331,7 @@ class _TemplateCreateScreenState extends State<TemplateCreateScreen> {
                       const Text('Bắt buộc', style: TextStyle(fontSize: 12)),
                       IconButton(
                         icon: const Icon(Icons.delete_outline, size: 20),
-                        onPressed: () => setState(() => _items.removeAt(i)),
+                        onPressed: () => _removeStep(i),
                       ),
                     ],
                   ),
@@ -215,7 +342,7 @@ class _TemplateCreateScreenState extends State<TemplateCreateScreen> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: OutlinedButton.icon(
-              onPressed: () => setState(() => _items.add(_DraftItem())),
+              onPressed: _addStep,
               icon: const Icon(Icons.add),
               label: const Text('Thêm bước'),
             ),

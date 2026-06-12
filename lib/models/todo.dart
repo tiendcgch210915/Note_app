@@ -67,8 +67,9 @@ class Todo {
   final DateTime? dueAt;
   final DateTime? scheduledDate;
   final String? triggerAfterTodoId;
-  final List<String>
-  tagIds; // dùng cho mock; backend không trả riêng — đã trong tags
+  final List<Tag> tags;
+  final List<String> tagIds;
+  final bool tagsLoaded;
   final DateTime? completedAt;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -109,7 +110,9 @@ class Todo {
     this.dueAt,
     this.scheduledDate,
     this.triggerAfterTodoId,
+    this.tags = const [],
     this.tagIds = const [],
+    this.tagsLoaded = false,
     this.completedAt,
     required this.createdAt,
     required this.updatedAt,
@@ -121,6 +124,14 @@ class Todo {
   });
 
   factory Todo.fromJson(Map<String, dynamic> json) {
+    final tags =
+        (json['tags'] as List?)
+            ?.map((e) => Tag.fromJson(e as Map<String, dynamic>))
+            .toList() ??
+        const <Tag>[];
+    final explicitTagIds = (json['tag_ids'] as List?)
+        ?.map((e) => e as String)
+        .toList();
     return Todo(
       id: json['id'] as String,
       parentId: json['parent_id'] as String?,
@@ -138,7 +149,9 @@ class Todo {
       dueAt: jsonDateNullable(json['due_at'] as String?),
       scheduledDate: jsonDateOnlyNullable(json['scheduled_date'] as String?),
       triggerAfterTodoId: json['trigger_after_todo_id'] as String?,
-      tagIds: const [],
+      tags: tags,
+      tagIds: explicitTagIds ?? tags.map((tag) => tag.id).toList(),
+      tagsLoaded: json.containsKey('tags') || json.containsKey('tag_ids'),
       completedAt: jsonDateNullable(json['completed_at'] as String?),
       createdAt: jsonDate(json['created_at'] as String),
       updatedAt: jsonDate(json['updated_at'] as String),
@@ -201,6 +214,9 @@ class Todo {
     bool? isImportant,
     bool? isUrgent,
     DateTime? scheduledDate,
+    List<Tag>? tags,
+    List<String>? tagIds,
+    bool? tagsLoaded,
   }) {
     return Todo(
       id: id,
@@ -219,7 +235,9 @@ class Todo {
       dueAt: dueAt,
       scheduledDate: scheduledDate ?? this.scheduledDate,
       triggerAfterTodoId: triggerAfterTodoId,
-      tagIds: tagIds,
+      tags: tags ?? this.tags,
+      tagIds: tagIds ?? this.tagIds,
+      tagsLoaded: tagsLoaded ?? this.tagsLoaded,
       completedAt: completedAt ?? this.completedAt,
       createdAt: createdAt,
       updatedAt: updatedAt,
@@ -315,13 +333,18 @@ class TodoWithRelations {
   });
 
   factory TodoWithRelations.fromJson(Map<String, dynamic> json) {
+    final todo = Todo.fromJson(json['todo'] as Map<String, dynamic>);
+    final tags =
+        (json['tags'] as List?)
+            ?.map((e) => Tag.fromJson(e as Map<String, dynamic>))
+            .toList() ??
+        todo.tags;
+    final tagIds =
+        (json['tag_ids'] as List?)?.map((e) => e as String).toList() ??
+        (todo.tagIds.isNotEmpty ? todo.tagIds : tags.map((t) => t.id).toList());
     return TodoWithRelations(
-      todo: Todo.fromJson(json['todo'] as Map<String, dynamic>),
-      tags:
-          (json['tags'] as List?)
-              ?.map((e) => Tag.fromJson(e as Map<String, dynamic>))
-              .toList() ??
-          const [],
+      todo: todo.copyWith(tags: tags, tagIds: tagIds, tagsLoaded: true),
+      tags: tags,
       subtasks:
           (json['subtasks'] as List?)
               ?.map((e) => Todo.fromJson(e as Map<String, dynamic>))

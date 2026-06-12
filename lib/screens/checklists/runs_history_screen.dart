@@ -117,9 +117,7 @@ class _RunsHistoryScreenState extends State<RunsHistoryScreen> {
                       child: ListTile(
                         leading: const Icon(Icons.checklist),
                         title: Text(r.displayName),
-                        subtitle: Text(
-                          AppDateUtils.formatRelative(r.startedAt),
-                        ),
+                        subtitle: Text(_runSubtitle(r)),
                         trailing: _chip(r.status),
                         onTap: () async {
                           await Navigator.of(context).push(
@@ -164,4 +162,23 @@ class _RunsHistoryScreenState extends State<RunsHistoryScreen> {
       ),
     );
   }
+}
+
+String _runSubtitle(Run run) {
+  final started = AppDateUtils.formatRelative(run.startedAt);
+  final durationMs = run.durationMs;
+  if (durationMs == null) return started;
+  return '$started - Thời lượng: ${_formatDurationMs(durationMs)}';
+}
+
+String _formatDurationMs(int durationMs) {
+  final totalSeconds = Duration(milliseconds: durationMs).inSeconds;
+  final hours = totalSeconds ~/ 3600;
+  final minutes = (totalSeconds % 3600) ~/ 60;
+  final seconds = totalSeconds % 60;
+  final mm = minutes.toString().padLeft(2, '0');
+  final ss = seconds.toString().padLeft(2, '0');
+  if (hours == 0) return '$mm:$ss';
+  final hh = hours.toString().padLeft(2, '0');
+  return '$hh:$mm:$ss';
 }

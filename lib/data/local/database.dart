@@ -28,6 +28,7 @@ part 'database.g.dart';
     HabitLogsTable,
     ChecklistCategoriesTable,
     ChecklistTemplatesTable,
+    ChecklistTemplateOrdersTable,
     ChecklistTemplateItemsTable,
     ChecklistRunsTable,
     ChecklistRunItemsTable,
@@ -43,7 +44,7 @@ class AppDatabase extends _$AppDatabase {
   static final AppDatabase instance = AppDatabase._();
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -94,6 +95,40 @@ class AppDatabase extends _$AppDatabase {
             checklistTemplatesTable,
             checklistTemplatesTable.categoryId,
           );
+        }
+      }
+      // v6 -> v7: checklist template fallback order + per-user order rows.
+      if (from < 7) {
+        final templateColumns = await customSelect(
+          'PRAGMA table_info(checklist_templates)',
+        ).get();
+        final hasSortOrder = templateColumns.any(
+          (row) => row.data['name'] == 'sort_order',
+        );
+        if (!hasSortOrder) {
+          await m.addColumn(
+            checklistTemplatesTable,
+            checklistTemplatesTable.sortOrder,
+          );
+        }
+        final orderTables = await customSelect(
+          "SELECT name FROM sqlite_master WHERE type = 'table' "
+          "AND name = 'checklist_template_orders'",
+        ).get();
+        if (orderTables.isEmpty) {
+          await m.createTable(checklistTemplateOrdersTable);
+        }
+      }
+      // v7 -> v8: measured checklist run duration in milliseconds.
+      if (from < 8) {
+        final runColumns = await customSelect(
+          'PRAGMA table_info(checklist_runs)',
+        ).get();
+        final hasDurationMs = runColumns.any(
+          (row) => row.data['name'] == 'duration_ms',
+        );
+        if (!hasDurationMs) {
+          await m.addColumn(checklistRunsTable, checklistRunsTable.durationMs);
         }
       }
     },

@@ -6610,6 +6610,18 @@ class $ChecklistTemplatesTableTable extends ChecklistTemplatesTable
     ),
     defaultValue: const Constant(false),
   );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
   static const VerificationMeta _timesUsedMeta = const VerificationMeta(
     'timesUsed',
   );
@@ -6646,6 +6658,7 @@ class $ChecklistTemplatesTableTable extends ChecklistTemplatesTable
     category,
     categoryId,
     isSystem,
+    sortOrder,
     timesUsed,
     lastUsedAt,
   ];
@@ -6735,6 +6748,12 @@ class $ChecklistTemplatesTableTable extends ChecklistTemplatesTable
         isSystem.isAcceptableOrUnknown(data['is_system']!, _isSystemMeta),
       );
     }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    }
     if (data.containsKey('times_used')) {
       context.handle(
         _timesUsedMeta,
@@ -6803,6 +6822,10 @@ class $ChecklistTemplatesTableTable extends ChecklistTemplatesTable
         DriftSqlType.bool,
         data['${effectivePrefix}is_system'],
       )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
       timesUsed: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}times_used'],
@@ -6832,6 +6855,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
   final String? category;
   final String? categoryId;
   final bool isSystem;
+  final int sortOrder;
   final int timesUsed;
   final String? lastUsedAt;
   const TemplateRow({
@@ -6846,6 +6870,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
     this.category,
     this.categoryId,
     required this.isSystem,
+    required this.sortOrder,
     required this.timesUsed,
     this.lastUsedAt,
   });
@@ -6875,6 +6900,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
       map['category_id'] = Variable<String>(categoryId);
     }
     map['is_system'] = Variable<bool>(isSystem);
+    map['sort_order'] = Variable<int>(sortOrder);
     map['times_used'] = Variable<int>(timesUsed);
     if (!nullToAbsent || lastUsedAt != null) {
       map['last_used_at'] = Variable<String>(lastUsedAt);
@@ -6905,6 +6931,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
           ? const Value.absent()
           : Value(categoryId),
       isSystem: Value(isSystem),
+      sortOrder: Value(sortOrder),
       timesUsed: Value(timesUsed),
       lastUsedAt: lastUsedAt == null && nullToAbsent
           ? const Value.absent()
@@ -6929,6 +6956,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
       category: serializer.fromJson<String?>(json['category']),
       categoryId: serializer.fromJson<String?>(json['categoryId']),
       isSystem: serializer.fromJson<bool>(json['isSystem']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
       timesUsed: serializer.fromJson<int>(json['timesUsed']),
       lastUsedAt: serializer.fromJson<String?>(json['lastUsedAt']),
     );
@@ -6948,6 +6976,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
       'category': serializer.toJson<String?>(category),
       'categoryId': serializer.toJson<String?>(categoryId),
       'isSystem': serializer.toJson<bool>(isSystem),
+      'sortOrder': serializer.toJson<int>(sortOrder),
       'timesUsed': serializer.toJson<int>(timesUsed),
       'lastUsedAt': serializer.toJson<String?>(lastUsedAt),
     };
@@ -6965,6 +6994,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
     Value<String?> category = const Value.absent(),
     Value<String?> categoryId = const Value.absent(),
     bool? isSystem,
+    int? sortOrder,
     int? timesUsed,
     Value<String?> lastUsedAt = const Value.absent(),
   }) => TemplateRow(
@@ -6979,6 +7009,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
     category: category.present ? category.value : this.category,
     categoryId: categoryId.present ? categoryId.value : this.categoryId,
     isSystem: isSystem ?? this.isSystem,
+    sortOrder: sortOrder ?? this.sortOrder,
     timesUsed: timesUsed ?? this.timesUsed,
     lastUsedAt: lastUsedAt.present ? lastUsedAt.value : this.lastUsedAt,
   );
@@ -6999,6 +7030,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
           ? data.categoryId.value
           : this.categoryId,
       isSystem: data.isSystem.present ? data.isSystem.value : this.isSystem,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
       timesUsed: data.timesUsed.present ? data.timesUsed.value : this.timesUsed,
       lastUsedAt: data.lastUsedAt.present
           ? data.lastUsedAt.value
@@ -7020,6 +7052,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
           ..write('category: $category, ')
           ..write('categoryId: $categoryId, ')
           ..write('isSystem: $isSystem, ')
+          ..write('sortOrder: $sortOrder, ')
           ..write('timesUsed: $timesUsed, ')
           ..write('lastUsedAt: $lastUsedAt')
           ..write(')'))
@@ -7039,6 +7072,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
     category,
     categoryId,
     isSystem,
+    sortOrder,
     timesUsed,
     lastUsedAt,
   );
@@ -7057,6 +7091,7 @@ class TemplateRow extends DataClass implements Insertable<TemplateRow> {
           other.category == this.category &&
           other.categoryId == this.categoryId &&
           other.isSystem == this.isSystem &&
+          other.sortOrder == this.sortOrder &&
           other.timesUsed == this.timesUsed &&
           other.lastUsedAt == this.lastUsedAt);
 }
@@ -7073,6 +7108,7 @@ class ChecklistTemplatesTableCompanion extends UpdateCompanion<TemplateRow> {
   final Value<String?> category;
   final Value<String?> categoryId;
   final Value<bool> isSystem;
+  final Value<int> sortOrder;
   final Value<int> timesUsed;
   final Value<String?> lastUsedAt;
   final Value<int> rowid;
@@ -7088,6 +7124,7 @@ class ChecklistTemplatesTableCompanion extends UpdateCompanion<TemplateRow> {
     this.category = const Value.absent(),
     this.categoryId = const Value.absent(),
     this.isSystem = const Value.absent(),
+    this.sortOrder = const Value.absent(),
     this.timesUsed = const Value.absent(),
     this.lastUsedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -7104,6 +7141,7 @@ class ChecklistTemplatesTableCompanion extends UpdateCompanion<TemplateRow> {
     this.category = const Value.absent(),
     this.categoryId = const Value.absent(),
     this.isSystem = const Value.absent(),
+    this.sortOrder = const Value.absent(),
     this.timesUsed = const Value.absent(),
     this.lastUsedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -7123,6 +7161,7 @@ class ChecklistTemplatesTableCompanion extends UpdateCompanion<TemplateRow> {
     Expression<String>? category,
     Expression<String>? categoryId,
     Expression<bool>? isSystem,
+    Expression<int>? sortOrder,
     Expression<int>? timesUsed,
     Expression<String>? lastUsedAt,
     Expression<int>? rowid,
@@ -7139,6 +7178,7 @@ class ChecklistTemplatesTableCompanion extends UpdateCompanion<TemplateRow> {
       if (category != null) 'category': category,
       if (categoryId != null) 'category_id': categoryId,
       if (isSystem != null) 'is_system': isSystem,
+      if (sortOrder != null) 'sort_order': sortOrder,
       if (timesUsed != null) 'times_used': timesUsed,
       if (lastUsedAt != null) 'last_used_at': lastUsedAt,
       if (rowid != null) 'rowid': rowid,
@@ -7157,6 +7197,7 @@ class ChecklistTemplatesTableCompanion extends UpdateCompanion<TemplateRow> {
     Value<String?>? category,
     Value<String?>? categoryId,
     Value<bool>? isSystem,
+    Value<int>? sortOrder,
     Value<int>? timesUsed,
     Value<String?>? lastUsedAt,
     Value<int>? rowid,
@@ -7173,6 +7214,7 @@ class ChecklistTemplatesTableCompanion extends UpdateCompanion<TemplateRow> {
       category: category ?? this.category,
       categoryId: categoryId ?? this.categoryId,
       isSystem: isSystem ?? this.isSystem,
+      sortOrder: sortOrder ?? this.sortOrder,
       timesUsed: timesUsed ?? this.timesUsed,
       lastUsedAt: lastUsedAt ?? this.lastUsedAt,
       rowid: rowid ?? this.rowid,
@@ -7215,6 +7257,9 @@ class ChecklistTemplatesTableCompanion extends UpdateCompanion<TemplateRow> {
     if (isSystem.present) {
       map['is_system'] = Variable<bool>(isSystem.value);
     }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
     if (timesUsed.present) {
       map['times_used'] = Variable<int>(timesUsed.value);
     }
@@ -7241,8 +7286,476 @@ class ChecklistTemplatesTableCompanion extends UpdateCompanion<TemplateRow> {
           ..write('category: $category, ')
           ..write('categoryId: $categoryId, ')
           ..write('isSystem: $isSystem, ')
+          ..write('sortOrder: $sortOrder, ')
           ..write('timesUsed: $timesUsed, ')
           ..write('lastUsedAt: $lastUsedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
+class $ChecklistTemplateOrdersTableTable extends ChecklistTemplateOrdersTable
+    with TableInfo<$ChecklistTemplateOrdersTableTable, TemplateOrderRow> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ChecklistTemplateOrdersTableTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<String> createdAt = GeneratedColumn<String>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<String> updatedAt = GeneratedColumn<String>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _deletedAtMeta = const VerificationMeta(
+    'deletedAt',
+  );
+  @override
+  late final GeneratedColumn<String> deletedAt = GeneratedColumn<String>(
+    'deleted_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
+  @override
+  late final GeneratedColumn<String> userId = GeneratedColumn<String>(
+    'user_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _templateIdMeta = const VerificationMeta(
+    'templateId',
+  );
+  @override
+  late final GeneratedColumn<String> templateId = GeneratedColumn<String>(
+    'template_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _sortOrderMeta = const VerificationMeta(
+    'sortOrder',
+  );
+  @override
+  late final GeneratedColumn<int> sortOrder = GeneratedColumn<int>(
+    'sort_order',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    createdAt,
+    updatedAt,
+    deletedAt,
+    id,
+    userId,
+    templateId,
+    sortOrder,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'checklist_template_orders';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<TemplateOrderRow> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    if (data.containsKey('deleted_at')) {
+      context.handle(
+        _deletedAtMeta,
+        deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
+      );
+    }
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('user_id')) {
+      context.handle(
+        _userIdMeta,
+        userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_userIdMeta);
+    }
+    if (data.containsKey('template_id')) {
+      context.handle(
+        _templateIdMeta,
+        templateId.isAcceptableOrUnknown(data['template_id']!, _templateIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_templateIdMeta);
+    }
+    if (data.containsKey('sort_order')) {
+      context.handle(
+        _sortOrderMeta,
+        sortOrder.isAcceptableOrUnknown(data['sort_order']!, _sortOrderMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  TemplateOrderRow map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return TemplateOrderRow(
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      deletedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}deleted_at'],
+      ),
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      userId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}user_id'],
+      )!,
+      templateId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}template_id'],
+      )!,
+      sortOrder: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}sort_order'],
+      )!,
+    );
+  }
+
+  @override
+  $ChecklistTemplateOrdersTableTable createAlias(String alias) {
+    return $ChecklistTemplateOrdersTableTable(attachedDatabase, alias);
+  }
+}
+
+class TemplateOrderRow extends DataClass
+    implements Insertable<TemplateOrderRow> {
+  final String createdAt;
+  final String updatedAt;
+  final String? deletedAt;
+  final String id;
+  final String userId;
+  final String templateId;
+  final int sortOrder;
+  const TemplateOrderRow({
+    required this.createdAt,
+    required this.updatedAt,
+    this.deletedAt,
+    required this.id,
+    required this.userId,
+    required this.templateId,
+    required this.sortOrder,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['created_at'] = Variable<String>(createdAt);
+    map['updated_at'] = Variable<String>(updatedAt);
+    if (!nullToAbsent || deletedAt != null) {
+      map['deleted_at'] = Variable<String>(deletedAt);
+    }
+    map['id'] = Variable<String>(id);
+    map['user_id'] = Variable<String>(userId);
+    map['template_id'] = Variable<String>(templateId);
+    map['sort_order'] = Variable<int>(sortOrder);
+    return map;
+  }
+
+  ChecklistTemplateOrdersTableCompanion toCompanion(bool nullToAbsent) {
+    return ChecklistTemplateOrdersTableCompanion(
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      deletedAt: deletedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deletedAt),
+      id: Value(id),
+      userId: Value(userId),
+      templateId: Value(templateId),
+      sortOrder: Value(sortOrder),
+    );
+  }
+
+  factory TemplateOrderRow.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return TemplateOrderRow(
+      createdAt: serializer.fromJson<String>(json['createdAt']),
+      updatedAt: serializer.fromJson<String>(json['updatedAt']),
+      deletedAt: serializer.fromJson<String?>(json['deletedAt']),
+      id: serializer.fromJson<String>(json['id']),
+      userId: serializer.fromJson<String>(json['userId']),
+      templateId: serializer.fromJson<String>(json['templateId']),
+      sortOrder: serializer.fromJson<int>(json['sortOrder']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'createdAt': serializer.toJson<String>(createdAt),
+      'updatedAt': serializer.toJson<String>(updatedAt),
+      'deletedAt': serializer.toJson<String?>(deletedAt),
+      'id': serializer.toJson<String>(id),
+      'userId': serializer.toJson<String>(userId),
+      'templateId': serializer.toJson<String>(templateId),
+      'sortOrder': serializer.toJson<int>(sortOrder),
+    };
+  }
+
+  TemplateOrderRow copyWith({
+    String? createdAt,
+    String? updatedAt,
+    Value<String?> deletedAt = const Value.absent(),
+    String? id,
+    String? userId,
+    String? templateId,
+    int? sortOrder,
+  }) => TemplateOrderRow(
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+    id: id ?? this.id,
+    userId: userId ?? this.userId,
+    templateId: templateId ?? this.templateId,
+    sortOrder: sortOrder ?? this.sortOrder,
+  );
+  TemplateOrderRow copyWithCompanion(
+    ChecklistTemplateOrdersTableCompanion data,
+  ) {
+    return TemplateOrderRow(
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+      id: data.id.present ? data.id.value : this.id,
+      userId: data.userId.present ? data.userId.value : this.userId,
+      templateId: data.templateId.present
+          ? data.templateId.value
+          : this.templateId,
+      sortOrder: data.sortOrder.present ? data.sortOrder.value : this.sortOrder,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('TemplateOrderRow(')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('templateId: $templateId, ')
+          ..write('sortOrder: $sortOrder')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    createdAt,
+    updatedAt,
+    deletedAt,
+    id,
+    userId,
+    templateId,
+    sortOrder,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is TemplateOrderRow &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.deletedAt == this.deletedAt &&
+          other.id == this.id &&
+          other.userId == this.userId &&
+          other.templateId == this.templateId &&
+          other.sortOrder == this.sortOrder);
+}
+
+class ChecklistTemplateOrdersTableCompanion
+    extends UpdateCompanion<TemplateOrderRow> {
+  final Value<String> createdAt;
+  final Value<String> updatedAt;
+  final Value<String?> deletedAt;
+  final Value<String> id;
+  final Value<String> userId;
+  final Value<String> templateId;
+  final Value<int> sortOrder;
+  final Value<int> rowid;
+  const ChecklistTemplateOrdersTableCompanion({
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+    this.id = const Value.absent(),
+    this.userId = const Value.absent(),
+    this.templateId = const Value.absent(),
+    this.sortOrder = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  ChecklistTemplateOrdersTableCompanion.insert({
+    required String createdAt,
+    required String updatedAt,
+    this.deletedAt = const Value.absent(),
+    required String id,
+    required String userId,
+    required String templateId,
+    this.sortOrder = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt),
+       id = Value(id),
+       userId = Value(userId),
+       templateId = Value(templateId);
+  static Insertable<TemplateOrderRow> custom({
+    Expression<String>? createdAt,
+    Expression<String>? updatedAt,
+    Expression<String>? deletedAt,
+    Expression<String>? id,
+    Expression<String>? userId,
+    Expression<String>? templateId,
+    Expression<int>? sortOrder,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (deletedAt != null) 'deleted_at': deletedAt,
+      if (id != null) 'id': id,
+      if (userId != null) 'user_id': userId,
+      if (templateId != null) 'template_id': templateId,
+      if (sortOrder != null) 'sort_order': sortOrder,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  ChecklistTemplateOrdersTableCompanion copyWith({
+    Value<String>? createdAt,
+    Value<String>? updatedAt,
+    Value<String?>? deletedAt,
+    Value<String>? id,
+    Value<String>? userId,
+    Value<String>? templateId,
+    Value<int>? sortOrder,
+    Value<int>? rowid,
+  }) {
+    return ChecklistTemplateOrdersTableCompanion(
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      deletedAt: deletedAt ?? this.deletedAt,
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      templateId: templateId ?? this.templateId,
+      sortOrder: sortOrder ?? this.sortOrder,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (createdAt.present) {
+      map['created_at'] = Variable<String>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<String>(updatedAt.value);
+    }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<String>(deletedAt.value);
+    }
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (userId.present) {
+      map['user_id'] = Variable<String>(userId.value);
+    }
+    if (templateId.present) {
+      map['template_id'] = Variable<String>(templateId.value);
+    }
+    if (sortOrder.present) {
+      map['sort_order'] = Variable<int>(sortOrder.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ChecklistTemplateOrdersTableCompanion(')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('deletedAt: $deletedAt, ')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('templateId: $templateId, ')
+          ..write('sortOrder: $sortOrder, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -7918,6 +8431,17 @@ class $ChecklistRunsTableTable extends ChecklistRunsTable
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _durationMsMeta = const VerificationMeta(
+    'durationMs',
+  );
+  @override
+  late final GeneratedColumn<int> durationMs = GeneratedColumn<int>(
+    'duration_ms',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     createdAt,
@@ -7929,6 +8453,7 @@ class $ChecklistRunsTableTable extends ChecklistRunsTable
     name,
     status,
     completedAt,
+    durationMs,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -8006,6 +8531,12 @@ class $ChecklistRunsTableTable extends ChecklistRunsTable
         ),
       );
     }
+    if (data.containsKey('duration_ms')) {
+      context.handle(
+        _durationMsMeta,
+        durationMs.isAcceptableOrUnknown(data['duration_ms']!, _durationMsMeta),
+      );
+    }
     return context;
   }
 
@@ -8051,6 +8582,10 @@ class $ChecklistRunsTableTable extends ChecklistRunsTable
         DriftSqlType.string,
         data['${effectivePrefix}completed_at'],
       ),
+      durationMs: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}duration_ms'],
+      ),
     );
   }
 
@@ -8070,6 +8605,7 @@ class RunRow extends DataClass implements Insertable<RunRow> {
   final String? name;
   final String status;
   final String? completedAt;
+  final int? durationMs;
   const RunRow({
     required this.createdAt,
     required this.updatedAt,
@@ -8080,6 +8616,7 @@ class RunRow extends DataClass implements Insertable<RunRow> {
     this.name,
     required this.status,
     this.completedAt,
+    this.durationMs,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -8099,6 +8636,9 @@ class RunRow extends DataClass implements Insertable<RunRow> {
     if (!nullToAbsent || completedAt != null) {
       map['completed_at'] = Variable<String>(completedAt);
     }
+    if (!nullToAbsent || durationMs != null) {
+      map['duration_ms'] = Variable<int>(durationMs);
+    }
     return map;
   }
 
@@ -8117,6 +8657,9 @@ class RunRow extends DataClass implements Insertable<RunRow> {
       completedAt: completedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(completedAt),
+      durationMs: durationMs == null && nullToAbsent
+          ? const Value.absent()
+          : Value(durationMs),
     );
   }
 
@@ -8135,6 +8678,7 @@ class RunRow extends DataClass implements Insertable<RunRow> {
       name: serializer.fromJson<String?>(json['name']),
       status: serializer.fromJson<String>(json['status']),
       completedAt: serializer.fromJson<String?>(json['completedAt']),
+      durationMs: serializer.fromJson<int?>(json['durationMs']),
     );
   }
   @override
@@ -8150,6 +8694,7 @@ class RunRow extends DataClass implements Insertable<RunRow> {
       'name': serializer.toJson<String?>(name),
       'status': serializer.toJson<String>(status),
       'completedAt': serializer.toJson<String?>(completedAt),
+      'durationMs': serializer.toJson<int?>(durationMs),
     };
   }
 
@@ -8163,6 +8708,7 @@ class RunRow extends DataClass implements Insertable<RunRow> {
     Value<String?> name = const Value.absent(),
     String? status,
     Value<String?> completedAt = const Value.absent(),
+    Value<int?> durationMs = const Value.absent(),
   }) => RunRow(
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
@@ -8173,6 +8719,7 @@ class RunRow extends DataClass implements Insertable<RunRow> {
     name: name.present ? name.value : this.name,
     status: status ?? this.status,
     completedAt: completedAt.present ? completedAt.value : this.completedAt,
+    durationMs: durationMs.present ? durationMs.value : this.durationMs,
   );
   RunRow copyWithCompanion(ChecklistRunsTableCompanion data) {
     return RunRow(
@@ -8189,6 +8736,9 @@ class RunRow extends DataClass implements Insertable<RunRow> {
       completedAt: data.completedAt.present
           ? data.completedAt.value
           : this.completedAt,
+      durationMs: data.durationMs.present
+          ? data.durationMs.value
+          : this.durationMs,
     );
   }
 
@@ -8203,7 +8753,8 @@ class RunRow extends DataClass implements Insertable<RunRow> {
           ..write('userId: $userId, ')
           ..write('name: $name, ')
           ..write('status: $status, ')
-          ..write('completedAt: $completedAt')
+          ..write('completedAt: $completedAt, ')
+          ..write('durationMs: $durationMs')
           ..write(')'))
         .toString();
   }
@@ -8219,6 +8770,7 @@ class RunRow extends DataClass implements Insertable<RunRow> {
     name,
     status,
     completedAt,
+    durationMs,
   );
   @override
   bool operator ==(Object other) =>
@@ -8232,7 +8784,8 @@ class RunRow extends DataClass implements Insertable<RunRow> {
           other.userId == this.userId &&
           other.name == this.name &&
           other.status == this.status &&
-          other.completedAt == this.completedAt);
+          other.completedAt == this.completedAt &&
+          other.durationMs == this.durationMs);
 }
 
 class ChecklistRunsTableCompanion extends UpdateCompanion<RunRow> {
@@ -8245,6 +8798,7 @@ class ChecklistRunsTableCompanion extends UpdateCompanion<RunRow> {
   final Value<String?> name;
   final Value<String> status;
   final Value<String?> completedAt;
+  final Value<int?> durationMs;
   final Value<int> rowid;
   const ChecklistRunsTableCompanion({
     this.createdAt = const Value.absent(),
@@ -8256,6 +8810,7 @@ class ChecklistRunsTableCompanion extends UpdateCompanion<RunRow> {
     this.name = const Value.absent(),
     this.status = const Value.absent(),
     this.completedAt = const Value.absent(),
+    this.durationMs = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ChecklistRunsTableCompanion.insert({
@@ -8268,6 +8823,7 @@ class ChecklistRunsTableCompanion extends UpdateCompanion<RunRow> {
     this.name = const Value.absent(),
     this.status = const Value.absent(),
     this.completedAt = const Value.absent(),
+    this.durationMs = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : createdAt = Value(createdAt),
        updatedAt = Value(updatedAt),
@@ -8284,6 +8840,7 @@ class ChecklistRunsTableCompanion extends UpdateCompanion<RunRow> {
     Expression<String>? name,
     Expression<String>? status,
     Expression<String>? completedAt,
+    Expression<int>? durationMs,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -8296,6 +8853,7 @@ class ChecklistRunsTableCompanion extends UpdateCompanion<RunRow> {
       if (name != null) 'name': name,
       if (status != null) 'status': status,
       if (completedAt != null) 'completed_at': completedAt,
+      if (durationMs != null) 'duration_ms': durationMs,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -8310,6 +8868,7 @@ class ChecklistRunsTableCompanion extends UpdateCompanion<RunRow> {
     Value<String?>? name,
     Value<String>? status,
     Value<String?>? completedAt,
+    Value<int?>? durationMs,
     Value<int>? rowid,
   }) {
     return ChecklistRunsTableCompanion(
@@ -8322,6 +8881,7 @@ class ChecklistRunsTableCompanion extends UpdateCompanion<RunRow> {
       name: name ?? this.name,
       status: status ?? this.status,
       completedAt: completedAt ?? this.completedAt,
+      durationMs: durationMs ?? this.durationMs,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -8356,6 +8916,9 @@ class ChecklistRunsTableCompanion extends UpdateCompanion<RunRow> {
     if (completedAt.present) {
       map['completed_at'] = Variable<String>(completedAt.value);
     }
+    if (durationMs.present) {
+      map['duration_ms'] = Variable<int>(durationMs.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -8374,6 +8937,7 @@ class ChecklistRunsTableCompanion extends UpdateCompanion<RunRow> {
           ..write('name: $name, ')
           ..write('status: $status, ')
           ..write('completedAt: $completedAt, ')
+          ..write('durationMs: $durationMs, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -10453,6 +11017,8 @@ abstract class _$AppDatabase extends GeneratedDatabase {
       $ChecklistCategoriesTableTable(this);
   late final $ChecklistTemplatesTableTable checklistTemplatesTable =
       $ChecklistTemplatesTableTable(this);
+  late final $ChecklistTemplateOrdersTableTable checklistTemplateOrdersTable =
+      $ChecklistTemplateOrdersTableTable(this);
   late final $ChecklistTemplateItemsTableTable checklistTemplateItemsTable =
       $ChecklistTemplateItemsTableTable(this);
   late final $ChecklistRunsTableTable checklistRunsTable =
@@ -10484,6 +11050,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     habitLogsTable,
     checklistCategoriesTable,
     checklistTemplatesTable,
+    checklistTemplateOrdersTable,
     checklistTemplateItemsTable,
     checklistRunsTable,
     checklistRunItemsTable,
@@ -13694,6 +14261,7 @@ typedef $$ChecklistTemplatesTableTableCreateCompanionBuilder =
       Value<String?> category,
       Value<String?> categoryId,
       Value<bool> isSystem,
+      Value<int> sortOrder,
       Value<int> timesUsed,
       Value<String?> lastUsedAt,
       Value<int> rowid,
@@ -13711,6 +14279,7 @@ typedef $$ChecklistTemplatesTableTableUpdateCompanionBuilder =
       Value<String?> category,
       Value<String?> categoryId,
       Value<bool> isSystem,
+      Value<int> sortOrder,
       Value<int> timesUsed,
       Value<String?> lastUsedAt,
       Value<int> rowid,
@@ -13777,6 +14346,11 @@ class $$ChecklistTemplatesTableTableFilterComposer
 
   ColumnFilters<bool> get isSystem => $composableBuilder(
     column: $table.isSystem,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -13855,6 +14429,11 @@ class $$ChecklistTemplatesTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get timesUsed => $composableBuilder(
     column: $table.timesUsed,
     builder: (column) => ColumnOrderings(column),
@@ -13911,6 +14490,9 @@ class $$ChecklistTemplatesTableTableAnnotationComposer
 
   GeneratedColumn<bool> get isSystem =>
       $composableBuilder(column: $table.isSystem, builder: (column) => column);
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
 
   GeneratedColumn<int> get timesUsed =>
       $composableBuilder(column: $table.timesUsed, builder: (column) => column);
@@ -13978,6 +14560,7 @@ class $$ChecklistTemplatesTableTableTableManager
                 Value<String?> category = const Value.absent(),
                 Value<String?> categoryId = const Value.absent(),
                 Value<bool> isSystem = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
                 Value<int> timesUsed = const Value.absent(),
                 Value<String?> lastUsedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -13993,6 +14576,7 @@ class $$ChecklistTemplatesTableTableTableManager
                 category: category,
                 categoryId: categoryId,
                 isSystem: isSystem,
+                sortOrder: sortOrder,
                 timesUsed: timesUsed,
                 lastUsedAt: lastUsedAt,
                 rowid: rowid,
@@ -14010,6 +14594,7 @@ class $$ChecklistTemplatesTableTableTableManager
                 Value<String?> category = const Value.absent(),
                 Value<String?> categoryId = const Value.absent(),
                 Value<bool> isSystem = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
                 Value<int> timesUsed = const Value.absent(),
                 Value<String?> lastUsedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -14025,6 +14610,7 @@ class $$ChecklistTemplatesTableTableTableManager
                 category: category,
                 categoryId: categoryId,
                 isSystem: isSystem,
+                sortOrder: sortOrder,
                 timesUsed: timesUsed,
                 lastUsedAt: lastUsedAt,
                 rowid: rowid,
@@ -14056,6 +14642,265 @@ typedef $$ChecklistTemplatesTableTableProcessedTableManager =
         >,
       ),
       TemplateRow,
+      PrefetchHooks Function()
+    >;
+typedef $$ChecklistTemplateOrdersTableTableCreateCompanionBuilder =
+    ChecklistTemplateOrdersTableCompanion Function({
+      required String createdAt,
+      required String updatedAt,
+      Value<String?> deletedAt,
+      required String id,
+      required String userId,
+      required String templateId,
+      Value<int> sortOrder,
+      Value<int> rowid,
+    });
+typedef $$ChecklistTemplateOrdersTableTableUpdateCompanionBuilder =
+    ChecklistTemplateOrdersTableCompanion Function({
+      Value<String> createdAt,
+      Value<String> updatedAt,
+      Value<String?> deletedAt,
+      Value<String> id,
+      Value<String> userId,
+      Value<String> templateId,
+      Value<int> sortOrder,
+      Value<int> rowid,
+    });
+
+class $$ChecklistTemplateOrdersTableTableFilterComposer
+    extends Composer<_$AppDatabase, $ChecklistTemplateOrdersTableTable> {
+  $$ChecklistTemplateOrdersTableTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get templateId => $composableBuilder(
+    column: $table.templateId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$ChecklistTemplateOrdersTableTableOrderingComposer
+    extends Composer<_$AppDatabase, $ChecklistTemplateOrdersTableTable> {
+  $$ChecklistTemplateOrdersTableTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get templateId => $composableBuilder(
+    column: $table.templateId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get sortOrder => $composableBuilder(
+    column: $table.sortOrder,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ChecklistTemplateOrdersTableTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ChecklistTemplateOrdersTableTable> {
+  $$ChecklistTemplateOrdersTableTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<String> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get userId =>
+      $composableBuilder(column: $table.userId, builder: (column) => column);
+
+  GeneratedColumn<String> get templateId => $composableBuilder(
+    column: $table.templateId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get sortOrder =>
+      $composableBuilder(column: $table.sortOrder, builder: (column) => column);
+}
+
+class $$ChecklistTemplateOrdersTableTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $ChecklistTemplateOrdersTableTable,
+          TemplateOrderRow,
+          $$ChecklistTemplateOrdersTableTableFilterComposer,
+          $$ChecklistTemplateOrdersTableTableOrderingComposer,
+          $$ChecklistTemplateOrdersTableTableAnnotationComposer,
+          $$ChecklistTemplateOrdersTableTableCreateCompanionBuilder,
+          $$ChecklistTemplateOrdersTableTableUpdateCompanionBuilder,
+          (
+            TemplateOrderRow,
+            BaseReferences<
+              _$AppDatabase,
+              $ChecklistTemplateOrdersTableTable,
+              TemplateOrderRow
+            >,
+          ),
+          TemplateOrderRow,
+          PrefetchHooks Function()
+        > {
+  $$ChecklistTemplateOrdersTableTableTableManager(
+    _$AppDatabase db,
+    $ChecklistTemplateOrdersTableTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ChecklistTemplateOrdersTableTableFilterComposer(
+                $db: db,
+                $table: table,
+              ),
+          createOrderingComposer: () =>
+              $$ChecklistTemplateOrdersTableTableOrderingComposer(
+                $db: db,
+                $table: table,
+              ),
+          createComputedFieldComposer: () =>
+              $$ChecklistTemplateOrdersTableTableAnnotationComposer(
+                $db: db,
+                $table: table,
+              ),
+          updateCompanionCallback:
+              ({
+                Value<String> createdAt = const Value.absent(),
+                Value<String> updatedAt = const Value.absent(),
+                Value<String?> deletedAt = const Value.absent(),
+                Value<String> id = const Value.absent(),
+                Value<String> userId = const Value.absent(),
+                Value<String> templateId = const Value.absent(),
+                Value<int> sortOrder = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ChecklistTemplateOrdersTableCompanion(
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                deletedAt: deletedAt,
+                id: id,
+                userId: userId,
+                templateId: templateId,
+                sortOrder: sortOrder,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String createdAt,
+                required String updatedAt,
+                Value<String?> deletedAt = const Value.absent(),
+                required String id,
+                required String userId,
+                required String templateId,
+                Value<int> sortOrder = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => ChecklistTemplateOrdersTableCompanion.insert(
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                deletedAt: deletedAt,
+                id: id,
+                userId: userId,
+                templateId: templateId,
+                sortOrder: sortOrder,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$ChecklistTemplateOrdersTableTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $ChecklistTemplateOrdersTableTable,
+      TemplateOrderRow,
+      $$ChecklistTemplateOrdersTableTableFilterComposer,
+      $$ChecklistTemplateOrdersTableTableOrderingComposer,
+      $$ChecklistTemplateOrdersTableTableAnnotationComposer,
+      $$ChecklistTemplateOrdersTableTableCreateCompanionBuilder,
+      $$ChecklistTemplateOrdersTableTableUpdateCompanionBuilder,
+      (
+        TemplateOrderRow,
+        BaseReferences<
+          _$AppDatabase,
+          $ChecklistTemplateOrdersTableTable,
+          TemplateOrderRow
+        >,
+      ),
+      TemplateOrderRow,
       PrefetchHooks Function()
     >;
 typedef $$ChecklistTemplateItemsTableTableCreateCompanionBuilder =
@@ -14372,6 +15217,7 @@ typedef $$ChecklistRunsTableTableCreateCompanionBuilder =
       Value<String?> name,
       Value<String> status,
       Value<String?> completedAt,
+      Value<int?> durationMs,
       Value<int> rowid,
     });
 typedef $$ChecklistRunsTableTableUpdateCompanionBuilder =
@@ -14385,6 +15231,7 @@ typedef $$ChecklistRunsTableTableUpdateCompanionBuilder =
       Value<String?> name,
       Value<String> status,
       Value<String?> completedAt,
+      Value<int?> durationMs,
       Value<int> rowid,
     });
 
@@ -14439,6 +15286,11 @@ class $$ChecklistRunsTableTableFilterComposer
 
   ColumnFilters<String> get completedAt => $composableBuilder(
     column: $table.completedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get durationMs => $composableBuilder(
+    column: $table.durationMs,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -14496,6 +15348,11 @@ class $$ChecklistRunsTableTableOrderingComposer
     column: $table.completedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get durationMs => $composableBuilder(
+    column: $table.durationMs,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$ChecklistRunsTableTableAnnotationComposer
@@ -14535,6 +15392,11 @@ class $$ChecklistRunsTableTableAnnotationComposer
 
   GeneratedColumn<String> get completedAt => $composableBuilder(
     column: $table.completedAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get durationMs => $composableBuilder(
+    column: $table.durationMs,
     builder: (column) => column,
   );
 }
@@ -14584,6 +15446,7 @@ class $$ChecklistRunsTableTableTableManager
                 Value<String?> name = const Value.absent(),
                 Value<String> status = const Value.absent(),
                 Value<String?> completedAt = const Value.absent(),
+                Value<int?> durationMs = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ChecklistRunsTableCompanion(
                 createdAt: createdAt,
@@ -14595,6 +15458,7 @@ class $$ChecklistRunsTableTableTableManager
                 name: name,
                 status: status,
                 completedAt: completedAt,
+                durationMs: durationMs,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -14608,6 +15472,7 @@ class $$ChecklistRunsTableTableTableManager
                 Value<String?> name = const Value.absent(),
                 Value<String> status = const Value.absent(),
                 Value<String?> completedAt = const Value.absent(),
+                Value<int?> durationMs = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ChecklistRunsTableCompanion.insert(
                 createdAt: createdAt,
@@ -14619,6 +15484,7 @@ class $$ChecklistRunsTableTableTableManager
                 name: name,
                 status: status,
                 completedAt: completedAt,
+                durationMs: durationMs,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -15734,6 +16600,12 @@ class $AppDatabaseManager {
       $$ChecklistTemplatesTableTableTableManager(
         _db,
         _db.checklistTemplatesTable,
+      );
+  $$ChecklistTemplateOrdersTableTableTableManager
+  get checklistTemplateOrdersTable =>
+      $$ChecklistTemplateOrdersTableTableTableManager(
+        _db,
+        _db.checklistTemplateOrdersTable,
       );
   $$ChecklistTemplateItemsTableTableTableManager
   get checklistTemplateItemsTable =>

@@ -19,15 +19,15 @@ import '../../utils/uuid_utils.dart';
 
 // ─── Tag ──────────────────────────────────────────────────────────────────
 
-TagsTableCompanion tagToCompanion(Tag tag, String userId) =>
-    TagsTableCompanion.insert(
-      id: tag.id,
-      name: tag.name,
-      color: Value(formatColorHex(tag.color)),
-      userId: userId,
-      createdAt: nowIso(),
-      updatedAt: nowIso(),
-    );
+TagsTableCompanion tagToCompanion(Tag tag, String userId) => TagsTableCompanion(
+  id: Value(tag.id),
+  name: Value(tag.name),
+  color: Value(formatColorHex(tag.color)),
+  userId: Value(tag.userId ?? userId),
+  createdAt: Value(tag.createdAt?.toUtc().toIso8601String() ?? nowIso()),
+  updatedAt: Value(tag.updatedAt?.toUtc().toIso8601String() ?? nowIso()),
+  deletedAt: Value(tag.deletedAt?.toUtc().toIso8601String()),
+);
 
 // ─── Todo ─────────────────────────────────────────────────────────────────
 
@@ -152,6 +152,7 @@ ChecklistTemplatesTableCompanion templateToCompanion(
   category: Value(template.category),
   categoryId: Value(template.categoryId),
   isSystem: Value(template.isSystem),
+  sortOrder: Value(template.sortOrder),
   timesUsed: Value(template.timesUsed),
   lastUsedAt: Value(template.lastUsedAt?.toUtc().toIso8601String()),
   createdAt: Value(template.createdAt.toUtc().toIso8601String()),
@@ -185,6 +186,7 @@ ChecklistRunsTableCompanion runToCompanion(Run run, String userId) =>
       name: Value(run.name),
       status: Value(run.status.backendValue),
       completedAt: Value(run.completedAt?.toUtc().toIso8601String()),
+      durationMs: Value(run.durationMs),
       createdAt: Value(run.startedAt.toUtc().toIso8601String()),
       updatedAt: Value(nowIso()),
     );

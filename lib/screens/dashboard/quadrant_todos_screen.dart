@@ -4,6 +4,7 @@ import '../../theme/app_colors.dart';
 import '../../utils/date_utils.dart';
 import '../../utils/quadrant_utils.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/tag_chip.dart';
 import '../todos/todo_detail_screen.dart';
 
 /// EXP 10 — Hiển thị full list todos của 1 quadrant khi tap ô Dashboard.
@@ -128,11 +129,20 @@ class _DashboardTodoTile extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
         style: const TextStyle(fontWeight: FontWeight.w600),
       ),
-      subtitle: Text(
-        _subtitle(todo),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(color: secondary),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _subtitle(todo),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: secondary),
+          ),
+          if (todo.tags.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            TodoTagWrap(tags: todo.tags),
+          ],
+        ],
       ),
       trailing: todo.id.isEmpty
           ? null
