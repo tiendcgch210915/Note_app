@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import '../utils/json_utils.dart';
+import '../utils/note_delta_utils.dart';
 import 'tag.dart';
 
 enum NoteType {
@@ -8,7 +11,7 @@ enum NoteType {
   String get label {
     switch (this) {
       case NoteType.free:
-        return 'Tự do';
+        return 'Ghi chú thường';
       case NoteType.cornell:
         return 'Cornell';
     }
@@ -28,42 +31,76 @@ enum NoteType {
 
 class Note {
   final String id;
+  final String? userId;
   final String title;
   final NoteType type;
   final String? body;
   final String? cornellCue;
   final String? cornellSummary;
+  final String contentFormat;
+  final Map<String, dynamic>? bodyDelta;
+  final Map<String, dynamic>? cornellCueDelta;
+  final Map<String, dynamic>? cornellSummaryDelta;
   final bool isPinned;
   final List<Tag> tags;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final DateTime? deletedAt;
 
   const Note({
     required this.id,
+    this.userId,
     required this.title,
     this.type = NoteType.free,
     this.body,
     this.cornellCue,
     this.cornellSummary,
+    this.contentFormat = 'plain',
+    this.bodyDelta,
+    this.cornellCueDelta,
+    this.cornellSummaryDelta,
     this.isPinned = false,
     this.tags = const [],
     required this.createdAt,
     required this.updatedAt,
+    this.deletedAt,
   });
 
   factory Note.fromJson(Map<String, dynamic> json) {
     return Note(
       id: json['id'] as String,
+      userId: json['user_id'] as String?,
       title: json['title'] as String,
       type: NoteType.parse(json['type'] as String? ?? 'free'),
       body: json['body'] as String?,
       cornellCue: json['cornell_cue'] as String?,
       cornellSummary: json['cornell_summary'] as String?,
+      contentFormat: json['content_format'] == noteContentFormatQuill
+          ? noteContentFormatQuill
+          : noteContentFormatPlain,
+      bodyDelta: _parseJsonObject(json['body_delta']),
+      cornellCueDelta: _parseJsonObject(json['cornell_cue_delta']),
+      cornellSummaryDelta: _parseJsonObject(json['cornell_summary_delta']),
       isPinned: jsonBool(json['is_pinned']),
       tags: const [], // list response không trả tags inline; getDetail mới có
       createdAt: jsonDate(json['created_at'] as String),
       updatedAt: jsonDate(json['updated_at'] as String),
+      deletedAt: jsonDateNullable(json['deleted_at'] as String?),
     );
+  }
+
+  static Map<String, dynamic>? _parseJsonObject(dynamic value) {
+    if (value == null) return null;
+    if (value is Map) return sanitizeNoteDelta(value);
+    if (value is String && value.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(value);
+        if (decoded is Map) return sanitizeNoteDelta(decoded);
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
   }
 
   /// Body cho POST /notes (Free or Cornell). Caller cung cấp đầy đủ field bắt buộc.
@@ -73,6 +110,10 @@ class Note {
     String? body,
     String? cornellCue,
     String? cornellSummary,
+    Map<String, dynamic>? bodyDelta,
+    Map<String, dynamic>? cornellCueDelta,
+    Map<String, dynamic>? cornellSummaryDelta,
+    String contentFormat = noteContentFormatPlain,
     bool isPinned = false,
     List<String> tags = const [],
   }) {
@@ -80,9 +121,13 @@ class Note {
       'type': type.backendValue,
       'title': title,
       if (body != null) 'body': body,
+      'body_delta': sanitizeNoteDelta(bodyDelta),
+      'content_format': contentFormat,
       if (type == NoteType.cornell) ...{
         'cornell_cue': cornellCue,
         'cornell_summary': cornellSummary,
+        'cornell_cue_delta': sanitizeNoteDelta(cornellCueDelta),
+        'cornell_summary_delta': sanitizeNoteDelta(cornellSummaryDelta),
       },
       'is_pinned': isPinned,
       if (tags.isNotEmpty) 'tags': tags,
@@ -91,9 +136,66 @@ class Note {
 
   /// Preview body cho card list.
   String get previewBody {
-    final raw = body ?? cornellSummary ?? cornellCue ?? '';
+    final raw = type == NoteType.cornell
+        ? _firstNonEmpty(cornellSummary, body, cornellCue)
+        : body ?? '';
     if (raw.length <= 120) return raw;
     return '${raw.substring(0, 120)}…';
+  }
+
+  Note copyWith({
+    String? title,
+    NoteType? type,
+    String? body,
+    bool clearBody = false,
+    String? cornellCue,
+    bool clearCornellCue = false,
+    String? cornellSummary,
+    bool clearCornellSummary = false,
+    String? contentFormat,
+    Map<String, dynamic>? bodyDelta,
+    bool clearBodyDelta = false,
+    Map<String, dynamic>? cornellCueDelta,
+    bool clearCornellCueDelta = false,
+    Map<String, dynamic>? cornellSummaryDelta,
+    bool clearCornellSummaryDelta = false,
+    bool? isPinned,
+    List<Tag>? tags,
+    DateTime? updatedAt,
+    DateTime? deletedAt,
+    bool clearDeletedAt = false,
+  }) {
+    return Note(
+      id: id,
+      userId: userId,
+      title: title ?? this.title,
+      type: type ?? this.type,
+      body: clearBody ? null : body ?? this.body,
+      cornellCue: clearCornellCue ? null : cornellCue ?? this.cornellCue,
+      cornellSummary: clearCornellSummary
+          ? null
+          : cornellSummary ?? this.cornellSummary,
+      contentFormat: contentFormat ?? this.contentFormat,
+      bodyDelta: clearBodyDelta ? null : bodyDelta ?? this.bodyDelta,
+      cornellCueDelta: clearCornellCueDelta
+          ? null
+          : cornellCueDelta ?? this.cornellCueDelta,
+      cornellSummaryDelta: clearCornellSummaryDelta
+          ? null
+          : cornellSummaryDelta ?? this.cornellSummaryDelta,
+      isPinned: isPinned ?? this.isPinned,
+      tags: tags ?? this.tags,
+      createdAt: createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      deletedAt: clearDeletedAt ? null : deletedAt ?? this.deletedAt,
+    );
+  }
+
+  static String _firstNonEmpty(String? first, String? second, String? third) {
+    for (final value in [first, second, third]) {
+      if (value != null && value.trim().isNotEmpty) return value;
+    }
+    return '';
   }
 }
 

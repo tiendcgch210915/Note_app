@@ -5,6 +5,7 @@ import '../../data/checklists_repository.dart';
 import '../../models/checklist_category.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/checklist_step_text_utils.dart';
+import '../../widgets/checklist_paste_steps_sheet.dart';
 import '../../widgets/primary_button.dart';
 
 class _DraftItem {
@@ -140,54 +141,16 @@ class _TemplateCreateScreenState extends State<TemplateCreateScreen> {
   Future<void> _showPasteStepsSheet() async {
     final clipboard = await Clipboard.getData('text/plain');
     if (!mounted) return;
-    final ctrl = TextEditingController(text: clipboard?.text ?? '');
-    final raw = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (ctx) {
-        final bottom = MediaQuery.viewInsetsOf(ctx).bottom;
-        return SafeArea(
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(20, 8, 20, 20 + bottom),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Dán nhiều bước',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: ctrl,
-                  autofocus: true,
-                  minLines: 5,
-                  maxLines: 10,
-                  decoration: const InputDecoration(
-                    hintText: 'Mỗi dòng là một bước',
-                    alignLabelWithHint: true,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  height: 46,
-                  child: ElevatedButton.icon(
-                    onPressed: () => Navigator.of(ctx).pop(ctrl.text),
-                    icon: const Icon(Icons.content_paste_go_outlined),
-                    label: const Text('Thêm vào checklist'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+    final raw = await showChecklistPasteStepsSheet(
+      context,
+      initialText: clipboard?.text ?? '',
     );
-    ctrl.dispose();
-    if (raw == null) return;
-    _insertPastedSteps(parseChecklistStepLines(raw));
+    if (!mounted || raw == null) return;
+    final titles = parseChecklistStepLines(raw);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _insertPastedSteps(titles);
+    });
   }
 
   void _insertPastedSteps(List<String> titles) {

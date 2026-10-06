@@ -55,4 +55,54 @@ void main() {
     expect(find.text('99'), findsNothing);
     expect(find.textContaining('Ignored legacy bucket'), findsNothing);
   });
+
+  testWidgets('EisenhowerGrid sorts previews by time and prefixes titles', (
+    tester,
+  ) async {
+    DashboardEisenhowerTodo todo(String id, String title, String? time) {
+      return DashboardEisenhowerTodo(
+        id: id,
+        title: title,
+        status: 'open',
+        scheduledDate: DateTime(2026, 6, 26),
+        time: time,
+        isImportant: true,
+        isUrgent: true,
+        isFrog: false,
+        frogDate: null,
+        quadrant: 'q1',
+      );
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: EisenhowerGrid(
+            counts: const {'q1': 4},
+            previews: {
+              'q1': [
+                todo('cv', 'Viết CV', '15:00'),
+                todo('none', 'Không đặt giờ', null),
+                todo('gym', 'Đi tập GYM', '09:00'),
+                todo('english', 'Học tiếng Anh', '12:00'),
+              ],
+            },
+          ),
+        ),
+      ),
+    );
+
+    final gym = find.text('· [09:00] Đi tập GYM', findRichText: true);
+    final english = find.text('· [12:00] Học tiếng Anh', findRichText: true);
+    final cv = find.text('· [15:00] Viết CV', findRichText: true);
+    final noTime = find.text('· Không đặt giờ');
+
+    expect(gym, findsOneWidget);
+    expect(english, findsOneWidget);
+    expect(cv, findsOneWidget);
+    expect(noTime, findsOneWidget);
+    expect(tester.getTopLeft(gym).dy, lessThan(tester.getTopLeft(english).dy));
+    expect(tester.getTopLeft(english).dy, lessThan(tester.getTopLeft(cv).dy));
+    expect(tester.getTopLeft(cv).dy, lessThan(tester.getTopLeft(noTime).dy));
+  });
 }

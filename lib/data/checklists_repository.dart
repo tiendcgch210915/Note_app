@@ -40,11 +40,17 @@ class ChecklistsRepository {
           .map((e) => ChecklistCategory.fromJson(e as Map<String, dynamic>))
           .toList();
       await _cacheCategories(categories);
-      final rows = await _db.checklistsDao.getCategories(scope: scope);
+      final rows = await _db.checklistsDao.getCategories(
+        userId: _userId,
+        scope: scope,
+      );
       return rows.map(_categoryRowToModel).toList();
     } on ApiException catch (e) {
       if (e.code != 'no_connection') rethrow;
-      final rows = await _db.checklistsDao.getCategories(scope: scope);
+      final rows = await _db.checklistsDao.getCategories(
+        userId: _userId,
+        scope: scope,
+      );
       return rows.map(_categoryRowToModel).toList();
     }
   }
@@ -164,6 +170,7 @@ class ChecklistsRepository {
     } on ApiException catch (e) {
       if (e.code != 'no_connection') rethrow;
       final rows = await _db.checklistsDao.getTemplates(
+        userId: _userId,
         isSystem: _scopeIsSystem(scope),
         categoryId: categoryId,
         uncategorized: uncategorized,
@@ -399,7 +406,7 @@ class ChecklistsRepository {
     final existing = await _findLocalInProgressRunForTemplate(templateId);
     if (existing != null) {
       final items = await _db.checklistsDao.getItemsForRun(existing.id);
-      return (run: existing, items: items.map(_runItemRowToModel).toList());
+      return (run: existing, items: await _runItemRowsToModels(items));
     }
     return _startRunLocal(templateId: templateId, name: name);
   }
@@ -430,6 +437,7 @@ class ChecklistsRepository {
     } on ApiException catch (e) {
       if (e.code != 'no_connection') rethrow;
       final rows = await _db.checklistsDao.getRuns(
+        userId: _userId,
         limit: limit ?? 20,
         status: status,
         templateId: templateId,
@@ -440,6 +448,9 @@ class ChecklistsRepository {
 
   /// F-C12 Get run detail.
   Future<({Run run, List<RunItem> items})> getRun(String id) async {
+    final local = await _getLocalRun(id);
+    if (local != null) return local;
+
     try {
       final resp = await _client.get('/checklists/runs/$id');
       final map = resp as Map<String, dynamic>;
@@ -452,14 +463,10 @@ class ChecklistsRepository {
       await _cacheRun(result.run, result.items);
       return result;
     } on ApiException catch (e) {
+      final fallback = await _getLocalRun(id);
+      if (fallback != null) return fallback;
       if (e.code != 'no_connection') rethrow;
-      final row = await _db.checklistsDao.getRunById(id);
-      if (row == null) throw const ApiException(404, 'not_found', 'not_found');
-      final items = await _db.checklistsDao.getItemsForRun(id);
-      return (
-        run: _runRowToModel(row),
-        items: items.map(_runItemRowToModel).toList(),
-      );
+      throw const ApiException(404, 'not_found', 'not_found');
     }
   }
 
@@ -487,7 +494,7 @@ class ChecklistsRepository {
     if (updated == null) {
       throw const ApiException(404, 'not_found', 'not_found');
     }
-    return _runItemRowToModel(updated);
+    return _runItemRowToModel(updated, await _snapshotForRunItem(updated));
   }
 
   /// F-C14 Complete run.
@@ -572,6 +579,14 @@ class ChecklistsRepository {
     for (final item in items) {
       await _db.checklistsDao.upsertRunItem(runItemToCompanion(item));
     }
+  }
+
+  Future<({Run run, List<RunItem> items})?> _getLocalRun(String id) async {
+    final row = await _db.checklistsDao.getRunById(id);
+    if (row == null) return null;
+    final items = await _db.checklistsDao.getItemsForRun(id);
+    if (items.isEmpty) return null;
+    return (run: _runRowToModel(row), items: await _runItemRowsToModels(items));
   }
 
   Future<({Run run, List<RunItem> items})> _startRunLocal({
@@ -767,6 +782,7 @@ class ChecklistsRepository {
   Future<Run?> _findLocalInProgressRunForTemplate(String templateId) async {
     final local = await _db.checklistsDao.getInProgressRunForTemplate(
       templateId,
+      userId: _userId,
     );
     return local == null ? null : _runRowToModel(local);
   }
@@ -883,6 +899,7 @@ class ChecklistsRepository {
     required bool uncategorized,
   }) async {
     final rows = await _db.checklistsDao.getTemplates(
+      userId: _userId,
       isSystem: _scopeIsSystem(scope),
       categoryId: categoryId,
       uncategorized: uncategorized,
@@ -949,15 +966,32 @@ class ChecklistsRepository {
     );
   }
 
-  RunItem _runItemRowToModel(RunItemRow row) {
+  Future<List<RunItem>> _runItemRowsToModels(List<RunItemRow> rows) async {
+    final items = <RunItem>[];
+    for (final row in rows) {
+      items.add(_runItemRowToModel(row, await _snapshotForRunItem(row)));
+    }
+    return items;
+  }
+
+  Future<TemplateItemRow?> _snapshotForRunItem(RunItemRow row) async {
+    if (row.title.isNotEmpty || row.templateItemId == null) return null;
+    return _db.checklistsDao.getTemplateItemById(row.templateItemId!);
+  }
+
+  RunItem _runItemRowToModel(RunItemRow row, [TemplateItemRow? snapshot]) {
     return RunItem(
       id: row.id,
       runId: row.runId,
       templateItemId: row.templateItemId ?? '',
       status: RunItemStatus.parse(row.status),
-      title: row.title,
-      isRequired: row.isRequired,
-      position: row.orderIndex,
+      title: row.title.isNotEmpty ? row.title : snapshot?.title ?? '',
+      isRequired: row.title.isNotEmpty
+          ? row.isRequired
+          : snapshot?.isRequired ?? row.isRequired,
+      position: row.title.isNotEmpty
+          ? row.orderIndex
+          : snapshot?.orderIndex ?? row.orderIndex,
       completedAt: jsonDateNullable(row.completedAt),
       note: row.note,
     );

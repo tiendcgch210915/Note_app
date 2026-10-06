@@ -4,11 +4,12 @@ import '../../data/dashboard_repository.dart';
 import '../../models/dashboard.dart';
 import '../../utils/date_utils.dart';
 import '../../widgets/calendar_day_cell.dart';
+import 'calendar_day_detail_screen.dart';
 
 /// Tab Lịch — dùng F-D3 calendar overview.
 ///
 /// Layout: lịch sử thu gọn ở trên, grid chính 30 ngày với hôm nay ở dòng 3.
-/// Past/today hiện score + tiến độ todos/habits, future hiện tổng todos/habits.
+/// Past/today hiện điểm + tiến độ todos/habits, future hiện tổng todos/habits.
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({super.key});
 
@@ -314,15 +315,17 @@ class _CalendarScreenState extends State<CalendarScreen> {
       doneTodos: day?.doneTodos ?? 0,
       habitsTotal: day?.habitsTotal ?? 0,
       habitsCompleted: day?.habitsCompleted ?? 0,
-      onTap: () {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Mở ${AppDateUtils.formatDate(date)} (demo)'),
-            duration: const Duration(seconds: 1),
-          ),
-        );
-      },
+      onTap: () => _openDayDetail(date),
     );
+  }
+
+  Future<void> _openDayDetail(DateTime date) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CalendarDayDetailScreen(initialDate: date),
+      ),
+    );
+    if (mounted) await _fetchMainWindow();
   }
 
   String get _historyRangeLabel {

@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import '../data/local/database.dart'; // provides generated *Row types from database.g.dart
+import '../models/recurring_todo_delete_scope.dart';
+import '../utils/note_delta_utils.dart';
 
 /// Converts Drift row objects into sync JSON payloads that match the
 /// API_CONTRACT.md shape for POST /sync/push.
@@ -29,30 +31,28 @@ class SyncPayload {
 
   // ─── Todo ─────────────────────────────────────────────────────────
 
-  static Map<String, dynamic> fromTodo(
-    TodoRow row,
-    List<String> tagIds,
-    List<String> linkedNoteIds,
-  ) {
+  static Map<String, dynamic> fromTodo(TodoRow row, List<String> tagIds) {
     final isSubtask = row.parentId != null;
     return {
       'id': row.id,
       'user_id': row.userId,
       'parent_id': row.parentId,
       'title': row.title,
-      'description': isSubtask ? null : row.description,
+      'description': row.description,
       'status': row.status,
       'position': row.position,
-      'is_frog': isSubtask ? false : row.isFrog,
-      'frog_date': isSubtask ? null : row.frogDate,
-      'is_important': isSubtask ? null : row.isImportant,
-      'is_urgent': isSubtask ? null : row.isUrgent,
-      'estimated_minutes': isSubtask ? null : row.estimatedMinutes,
-      'actual_minutes': isSubtask ? null : row.actualMinutes,
-      'start_at': isSubtask ? null : row.startAt,
-      'due_at': isSubtask ? null : row.dueAt,
+      'is_frog': row.isFrog,
+      'frog_date': row.frogDate,
+      'is_important': row.isImportant,
+      'is_urgent': row.isUrgent,
+      'estimated_minutes': row.estimatedMinutes,
+      'actual_minutes': row.actualMinutes,
+      'start_at': row.startAt,
+      'due_at': row.dueAt,
       'scheduled_date': isSubtask ? null : row.scheduledDate,
-      'trigger_after_todo_id': isSubtask ? null : row.triggerAfterTodoId,
+      'time': isSubtask || row.scheduledDate == null ? null : row.time,
+      'trigger_after_todo_id': row.triggerAfterTodoId,
+      'habit_id': row.habitId,
       'completed_at': row.completedAt,
       // Recurrence fields
       'recurrence_type': isSubtask ? null : row.recurrenceType,
@@ -61,13 +61,23 @@ class SyncPayload {
       'recurrence_end_date': isSubtask ? null : row.recurrenceEndDate,
       'recurrence_template_id': isSubtask ? null : row.recurrenceTemplateId,
       // Junction embed
-      'tag_ids': isSubtask ? const <String>[] : tagIds,
-      'linked_note_ids': isSubtask ? const <String>[] : linkedNoteIds,
+      'tag_ids': tagIds,
       'created_at': row.createdAt,
       'updated_at': row.updatedAt,
       'deleted_at': row.deletedAt,
     };
   }
+
+  static Map<String, dynamic> fromTodoDelete({
+    required String id,
+    required RecurringTodoDeleteScope scope,
+    required String deletedAt,
+  }) => {
+    'id': id,
+    'delete_scope': scope.apiValue,
+    'deleted_at': deletedAt,
+    'updated_at': deletedAt,
+  };
 
   // ─── Note ─────────────────────────────────────────────────────────
 
@@ -84,6 +94,10 @@ class SyncPayload {
     'body': row.body,
     'cornell_cue': row.cornellCue,
     'cornell_summary': row.cornellSummary,
+    'content_format': row.contentFormat,
+    'body_delta': _decodeJsonObject(row.bodyDelta),
+    'cornell_cue_delta': _decodeJsonObject(row.cornellCueDelta),
+    'cornell_summary_delta': _decodeJsonObject(row.cornellSummaryDelta),
     'is_pinned': row.isPinned,
     // Junction embeds
     'tag_ids': tagIds,
@@ -93,6 +107,16 @@ class SyncPayload {
     'updated_at': row.updatedAt,
     'deleted_at': row.deletedAt,
   };
+
+  static Map<String, dynamic>? _decodeJsonObject(String? value) {
+    if (value == null || value.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(value);
+      return decoded is Map ? sanitizeNoteDelta(decoded) : null;
+    } catch (_) {
+      return null;
+    }
+  }
 
   // ─── Habit ────────────────────────────────────────────────────────
 

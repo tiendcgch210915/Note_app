@@ -5,7 +5,15 @@ import '../tables.dart';
 
 part 'todos_dao.g.dart';
 
-@DriftAccessor(tables: [TodosTable, TodoTagsTable, TagsTable, NoteTagsTable])
+@DriftAccessor(
+  tables: [
+    TodosTable,
+    TodoTagsTable,
+    TagsTable,
+    NoteTagsTable,
+    NoteTodoLinksTable,
+  ],
+)
 class TodosDao extends DatabaseAccessor<AppDatabase> with _$TodosDaoMixin {
   TodosDao(super.db);
 
@@ -27,6 +35,12 @@ class TodosDao extends DatabaseAccessor<AppDatabase> with _$TodosDaoMixin {
     return (select(
       db.todosTable,
     )..where((t) => t.id.equals(id) & t.deletedAt.isNull())).getSingleOrNull();
+  }
+
+  Future<TodoRow?> getTodoByIdIncludingDeleted(String id) {
+    return (select(
+      db.todosTable,
+    )..where((t) => t.id.equals(id))).getSingleOrNull();
   }
 
   /// Today's todos (scheduled_date = today, not done, not deleted).
@@ -90,6 +104,112 @@ class TodosDao extends DatabaseAccessor<AppDatabase> with _$TodosDaoMixin {
         .get();
   }
 
+  Future<List<TodoRow>> getActiveSubtree(
+    String rootId, {
+    required String userId,
+  }) async {
+    final result = <TodoRow>[];
+    var frontier = <String>[rootId];
+    while (frontier.isNotEmpty) {
+      final rows =
+          await (select(db.todosTable)
+                ..where(
+                  (t) =>
+                      t.userId.equals(userId) &
+                      t.parentId.isIn(frontier) &
+                      t.deletedAt.isNull(),
+                )
+                ..orderBy([
+                  (t) => OrderingTerm.asc(t.position),
+                  (t) => OrderingTerm.asc(t.createdAt),
+                ]))
+              .get();
+      result.addAll(rows);
+      frontier = rows.map((row) => row.id).toList();
+    }
+    return result;
+  }
+
+  Future<bool> hasDirectActiveSubtasks(
+    String parentId, {
+    required String userId,
+  }) async {
+    final row =
+        await (select(db.todosTable)
+              ..where(
+                (t) =>
+                    t.userId.equals(userId) &
+                    t.parentId.equals(parentId) &
+                    t.deletedAt.isNull(),
+              )
+              ..limit(1))
+            .getSingleOrNull();
+    return row != null;
+  }
+
+  Future<List<TodoRow>> clearOtherFrogsForDate({
+    required String userId,
+    required String dateOnly,
+    required String updatedAtIso,
+    String? exceptId,
+  }) async {
+    final rows =
+        await (select(db.todosTable)..where(
+              (t) =>
+                  t.userId.equals(userId) &
+                  t.deletedAt.isNull() &
+                  t.isFrog.equals(true) &
+                  (t.frogDate.equals(dateOnly) |
+                      t.scheduledDate.equals(dateOnly)),
+            ))
+            .get();
+    final toClear = rows.where((row) => row.id != exceptId).toList();
+    if (toClear.isEmpty) return const [];
+
+    await (update(db.todosTable)..where(
+          (t) =>
+              t.userId.equals(userId) &
+              t.id.isIn(toClear.map((r) => r.id).toList()),
+        ))
+        .write(
+          TodosTableCompanion(
+            isFrog: const Value(false),
+            frogDate: const Value(null),
+            updatedAt: Value(updatedAtIso),
+          ),
+        );
+    return toClear;
+  }
+
+  Future<List<String>> purgeTodoSubtree(
+    String rootId, {
+    required String userId,
+  }) async {
+    return transaction(() async {
+      final ids = <String>{rootId};
+      var frontier = <String>[rootId];
+      while (frontier.isNotEmpty) {
+        final children =
+            await (select(db.todosTable)..where(
+                  (t) => t.userId.equals(userId) & t.parentId.isIn(frontier),
+                ))
+                .get();
+        frontier = children.map((row) => row.id).where(ids.add).toList();
+      }
+      final values = ids.toList();
+      await (delete(
+        db.todoTagsTable,
+      )..where((row) => row.todoId.isIn(values))).go();
+      await (delete(
+        db.noteTodoLinksTable,
+      )..where((row) => row.todoId.isIn(values))).go();
+      await (delete(
+        db.todosTable,
+      )..where((row) => row.userId.equals(userId) & row.id.isIn(values))).go();
+      return values;
+    });
+  }
+
   // ─── Tags for a todo ─────────────────────────────────────────────
 
   Future<List<TagRow>> getTagsForTodo(String todoId) async {
@@ -121,12 +241,13 @@ class TodosDao extends DatabaseAccessor<AppDatabase> with _$TodosDaoMixin {
   }
 
   Future<List<TagRow>> getTags({
+    required String userId,
     String? q,
     bool onlyUsedByTodos = false,
   }) async {
     final rows =
         await (select(db.tagsTable)
-              ..where((t) => t.deletedAt.isNull())
+              ..where((t) => t.userId.equals(userId) & t.deletedAt.isNull())
               ..orderBy([(t) => OrderingTerm.asc(t.name)]))
             .get();
     final usedIds = onlyUsedByTodos
@@ -222,6 +343,26 @@ class TodosDao extends DatabaseAccessor<AppDatabase> with _$TodosDaoMixin {
     );
   }
 
+  Future<void> updateTodoPosition(
+    String todoId, {
+    required String userId,
+    required int position,
+    required String updatedAtIso,
+  }) async {
+    await (update(db.todosTable)..where(
+          (t) =>
+              t.id.equals(todoId) &
+              t.userId.equals(userId) &
+              t.deletedAt.isNull(),
+        ))
+        .write(
+          TodosTableCompanion(
+            position: Value(position),
+            updatedAt: Value(updatedAtIso),
+          ),
+        );
+  }
+
   Future<List<TodoRow>> getTodosForTag(String tagId) async {
     final links = await (select(
       db.todoTagsTable,
@@ -233,6 +374,36 @@ class TodosDao extends DatabaseAccessor<AppDatabase> with _$TodosDaoMixin {
     )..where((t) => t.id.isIn(todoIds) & t.deletedAt.isNull())).get();
   }
 
+  Future<List<TodoRow>> getTodosForHabit(String habitId) {
+    return (select(db.todosTable)
+          ..where(
+            (t) =>
+                t.habitId.equals(habitId) &
+                t.parentId.isNull() &
+                t.deletedAt.isNull(),
+          )
+          ..orderBy([
+            (t) => OrderingTerm.desc(t.scheduledDate),
+            (t) => OrderingTerm.desc(t.createdAt),
+          ]))
+        .get();
+  }
+
+  Future<List<TodoRow>> getLiveTodosForHabitOnDate(
+    String habitId,
+    String scheduledDate,
+  ) {
+    return (select(db.todosTable)..where(
+          (t) =>
+              t.habitId.equals(habitId) &
+              t.scheduledDate.equals(scheduledDate) &
+              t.parentId.isNull() &
+              t.deletedAt.isNull() &
+              t.status.isNotIn(const ['archived']),
+        ))
+        .get();
+  }
+
   // ─── Soft delete ──────────────────────────────────────────────────
 
   Future<void> softDeleteTodo(String id, String deletedAtIso) async {
@@ -242,6 +413,123 @@ class TodosDao extends DatabaseAccessor<AppDatabase> with _$TodosDaoMixin {
         updatedAt: Value(deletedAtIso),
       ),
     );
+  }
+
+  Future<List<String>> softDeleteTodoTree(
+    String id,
+    String userId,
+    String deletedAtIso,
+  ) async {
+    return transaction(() async {
+      final parent = await getTodoByIdIncludingDeleted(id);
+      if (parent == null || parent.userId != userId) return const <String>[];
+      return _softDeleteTodoIdsAndSubtasks([id], userId, deletedAtIso);
+    });
+  }
+
+  Future<({List<String> deletedIds, List<String> cappedIds})>
+  softDeleteSeriesFromDate({
+    required String seriesId,
+    required String userId,
+    required String fromDateInclusive,
+    required String recurrenceEndDate,
+    required String deletedAtIso,
+  }) async {
+    return transaction(() async {
+      final rows = await getSeriesRows(seriesId, userId: userId);
+      final affectedIds = rows
+          .where(
+            (row) =>
+                row.deletedAt == null &&
+                row.scheduledDate != null &&
+                row.scheduledDate!.compareTo(fromDateInclusive) >= 0,
+          )
+          .map((row) => row.id)
+          .toList();
+      final deletedIds = await _softDeleteTodoIdsAndSubtasks(
+        affectedIds,
+        userId,
+        deletedAtIso,
+      );
+
+      final keptRecurringIds = rows
+          .where(
+            (row) =>
+                row.deletedAt == null &&
+                !affectedIds.contains(row.id) &&
+                row.recurrenceType != null &&
+                (row.recurrenceEndDate == null ||
+                    row.recurrenceEndDate!.compareTo(recurrenceEndDate) > 0),
+          )
+          .map((row) => row.id)
+          .toList();
+      if (keptRecurringIds.isNotEmpty) {
+        await (update(
+          db.todosTable,
+        )..where((t) => t.id.isIn(keptRecurringIds))).write(
+          TodosTableCompanion(
+            recurrenceEndDate: Value(recurrenceEndDate),
+            updatedAt: Value(deletedAtIso),
+          ),
+        );
+      }
+      return (deletedIds: deletedIds, cappedIds: keptRecurringIds);
+    });
+  }
+
+  Future<List<String>> softDeleteEntireSeries({
+    required String seriesId,
+    required String userId,
+    required String deletedAtIso,
+  }) async {
+    return transaction(() async {
+      final rows = await getSeriesRows(seriesId, userId: userId);
+      final ids = rows.map((row) => row.id).toList();
+      return _softDeleteTodoIdsAndSubtasks(ids, userId, deletedAtIso);
+    });
+  }
+
+  Future<List<String>> _softDeleteTodoIdsAndSubtasks(
+    List<String> parentIds,
+    String userId,
+    String deletedAtIso,
+  ) async {
+    if (parentIds.isEmpty) return const <String>[];
+    final ids = <String>{...parentIds};
+    var frontier = [...parentIds];
+    while (frontier.isNotEmpty) {
+      final children =
+          await (select(db.todosTable)..where(
+                (t) =>
+                    t.userId.equals(userId) &
+                    t.parentId.isIn(frontier) &
+                    t.deletedAt.isNull(),
+              ))
+              .get();
+      frontier = children.map((row) => row.id).where(ids.add).toList();
+    }
+    await (update(db.todosTable)..where(
+          (t) =>
+              t.userId.equals(userId) &
+              t.id.isIn(ids.toList()) &
+              t.deletedAt.isNull(),
+        ))
+        .write(
+          TodosTableCompanion(
+            deletedAt: Value(deletedAtIso),
+            updatedAt: Value(deletedAtIso),
+          ),
+        );
+    return ids.toList();
+  }
+
+  Future<void> purgeLocalRecurrenceProjection(String id) async {
+    await transaction(() async {
+      await (delete(
+        db.todoTagsTable,
+      )..where((row) => row.todoId.equals(id))).go();
+      await (delete(db.todosTable)..where((row) => row.id.equals(id))).go();
+    });
   }
 
   /// Remove junction rows whose todoId is in [tombstoneIds].
@@ -286,56 +574,60 @@ class TodosDao extends DatabaseAccessor<AppDatabase> with _$TodosDaoMixin {
         .get();
   }
 
+  Future<List<TodoRow>> getInstancesForTemplateIncludingDeleted(
+    String templateId,
+  ) {
+    return (select(
+      db.todosTable,
+    )..where((t) => t.recurrenceTemplateId.equals(templateId))).get();
+  }
+
+  Future<List<TodoRow>> getSeriesRows(String seriesId, {String? userId}) {
+    return (select(db.todosTable)..where(
+          (t) =>
+              (t.id.equals(seriesId) |
+                  t.recurrenceTemplateId.equals(seriesId)) &
+              (userId == null ? const Constant(true) : t.userId.equals(userId)),
+        ))
+        .get();
+  }
+
   /// Returns true if an instance for [templateId] with [dateOnly]
   /// (format "YYYY-MM-DD") already exists (dedup check).
   Future<bool> instanceExistsForDate(String templateId, String dateOnly) async {
-    final row =
-        await (select(db.todosTable)
-              ..where(
-                (t) =>
-                    t.recurrenceTemplateId.equals(templateId) &
-                    t.scheduledDate.equals(dateOnly) &
-                    t.deletedAt.isNull(),
-              )
-              ..limit(1))
-            .getSingleOrNull();
+    final row = await getOccurrenceForSeriesDate(templateId, dateOnly);
     return row != null;
   }
 
-  /// Soft-delete all non-done instances of [templateId] whose
-  /// scheduled_date >= [fromDateInclusive].
-  Future<void> softDeleteFutureInstances(
+  Future<TodoRow?> getOccurrenceForSeriesDate(
     String templateId,
-    String fromDateInclusive,
-    String deletedAtIso,
+    String dateOnly,
   ) {
-    return (update(db.todosTable)..where(
-          (t) =>
-              t.recurrenceTemplateId.equals(templateId) &
-              t.scheduledDate.isBiggerOrEqualValue(fromDateInclusive) &
-              t.status.isNotIn(const ['done']) &
-              t.deletedAt.isNull(),
-        ))
-        .write(
-          TodosTableCompanion(
-            deletedAt: Value(deletedAtIso),
-            updatedAt: Value(deletedAtIso),
-          ),
-        );
+    return (select(db.todosTable)
+          ..where(
+            (t) =>
+                (t.recurrenceTemplateId.equals(templateId) |
+                    t.id.equals(templateId)) &
+                t.scheduledDate.equals(dateOnly) &
+                t.deletedAt.isNull(),
+          )
+          ..limit(1))
+        .getSingleOrNull();
   }
 
-  /// Soft-delete ALL instances of [templateId] (used by "delete all" scope).
-  Future<void> softDeleteAllInstances(String templateId, String deletedAtIso) {
-    return (update(db.todosTable)..where(
-          (t) =>
-              t.recurrenceTemplateId.equals(templateId) & t.deletedAt.isNull(),
-        ))
-        .write(
-          TodosTableCompanion(
-            deletedAt: Value(deletedAtIso),
-            updatedAt: Value(deletedAtIso),
-          ),
-        );
+  Future<TodoRow?> getOccurrenceForSeriesDateIncludingDeleted(
+    String templateId,
+    String dateOnly,
+  ) {
+    return (select(db.todosTable)
+          ..where(
+            (t) =>
+                (t.recurrenceTemplateId.equals(templateId) |
+                    t.id.equals(templateId)) &
+                t.scheduledDate.equals(dateOnly),
+          )
+          ..limit(1))
+        .getSingleOrNull();
   }
 
   static String _normalizeTagName(String value) {

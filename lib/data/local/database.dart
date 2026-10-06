@@ -40,11 +40,12 @@ part 'database.g.dart';
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase._() : super(_openConnection());
+  AppDatabase.forTesting(super.executor);
 
   static final AppDatabase instance = AppDatabase._();
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 12;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -129,6 +130,69 @@ class AppDatabase extends _$AppDatabase {
         );
         if (!hasDurationMs) {
           await m.addColumn(checklistRunsTable, checklistRunsTable.durationMs);
+        }
+      }
+      // v8 -> v9: optional Todo -> Habit link.
+      if (from < 9) {
+        final todoColumns = await customSelect(
+          'PRAGMA table_info(todos)',
+        ).get();
+        final hasHabitId = todoColumns.any(
+          (row) => row.data['name'] == 'habit_id',
+        );
+        if (!hasHabitId) {
+          await m.addColumn(todosTable, todosTable.habitId);
+        }
+      }
+      // v9 -> v10: optional local wall-clock reminder time for top-level todos.
+      if (from < 10) {
+        final todoColumns = await customSelect(
+          'PRAGMA table_info(todos)',
+        ).get();
+        final hasTime = todoColumns.any((row) => row.data['name'] == 'time');
+        if (!hasTime) {
+          await m.addColumn(todosTable, todosTable.time);
+        }
+      }
+      // v10 -> v11: isolate sync state by authenticated user and retain
+      // terminal diagnostics. Legacy queue/cursor ownership cannot be proven,
+      // so discard only that sync state while keeping entity caches intact.
+      if (from < 11) {
+        await customStatement('DELETE FROM sync_queue');
+        await customStatement(
+          "DELETE FROM sync_meta WHERE key = 'last_synced_at'",
+        );
+        final queueColumns = await customSelect(
+          'PRAGMA table_info(sync_queue)',
+        ).get();
+        final names = queueColumns.map((row) => row.data['name']).toSet();
+        if (!names.contains('user_id')) {
+          await m.addColumn(syncQueueTable, syncQueueTable.userId);
+        }
+        if (!names.contains('last_error')) {
+          await m.addColumn(syncQueueTable, syncQueueTable.lastError);
+        }
+        if (!names.contains('is_dead_letter')) {
+          await m.addColumn(syncQueueTable, syncQueueTable.isDeadLetter);
+        }
+      }
+      // v11 -> v12: additive Quill Delta metadata for notes.
+      if (from < 12) {
+        final noteColumns = await customSelect(
+          'PRAGMA table_info(notes)',
+        ).get();
+        final names = noteColumns.map((row) => row.data['name']).toSet();
+        if (!names.contains('content_format')) {
+          await m.addColumn(notesTable, notesTable.contentFormat);
+        }
+        if (!names.contains('body_delta')) {
+          await m.addColumn(notesTable, notesTable.bodyDelta);
+        }
+        if (!names.contains('cornell_cue_delta')) {
+          await m.addColumn(notesTable, notesTable.cornellCueDelta);
+        }
+        if (!names.contains('cornell_summary_delta')) {
+          await m.addColumn(notesTable, notesTable.cornellSummaryDelta);
         }
       }
     },

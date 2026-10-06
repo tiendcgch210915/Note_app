@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 
 import 'database.dart'; // provides generated *TableCompanion types from database.g.dart
@@ -31,40 +33,48 @@ TagsTableCompanion tagToCompanion(Tag tag, String userId) => TagsTableCompanion(
 
 // ─── Todo ─────────────────────────────────────────────────────────────────
 
-TodosTableCompanion todoToCompanion(Todo todo, String userId) =>
-    TodosTableCompanion(
-      id: Value(todo.id),
-      userId: Value(userId),
-      parentId: Value(todo.parentId),
-      title: Value(todo.title),
-      description: Value(todo.description),
-      status: Value(todo.status.backendValue),
-      position: Value(todo.position),
-      isFrog: Value(todo.isFrog),
-      frogDate: Value(
-        todo.frogDate != null ? formatDateOnly(todo.frogDate!) : null,
-      ),
-      isImportant: Value(todo.isImportant),
-      isUrgent: Value(todo.isUrgent),
-      estimatedMinutes: Value(todo.estimatedMinutes),
-      actualMinutes: Value(todo.actualMinutes),
-      startAt: Value(todo.startAt?.toUtc().toIso8601String()),
-      dueAt: Value(todo.dueAt?.toUtc().toIso8601String()),
-      scheduledDate: Value(
-        todo.scheduledDate != null ? formatDateOnly(todo.scheduledDate!) : null,
-      ),
-      triggerAfterTodoId: Value(todo.triggerAfterTodoId),
-      completedAt: Value(todo.completedAt?.toUtc().toIso8601String()),
-      createdAt: Value(todo.createdAt.toUtc().toIso8601String()),
-      updatedAt: Value(todo.updatedAt.toUtc().toIso8601String()),
-      recurrenceType: Value(todo.recurrenceType),
-      recurrenceInterval: Value(
-        todo.recurrenceType != null ? todo.recurrenceInterval : null,
-      ),
-      recurrenceWeekdays: Value(todo.recurrenceDaysOfWeek),
-      recurrenceEndDate: Value(todo.recurrenceEndDate),
-      recurrenceTemplateId: Value(todo.recurrenceTemplateId),
-    );
+TodosTableCompanion todoToCompanion(Todo todo, String userId) {
+  final topLevel = todo.parentId == null;
+  final scheduledDate = topLevel && todo.scheduledDate != null
+      ? formatDateOnly(todo.scheduledDate!)
+      : null;
+  final isFrog = topLevel && scheduledDate != null && todo.isFrog;
+  final frogDate = isFrog
+      ? formatDateOnly(todo.frogDate ?? todo.scheduledDate!)
+      : null;
+
+  return TodosTableCompanion(
+    id: Value(todo.id),
+    userId: Value(userId),
+    parentId: Value(todo.parentId),
+    title: Value(todo.title),
+    description: Value(todo.description),
+    status: Value(todo.status.backendValue),
+    position: Value(todo.position),
+    isFrog: Value(isFrog),
+    frogDate: Value(frogDate),
+    isImportant: Value(isFrog ? true : todo.isImportant),
+    isUrgent: Value(isFrog ? true : todo.isUrgent),
+    estimatedMinutes: Value(todo.estimatedMinutes),
+    actualMinutes: Value(todo.actualMinutes),
+    startAt: Value(todo.startAt?.toUtc().toIso8601String()),
+    dueAt: Value(todo.dueAt?.toUtc().toIso8601String()),
+    scheduledDate: Value(scheduledDate),
+    time: Value(topLevel && scheduledDate != null ? todo.time : null),
+    triggerAfterTodoId: Value(todo.triggerAfterTodoId),
+    habitId: Value(todo.habitId),
+    completedAt: Value(todo.completedAt?.toUtc().toIso8601String()),
+    createdAt: Value(todo.createdAt.toUtc().toIso8601String()),
+    updatedAt: Value(todo.updatedAt.toUtc().toIso8601String()),
+    recurrenceType: Value(topLevel ? todo.recurrenceType : null),
+    recurrenceInterval: Value(
+      topLevel && todo.recurrenceType != null ? todo.recurrenceInterval : null,
+    ),
+    recurrenceWeekdays: Value(topLevel ? todo.recurrenceDaysOfWeek : null),
+    recurrenceEndDate: Value(topLevel ? todo.recurrenceEndDate : null),
+    recurrenceTemplateId: Value(topLevel ? todo.recurrenceTemplateId : null),
+  );
+}
 
 // ─── Note ─────────────────────────────────────────────────────────────────
 
@@ -77,9 +87,22 @@ NotesTableCompanion noteToCompanion(Note note, String userId) =>
       body: Value(note.body),
       cornellCue: Value(note.cornellCue),
       cornellSummary: Value(note.cornellSummary),
+      contentFormat: Value(note.contentFormat),
+      bodyDelta: Value(
+        note.bodyDelta == null ? null : jsonEncode(note.bodyDelta),
+      ),
+      cornellCueDelta: Value(
+        note.cornellCueDelta == null ? null : jsonEncode(note.cornellCueDelta),
+      ),
+      cornellSummaryDelta: Value(
+        note.cornellSummaryDelta == null
+            ? null
+            : jsonEncode(note.cornellSummaryDelta),
+      ),
       isPinned: Value(note.isPinned),
       createdAt: Value(note.createdAt.toUtc().toIso8601String()),
       updatedAt: Value(note.updatedAt.toUtc().toIso8601String()),
+      deletedAt: Value(note.deletedAt?.toUtc().toIso8601String()),
     );
 
 // ─── Habit ────────────────────────────────────────────────────────────────

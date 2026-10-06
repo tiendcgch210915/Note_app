@@ -8,8 +8,14 @@ import '../data/api_exception.dart';
 import '../data/auth_storage.dart';
 import '../data/local/database.dart';
 import '../data/remote/api_client_dio.dart';
+import '../utils/dashboard_local_events.dart';
+import '../utils/note_delta_utils.dart';
+import '../utils/note_local_events.dart';
+import '../utils/todo_local_events.dart';
 import 'sync_payload.dart';
 import 'sync_status_notifier.dart';
+
+enum SyncRunResult { success, retry, authRequired, failed }
 
 /// Background sync coordinator.
 ///
@@ -22,13 +28,51 @@ import 'sync_status_notifier.dart';
 ///   await SyncWorker.instance.pushPending();  // push only
 ///   await SyncWorker.instance.pullChanges();  // pull only
 class SyncWorker {
-  SyncWorker._();
+  SyncWorker._({
+    AppDatabase? database,
+    ApiClientDio? client,
+    bool Function()? hasAuthSession,
+    String Function()? currentUserId,
+  }) : _db = database ?? AppDatabase.instance,
+       _client = client ?? ApiClientDio.instance,
+       _hasAuthSession =
+           hasAuthSession ?? (() => AuthStorage.instance.currentToken != null),
+       _currentUserId =
+           currentUserId ??
+           (() => AuthStorage.instance.currentUserJson?['id'] as String? ?? '');
   static final SyncWorker instance = SyncWorker._();
 
-  final AppDatabase _db = AppDatabase.instance;
-  final ApiClientDio _client = ApiClientDio.instance;
+  factory SyncWorker.forTesting({
+    required AppDatabase database,
+    required ApiClientDio client,
+    String userId = 'user-1',
+  }) {
+    return SyncWorker._(
+      database: database,
+      client: client,
+      hasAuthSession: () => true,
+      currentUserId: () => userId,
+    );
+  }
 
-  bool _syncing = false;
+  final AppDatabase _db;
+  final ApiClientDio _client;
+  final bool Function() _hasAuthSession;
+  final String Function() _currentUserId;
+
+  Future<SyncRunResult>? _activeSync;
+
+  String _requireCurrentUserId() {
+    final userId = _currentUserId();
+    if (userId.isEmpty) {
+      throw const ApiException(
+        401,
+        'unauthorized',
+        'Authenticated user id is required for sync',
+      );
+    }
+    return userId;
+  }
 
   // ── Post-pull hook ────────────────────────────────────────────
   // Registered by TodosRepository to generate recurrence instances
@@ -40,59 +84,84 @@ class SyncWorker {
 
   // ─── Public API ───────────────────────────────────────────────────
 
-  Future<void> sync() async {
-    if (_syncing) return;
-    if (AuthStorage.instance.currentToken == null) {
+  Future<SyncRunResult> sync() {
+    final active = _activeSync;
+    if (active != null) return active;
+    final run = _runSync().whenComplete(() {
+      _activeSync = null;
+    });
+    _activeSync = run;
+    return run;
+  }
+
+  Future<SyncRunResult> _runSync() async {
+    if (!_hasAuthSession()) {
       debugPrint('[SyncWorker] Skip sync: no auth token');
-      return;
+      return SyncRunResult.authRequired;
     }
-    _syncing = true;
+    final userId = _requireCurrentUserId();
     SyncStatusNotifier.instance.beginSync();
     String? errorMsg;
+    var result = SyncRunResult.success;
     try {
-      await pushPending();
-      await pullChanges();
+      await pushPending(userId: userId);
+      await pullChanges(userId: userId);
     } on ApiException catch (e) {
-      // Network / server errors — log, surface to UI, do NOT crash
-      errorMsg = '[${e.code}] ${e.message}';
+      errorMsg =
+          '[${e.code}] ${e.message}'
+          '${e.requestId == null ? '' : ' request_id=${e.requestId}'}';
       debugPrint('[SyncWorker] Sync ApiException: $errorMsg');
+      result = e.isAuthError
+          ? SyncRunResult.authRequired
+          : e.isRetryable
+          ? SyncRunResult.retry
+          : SyncRunResult.failed;
     } catch (e, st) {
       errorMsg = e.toString();
       debugPrint('[SyncWorker] Sync unexpected error: $e\n$st');
+      result = SyncRunResult.failed;
     } finally {
-      final pending = await _db.syncDao.getPendingCount();
+      final pending = await _db.syncDao.getPendingCount(userId: userId);
+      final deadLetters = await _db.syncDao.getDeadLetterCount(userId: userId);
+      if (deadLetters > 0) {
+        errorMsg ??= '$deadLetters thao tác đồng bộ cần kiểm tra';
+      }
       SyncStatusNotifier.instance.endSync(
         pendingCount: pending,
         error: errorMsg,
       );
-      _syncing = false;
     }
+    return result;
   }
 
   // ─────────────────────────────────────────────────────────────────
   // M5b: PUSH
   // ─────────────────────────────────────────────────────────────────
 
-  Future<void> pushPending() async {
+  Future<void> pushPending({String? userId}) async {
+    final ownerId = userId ?? _requireCurrentUserId();
     while (true) {
-      final all = await _db.syncDao.getDueBatch(limit: 100);
+      final all = await _db.syncDao.getDueBatch(userId: ownerId, limit: 10000);
       if (all.isEmpty) return;
 
       final sorted = sortedByDependency<SyncQueueRow>(
         rows: all,
         getEntityType: (r) => r.entityType,
         getId: (r) => r.id,
-      );
+      ).take(100).toList();
 
       // Drop illegal system checklist writes. Backend returns read_only for
       // these, so removing them locally disables the invalid queued action.
       final eligibleRows = <SyncQueueRow>[];
       for (final row in sorted) {
+        if (await _dropGeneratedRecurrenceInstanceOp(row)) {
+          continue;
+        }
         if (row.entityType == 'checklist_template' &&
             (row.operation == 'update' || row.operation == 'delete')) {
           final t = await _db.checklistsDao.getTemplateById(row.entityId);
           if (t?.isSystem == true) {
-            await _db.syncDao.removeSyncOp(row.id);
+            await _db.syncDao.removeSyncOp(row.id, userId: ownerId);
             continue;
           }
         }
@@ -102,7 +171,7 @@ class SyncWorker {
             row.entityId,
           );
           if (category?.isSystem == true) {
-            await _db.syncDao.removeSyncOp(row.id);
+            await _db.syncDao.removeSyncOp(row.id, userId: ownerId);
             continue;
           }
         }
@@ -131,7 +200,6 @@ class SyncWorker {
         );
         response = resp as Map<String, dynamic>;
       } on ApiException catch (e) {
-        if (e.code == 'no_connection') return; // try again later
         _logSyncFailure(
           method: 'POST',
           url: '/sync/push',
@@ -140,8 +208,28 @@ class SyncWorker {
           opCount: ops.length,
           opTypes: _opTypesForLog(eligibleRows),
         );
+        if (e.isAuthError) rethrow;
+        final permanentHttp =
+            e.statusCode >= 400 &&
+            e.statusCode < 500 &&
+            e.statusCode != 408 &&
+            e.statusCode != 425 &&
+            e.statusCode != 429;
         for (final row in eligibleRows) {
-          await _db.syncDao.markFailedRetryable(row.id, row.retryCount);
+          if (permanentHttp) {
+            await _db.syncDao.markPermanentFailure(
+              row.id,
+              userId: ownerId,
+              error: 'http_${e.statusCode}:${e.code}',
+            );
+          } else {
+            await _db.syncDao.markFailedRetryable(
+              row.id,
+              row.retryCount,
+              userId: ownerId,
+              error: 'http_${e.statusCode}:${e.code}',
+            );
+          }
         }
         rethrow; // sync() catches this and shows error state in UI
       }
@@ -167,7 +255,7 @@ class SyncWorker {
 
         switch (status) {
           case 'applied':
-            await _db.syncDao.removeSyncOp(queueRow.id);
+            await _db.syncDao.removeSyncOp(queueRow.id, userId: ownerId);
             break;
 
           case 'conflict':
@@ -180,6 +268,8 @@ class SyncWorker {
               await _db.syncDao.markFailedRetryable(
                 queueRow.id,
                 queueRow.retryCount,
+                userId: ownerId,
+                error: 'conflict_missing_server',
               );
               break;
             }
@@ -194,24 +284,38 @@ class SyncWorker {
                 queueRow.entityType,
                 entityId,
                 serverId,
+                ownerId,
               );
             }
-            await _db.syncDao.removeSyncOp(queueRow.id);
+            await _db.syncDao.removeSyncOp(queueRow.id, userId: ownerId);
             break;
 
           case 'error':
             final error = map['error'] as String? ?? 'unknown';
-            if (error == 'read_only' &&
+            if (error == 'invalid_habit' && queueRow.entityType == 'todo') {
+              await _clearInvalidHabitLinkAndRetry(queueRow);
+            } else if (error == 'read_only' &&
                 (queueRow.entityType == 'checklist_template' ||
                     queueRow.entityType == 'checklist_category') &&
                 (queueRow.operation == 'update' ||
                     queueRow.operation == 'delete')) {
-              await _db.syncDao.removeSyncOp(queueRow.id);
+              await _db.syncDao.removeSyncOp(queueRow.id, userId: ownerId);
+            } else if (error == 'not_found' && queueRow.operation == 'delete') {
+              await _db.syncDao.removeSyncOp(queueRow.id, userId: ownerId);
+            } else if (_isPermanentSyncError(error)) {
+              resultErrors.add('${queueRow.entityType}:$error');
+              await _db.syncDao.markPermanentFailure(
+                queueRow.id,
+                userId: ownerId,
+                error: error,
+              );
             } else {
               resultErrors.add('${queueRow.entityType}:$error');
               await _db.syncDao.markFailedRetryable(
                 queueRow.id,
                 queueRow.retryCount,
+                userId: ownerId,
+                error: error,
               );
             }
             break;
@@ -221,6 +325,8 @@ class SyncWorker {
             await _db.syncDao.markFailedRetryable(
               queueRow.id,
               queueRow.retryCount,
+              userId: ownerId,
+              error: 'unknown_status_$status',
             );
             break;
         }
@@ -229,7 +335,12 @@ class SyncWorker {
       for (final row in eligibleRows) {
         if (!resultIds.contains(row.entityId)) {
           resultErrors.add('${row.entityType}:missing_result');
-          await _db.syncDao.markFailedRetryable(row.id, row.retryCount);
+          await _db.syncDao.markFailedRetryable(
+            row.id,
+            row.retryCount,
+            userId: ownerId,
+            error: 'missing_result',
+          );
         }
       }
 
@@ -252,6 +363,176 @@ class SyncWorker {
     }
   }
 
+  static bool _isPermanentSyncError(String error) {
+    return const {
+      'bad_input',
+      'forbidden',
+      'read_only',
+      'invalid_ownership',
+      'validation_error',
+      'payload_validation_error',
+      'not_found',
+    }.contains(error);
+  }
+
+  Future<void> _clearInvalidHabitLinkAndRetry(SyncQueueRow queueRow) async {
+    final payload = SyncPayload.decode(queueRow.payload);
+    final now = DateTime.now().toUtc().toIso8601String();
+    payload['habit_id'] = null;
+    payload['updated_at'] = now;
+
+    await (_db.update(
+      _db.todosTable,
+    )..where((t) => t.id.equals(queueRow.entityId))).write(
+      TodosTableCompanion(
+        habitId: const Value<String?>(null),
+        updatedAt: Value(now),
+      ),
+    );
+    await (_db.update(
+      _db.syncQueueTable,
+    )..where((q) => q.id.equals(queueRow.id))).write(
+      SyncQueueTableCompanion(
+        payload: Value(SyncPayload.encode(payload)),
+        retryCount: const Value(0),
+        nextRetryAt: const Value(null),
+      ),
+    );
+    debugPrint(
+      '[SyncWorker] Cleared invalid habit link for todo ${queueRow.entityId}; retrying todo sync',
+    );
+  }
+
+  Future<bool> _dropGeneratedRecurrenceInstanceOp(SyncQueueRow row) async {
+    if (row.entityType != 'todo') return false;
+
+    Map<String, dynamic> payload;
+    try {
+      payload = SyncPayload.decode(row.payload);
+    } catch (_) {
+      return false;
+    }
+
+    if (shouldDropGeneratedRecurrenceOperation(
+      operation: row.operation,
+      payload: payload,
+      isLocalProjection: false,
+    )) {
+      debugPrint(
+        '[SyncWorker] Drop generated recurrence projection create ${row.entityId}',
+      );
+      await _db.syncDao.removeSyncOp(row.id, userId: row.userId);
+      return true;
+    }
+
+    if (row.operation != 'delete') return false;
+    if (payload['delete_scope'] != null) return false;
+    final localRow =
+        await (_db.select(_db.todosTable)
+              ..where((t) => t.id.equals(row.entityId))
+              ..limit(1))
+            .getSingleOrNull();
+    final isLocalProjection =
+        localRow?.recurrenceTemplateId != null &&
+        localRow?.recurrenceType == null;
+    if (!shouldDropGeneratedRecurrenceOperation(
+      operation: row.operation,
+      payload: payload,
+      isLocalProjection: isLocalProjection,
+    )) {
+      return false;
+    }
+
+    debugPrint(
+      '[SyncWorker] Drop generated recurrence projection delete ${row.entityId}',
+    );
+    await _db.syncDao.removeSyncOp(row.id, userId: row.userId);
+    return true;
+  }
+
+  Future<void> _adoptServerRecurringOccurrence(
+    Map<String, dynamic> json,
+  ) async {
+    final id = json['id'] as String?;
+    final templateId = json['recurrence_template_id'] as String?;
+    final scheduledDate = json['scheduled_date'] as String?;
+    if (id == null || templateId == null || scheduledDate == null) return;
+
+    final existing = await _db.todosDao.getOccurrenceForSeriesDate(
+      templateId,
+      scheduledDate,
+    );
+    if (existing == null || existing.id == id) return;
+
+    final removedIds = await _db.todosDao.purgeTodoSubtree(
+      existing.id,
+      userId: existing.userId,
+    );
+    for (final removedId in removedIds) {
+      await _db.syncDao.removeOpsForEntity(
+        'todo',
+        removedId,
+        userId: existing.userId,
+      );
+    }
+  }
+
+  Future<void> _enforceServerFrogTruth(
+    Map<String, dynamic> json, {
+    required String ownerId,
+  }) async {
+    if (!_parseBool(json['is_frog'])) return;
+    final id = json['id'] as String?;
+    if (id == null) return;
+    final isSubtask = json['parent_id'] != null;
+    final scheduledDate = isSubtask ? null : json['scheduled_date'] as String?;
+    final frogDate = json['frog_date'] as String? ?? scheduledDate;
+    if (frogDate == null) return;
+    final userId = (json['user_id'] as String?)?.isNotEmpty == true
+        ? json['user_id'] as String
+        : ownerId;
+    if (userId.isEmpty) return;
+
+    final clearedRows = await _db.todosDao.clearOtherFrogsForDate(
+      userId: userId,
+      dateOnly: frogDate,
+      updatedAtIso:
+          (json['updated_at'] as String?) ??
+          DateTime.now().toUtc().toIso8601String(),
+      exceptId: id,
+    );
+    for (final row in clearedRows) {
+      final pending = await _db.syncDao.getPendingForEntity(
+        'todo',
+        row.id,
+        userId: userId,
+      );
+      if (pending != null) {
+        await _enqueueTodoUpdateSnapshot(row.id, userId: userId);
+      }
+    }
+  }
+
+  Future<void> _enqueueTodoUpdateSnapshot(
+    String todoId, {
+    required String userId,
+  }) async {
+    final row = await _db.todosDao.getTodoById(todoId);
+    if (row == null) return;
+    final tagIds = row.parentId == null
+        ? (await _db.todosDao.getTagsForTodo(
+            todoId,
+          )).map((tag) => tag.id).toList()
+        : const <String>[];
+    await _db.syncDao.enqueueSyncOp(
+      userId: userId,
+      entityType: 'todo',
+      entityId: todoId,
+      operation: 'update',
+      payload: SyncPayload.encode(SyncPayload.fromTodo(row, tagIds)),
+    );
+  }
+
   /// Apply a server_version object to the local Drift database.
   /// Handles the special id-adopt case for tags and habit_logs.
   Future<void> _applyServerVersion(
@@ -264,7 +545,9 @@ class SyncWorker {
 
     switch (entityType) {
       case 'todo':
+        await _adoptServerRecurringOccurrence(serverVersion);
         await _db.todosDao.upsertTodo(_todoCompanionFromJson(serverVersion));
+        await _enforceServerFrogTruth(serverVersion, ownerId: _currentUserId());
         final tagIds =
             (serverVersion['tag_ids'] as List?)
                 ?.map((e) => e as String)
@@ -275,6 +558,11 @@ class SyncWorker {
 
       case 'note':
         await _db.notesDao.upsertNote(_noteCompanionFromJson(serverVersion));
+        await _reconcileNoteRelations(
+          localEntityId,
+          serverVersion,
+          replaceOnlyWhenPresent: true,
+        );
         break;
 
       case 'user':
@@ -313,6 +601,7 @@ class SyncWorker {
         break;
 
       case 'habit_log':
+        final resolvedId = serverId ?? localEntityId;
         if (idChanged) {
           // ID-adopt: update references then upsert new row
           await _db.transaction(() async {
@@ -330,6 +619,7 @@ class SyncWorker {
             _habitLogCompanionFromJson(serverVersion),
           );
         }
+        await _softDeleteDuplicateHabitLogsForPersistedLog(resolvedId);
         break;
 
       case 'checklist_category':
@@ -362,10 +652,21 @@ class SyncWorker {
 
       case 'checklist_run_item':
         await _db.checklistsDao.upsertRunItem(
-          _runItemCompanionFromJson(serverVersion),
+          await _runItemCompanionFromJsonPreservingSnapshot(serverVersion),
         );
         break;
     }
+  }
+
+  Future<void> _softDeleteDuplicateHabitLogsForPersistedLog(String id) async {
+    final row = await _db.habitsDao.getHabitLogById(id);
+    if (row == null) return;
+    await _db.habitsDao.softDeleteDuplicateHabitLogs(
+      row.habitId,
+      row.logDate,
+      keepId: row.id,
+      deletedAtIso: DateTime.now().toUtc().toIso8601String(),
+    );
   }
 
   Future<void> _rewriteTagJunctions({
@@ -412,8 +713,9 @@ class SyncWorker {
     String entityType,
     String oldId,
     String newId,
+    String userId,
   ) async {
-    final rows = await _db.select(_db.syncQueueTable).get();
+    final rows = await _db.syncDao.getRowsForUser(userId: userId);
     for (final row in rows) {
       final payload = SyncPayload.decode(row.payload);
       var changed = false;
@@ -499,6 +801,8 @@ class SyncWorker {
   static Map<String, dynamic> _apiErrorBody(ApiException e) => {
     'error': e.code,
     if (e.issues != null) 'issues': e.issues,
+    if (e.requestId != null) 'request_id': e.requestId,
+    if (e.rawResponse != null) 'raw_response': e.rawResponse,
   };
 
   static Map<String, dynamic> _pushResponseForLog(
@@ -578,8 +882,9 @@ class SyncWorker {
   // M5c: PULL + LWW merge
   // ─────────────────────────────────────────────────────────────────
 
-  Future<void> pullChanges() async {
-    final since = await _db.syncDao.getLastSyncedAt();
+  Future<void> pullChanges({String? userId}) async {
+    final ownerId = userId ?? _requireCurrentUserId();
+    final since = await _db.syncDao.getLastSyncedAt(userId: ownerId);
 
     Map<String, dynamic> response;
     try {
@@ -587,9 +892,16 @@ class SyncWorker {
         '/sync/changes',
         queryParameters: since != null ? {'since': since} : null,
       );
-      response = resp as Map<String, dynamic>;
+      if (resp is! Map) {
+        throw ApiException(
+          0,
+          'response_parse_error',
+          'sync changes response must be a JSON object',
+          rawResponse: resp,
+        );
+      }
+      response = Map<String, dynamic>.from(resp);
     } on ApiException catch (e) {
-      if (e.code == 'no_connection') return;
       _logSyncFailure(
         method: 'GET',
         url: '/sync/changes',
@@ -599,376 +911,494 @@ class SyncWorker {
       rethrow;
     }
 
-    final serverTime = response['server_time'] as String?;
-    if (serverTime == null || serverTime.isEmpty) {
-      throw const ApiException(
+    late final String serverTime;
+    late final Map<String, List<dynamic>> changes;
+    late final List<dynamic> sortedTodoChanges;
+    try {
+      final rawServerTime = response['server_time'];
+      if (rawServerTime is! String || rawServerTime.isEmpty) {
+        throw StateError('sync changes response missing server_time');
+      }
+      parseSyncTimestamp(rawServerTime, field: 'server_time');
+      final rawChanges = response['changes'];
+      if (rawChanges is! Map) {
+        throw StateError('sync changes response missing changes map');
+      }
+      serverTime = rawServerTime;
+      changes = validateSyncChanges(Map<String, dynamic>.from(rawChanges));
+      sortedTodoChanges = sortTodoChangesTopologically(changes['todos']!);
+    } catch (error) {
+      throw ApiException(
         0,
-        'bad_input',
-        'sync changes response missing server_time',
+        'response_parse_error',
+        'Invalid sync changes response: $error',
+        rawResponse: response,
       );
     }
-    final rawChanges = response['changes'];
-    if (rawChanges is! Map<String, dynamic>) {
-      throw const ApiException(
-        0,
-        'bad_input',
-        'sync changes response missing changes map',
-      );
-    }
-    final changes = rawChanges;
 
-    // Track tombstone IDs per entity type for self-heal
-    final Map<String, List<String>> tombstoneIds = {};
+    try {
+      await _db.transaction(() async {
+        // Track tombstone IDs per entity type for self-heal
+        final Map<String, List<String>> tombstoneIds = {};
 
-    // Helper: record tombstone
-    void recordTombstone(String entityType, String id) {
-      tombstoneIds.putIfAbsent(entityType, () => []).add(id);
-    }
-
-    // ── Process each entity type ──────────────────────────────────
-
-    await _processEntityList<Map<String, dynamic>>(
-      changes['users'] as List? ?? const [],
-      entityType: 'user',
-      tombstoneRecord: recordTombstone,
-      applyDeleted: (map) async => _upsertUserFromJson(map),
-      applyUpsert: (map) async {
-        final id = map['id'] as String;
-        if (await _shouldSkipLww('user', id, map['updated_at'] as String)) {
-          return;
+        // Helper: record tombstone
+        void recordTombstone(String entityType, String id) {
+          tombstoneIds.putIfAbsent(entityType, () => []).add(id);
         }
-        await _upsertUserFromJson(map);
-        await _db.syncDao.removeOpsForEntity('user', id);
-      },
-    );
 
-    await _processEntityList<Map<String, dynamic>>(
-      changes['tags'] as List? ?? const [],
-      entityType: 'tag',
-      tombstoneRecord: recordTombstone,
-      applyDeleted: (map) async =>
-          await _db.todosDao.upsertTag(_tagCompanionFromJson(map)),
-      applyUpsert: (map) async {
-        if (await _shouldSkipLww(
-          'tag',
-          map['id'] as String,
-          map['updated_at'] as String,
-        )) {
-          return;
-        }
-        await _db.todosDao.upsertTag(_tagCompanionFromJson(map));
-        await _db.syncDao.removeOpsForEntity('tag', map['id'] as String);
-      },
-    );
+        // ── Process each entity type ──────────────────────────────────
 
-    await _processEntityList<Map<String, dynamic>>(
-      changes['todos'] as List? ?? const [],
-      entityType: 'todo',
-      tombstoneRecord: recordTombstone,
-      applyDeleted: (map) async => await _db.todosDao.softDeleteTodo(
-        map['id'] as String,
-        map['deleted_at'] as String,
-      ),
-      applyUpsert: (map) async {
-        final id = map['id'] as String;
-        if (await _shouldSkipLww('todo', id, map['updated_at'] as String)) {
-          return;
-        }
-        await _db.todosDao.upsertTodo(_todoCompanionFromJson(map));
-        // Reconcile tag_ids junction
-        final isSubtask = map['parent_id'] != null;
-        final tagIds = isSubtask
-            ? const <String>[]
-            : (map['tag_ids'] as List?)?.map((e) => e as String).toList() ??
-                  const <String>[];
-        await _db.todosDao.setTodoTags(id, tagIds);
-        await _db.syncDao.removeOpsForEntity('todo', id);
-      },
-    );
+        await _processEntityList<Map<String, dynamic>>(
+          changes['users']!,
+          entityType: 'user',
+          userId: ownerId,
+          tombstoneRecord: recordTombstone,
+          applyDeleted: (map) async => _upsertUserFromJson(map),
+          applyUpsert: (map) async {
+            final id = map['id'] as String;
+            if (await _shouldSkipLww(
+              'user',
+              id,
+              map['updated_at'] as String,
+              ownerId,
+            )) {
+              return;
+            }
+            await _upsertUserFromJson(map);
+            await _db.syncDao.removeOpsForEntity('user', id, userId: ownerId);
+          },
+        );
 
-    await _processEntityList<Map<String, dynamic>>(
-      changes['notes'] as List? ?? const [],
-      entityType: 'note',
-      tombstoneRecord: recordTombstone,
-      applyDeleted: (map) async => await _db.notesDao.softDeleteNote(
-        map['id'] as String,
-        map['deleted_at'] as String,
-      ),
-      applyUpsert: (map) async {
-        final id = map['id'] as String;
-        if (await _shouldSkipLww('note', id, map['updated_at'] as String)) {
-          return;
-        }
-        await _db.notesDao.upsertNote(_noteCompanionFromJson(map));
-        // Reconcile tag_ids
-        final tagIds =
-            (map['tag_ids'] as List?)?.map((e) => e as String).toList() ??
-            const [];
-        await _db.notesDao.setNoteTags(id, tagIds);
-        // Reconcile note_links
-        final noteLinks = (map['note_links'] as List?) ?? const [];
-        await (_db.delete(
-          _db.noteLinksTable,
-        )..where((l) => l.sourceNoteId.equals(id))).go();
-        for (final link in noteLinks) {
-          final lmap = link as Map<String, dynamic>;
-          final targetNoteId = lmap['target_note_id'] as String;
-          final now = DateTime.now().toUtc().toIso8601String();
-          await _db.notesDao.upsertNoteLink(
-            NoteLinksTableCompanion(
-              id: Value(lmap['id'] as String? ?? '$id->$targetNoteId'),
-              sourceNoteId: Value(id),
-              targetNoteId: Value(targetNoteId),
-              label: Value(lmap['label'] as String?),
-              createdAt: Value(lmap['created_at'] as String? ?? now),
-              updatedAt: Value(lmap['updated_at'] as String? ?? now),
-              deletedAt: const Value(null),
-            ),
-          );
-        }
-        // Reconcile linked_todo_ids
-        final linkedTodoIds =
-            (map['linked_todo_ids'] as List?)
-                ?.map((e) => e as String)
-                .toList() ??
-            const [];
-        // Remove old links then insert new
-        final existing = await _db.notesDao.getTodoLinksForNote(id);
-        for (final e in existing) {
-          if (!linkedTodoIds.contains(e.todoId)) {
-            await _db.notesDao.removeNoteTodoLink(id, e.todoId);
-          }
-        }
-        final existingIds = existing.map((e) => e.todoId).toSet();
-        for (final tid in linkedTodoIds) {
-          if (!existingIds.contains(tid)) {
-            await _db.notesDao.upsertNoteTodoLink(
-              NoteTodoLinksTableCompanion.insert(
-                noteId: id,
-                todoId: tid,
-                createdAt: DateTime.now().toUtc().toIso8601String(),
-              ),
+        await _processEntityList<Map<String, dynamic>>(
+          changes['tags']!,
+          entityType: 'tag',
+          userId: ownerId,
+          tombstoneRecord: recordTombstone,
+          applyDeleted: (map) async => _db.todosDao.softDeleteTag(
+            map['id'] as String,
+            map['deleted_at'] as String,
+          ),
+          applyUpsert: (map) async {
+            if (await _shouldSkipLww(
+              'tag',
+              map['id'] as String,
+              map['updated_at'] as String,
+              ownerId,
+            )) {
+              return;
+            }
+            await _db.todosDao.upsertTag(_tagCompanionFromJson(map));
+            await _db.syncDao.removeOpsForEntity(
+              'tag',
+              map['id'] as String,
+              userId: ownerId,
             );
+          },
+        );
+
+        await _processEntityList<Map<String, dynamic>>(
+          sortedTodoChanges,
+          entityType: 'todo',
+          userId: ownerId,
+          tombstoneRecord: recordTombstone,
+          applyDeleted: (map) async {
+            final deletedIds = await _db.todosDao.softDeleteTodoTree(
+              map['id'] as String,
+              ownerId,
+              map['deleted_at'] as String,
+            );
+            for (final id in deletedIds) {
+              await _db.syncDao.removeOpsForEntity('todo', id, userId: ownerId);
+            }
+          },
+          applyUpsert: (map) async {
+            final id = map['id'] as String;
+            if (await _shouldSkipLww(
+              'todo',
+              id,
+              map['updated_at'] as String,
+              ownerId,
+            )) {
+              return;
+            }
+            await _adoptServerRecurringOccurrence(map);
+            await _db.todosDao.upsertTodo(_todoCompanionFromJson(map));
+            await _enforceServerFrogTruth(map, ownerId: ownerId);
+            final tagIds =
+                (map['tag_ids'] as List?)?.map((e) => e as String).toList() ??
+                const <String>[];
+            await _db.todosDao.setTodoTags(id, tagIds);
+            await _db.syncDao.removeOpsForEntity('todo', id, userId: ownerId);
+          },
+        );
+
+        await _processEntityList<Map<String, dynamic>>(
+          changes['notes']!,
+          entityType: 'note',
+          userId: ownerId,
+          tombstoneRecord: recordTombstone,
+          applyDeleted: (map) async => await _db.notesDao.softDeleteNote(
+            map['id'] as String,
+            map['deleted_at'] as String,
+          ),
+          applyUpsert: (map) async {
+            final id = map['id'] as String;
+            if (await _shouldSkipLww(
+              'note',
+              id,
+              map['updated_at'] as String,
+              ownerId,
+            )) {
+              return;
+            }
+            await _db.notesDao.upsertNote(_noteCompanionFromJson(map));
+            await _reconcileNoteRelations(
+              id,
+              map,
+              replaceOnlyWhenPresent: true,
+            );
+            await _db.syncDao.removeOpsForEntity('note', id, userId: ownerId);
+          },
+        );
+
+        await _processEntityList<Map<String, dynamic>>(
+          changes['habits']!,
+          entityType: 'habit',
+          userId: ownerId,
+          tombstoneRecord: recordTombstone,
+          applyDeleted: (map) async => await _db.habitsDao.softDeleteHabit(
+            map['id'] as String,
+            map['deleted_at'] as String,
+          ),
+          applyUpsert: (map) async {
+            final id = map['id'] as String;
+            final serverUpdatedAt = map['updated_at'] as String;
+            // Streak from sync is cached, while UI can derive from logs when present.
+            final existing = await _db.habitsDao.getHabitById(id);
+            if (existing != null && existing.updatedAt != serverUpdatedAt) {
+              await _db.habitsDao.adoptStreak(
+                id,
+                (map['current_streak'] as num?)?.toInt() ?? 0,
+                (map['longest_streak'] as num?)?.toInt() ?? 0,
+                serverUpdatedAt,
+              );
+            }
+            if (await _shouldSkipLww('habit', id, serverUpdatedAt, ownerId)) {
+              return;
+            }
+            await _db.habitsDao.upsertHabit(_habitCompanionFromJson(map));
+            await _db.syncDao.removeOpsForEntity('habit', id, userId: ownerId);
+          },
+        );
+
+        await _processEntityList<Map<String, dynamic>>(
+          changes['habit_logs']!,
+          entityType: 'habit_log',
+          userId: ownerId,
+          tombstoneRecord: recordTombstone,
+          applyDeleted: (map) async => await _db.habitsDao.softDeleteHabitLog(
+            map['id'] as String,
+            map['deleted_at'] as String,
+          ),
+          applyUpsert: (map) async {
+            final id = map['id'] as String;
+            if (await _shouldSkipLww(
+              'habit_log',
+              id,
+              map['updated_at'] as String,
+              ownerId,
+            )) {
+              return;
+            }
+            await _db.habitsDao.upsertHabitLog(_habitLogCompanionFromJson(map));
+            await _softDeleteDuplicateHabitLogsForPersistedLog(id);
+            await _db.syncDao.removeOpsForEntity(
+              'habit_log',
+              id,
+              userId: ownerId,
+            );
+          },
+        );
+
+        await _processEntityList<Map<String, dynamic>>(
+          changes['checklist_categories']!,
+          entityType: 'checklist_category',
+          userId: ownerId,
+          tombstoneRecord: recordTombstone,
+          applyDeleted: (map) async =>
+              await _db.checklistsDao.softDeleteCategory(
+                map['id'] as String,
+                map['deleted_at'] as String,
+              ),
+          applyUpsert: (map) async {
+            final id = map['id'] as String;
+            if (await _shouldSkipLww(
+              'checklist_category',
+              id,
+              map['updated_at'] as String,
+              ownerId,
+            )) {
+              return;
+            }
+            await _db.checklistsDao.upsertCategory(
+              _checklistCategoryCompanionFromJson(map),
+            );
+            await _db.syncDao.removeOpsForEntity(
+              'checklist_category',
+              id,
+              userId: ownerId,
+            );
+          },
+        );
+
+        await _processEntityList<Map<String, dynamic>>(
+          changes['checklist_templates']!,
+          entityType: 'checklist_template',
+          userId: ownerId,
+          tombstoneRecord: recordTombstone,
+          applyDeleted: (map) async =>
+              await _db.checklistsDao.softDeleteTemplate(
+                map['id'] as String,
+                map['deleted_at'] as String,
+              ),
+          applyUpsert: (map) async {
+            final id = map['id'] as String;
+            if (await _shouldSkipLww(
+              'checklist_template',
+              id,
+              map['updated_at'] as String,
+              ownerId,
+            )) {
+              return;
+            }
+            await _db.checklistsDao.upsertTemplate(
+              _templateCompanionFromJson(map),
+            );
+            await _db.syncDao.removeOpsForEntity(
+              'checklist_template',
+              id,
+              userId: ownerId,
+            );
+          },
+        );
+
+        await _processEntityList<Map<String, dynamic>>(
+          changes['checklist_template_orders']!,
+          entityType: 'checklist_template_order',
+          userId: ownerId,
+          tombstoneRecord: recordTombstone,
+          applyDeleted: (map) async =>
+              await _db.checklistsDao.softDeleteTemplateOrder(
+                map['id'] as String,
+                map['deleted_at'] as String,
+              ),
+          applyUpsert: (map) async {
+            final id = map['id'] as String;
+            if (await _shouldSkipLww(
+              'checklist_template_order',
+              id,
+              map['updated_at'] as String,
+              ownerId,
+            )) {
+              return;
+            }
+            await _db.checklistsDao.upsertTemplateOrder(
+              _templateOrderCompanionFromJson(map),
+            );
+            await _db.syncDao.removeOpsForEntity(
+              'checklist_template_order',
+              id,
+              userId: ownerId,
+            );
+          },
+        );
+
+        await _processEntityList<Map<String, dynamic>>(
+          changes['checklist_template_items']!,
+          entityType: 'checklist_template_item',
+          userId: ownerId,
+          tombstoneRecord: recordTombstone,
+          applyDeleted: (map) async =>
+              await _db.checklistsDao.softDeleteTemplateItem(
+                map['id'] as String,
+                map['deleted_at'] as String,
+              ),
+          applyUpsert: (map) async {
+            final id = map['id'] as String;
+            if (await _shouldSkipLww(
+              'checklist_template_item',
+              id,
+              map['updated_at'] as String,
+              ownerId,
+            )) {
+              return;
+            }
+            await _db.checklistsDao.upsertTemplateItem(
+              _templateItemCompanionFromJson(map),
+            );
+            await _db.syncDao.removeOpsForEntity(
+              'checklist_template_item',
+              id,
+              userId: ownerId,
+            );
+          },
+        );
+
+        await _processEntityList<Map<String, dynamic>>(
+          changes['checklist_runs']!,
+          entityType: 'checklist_run',
+          userId: ownerId,
+          tombstoneRecord: recordTombstone,
+          applyDeleted: (map) async => await _db.checklistsDao.softDeleteRun(
+            map['id'] as String,
+            map['deleted_at'] as String,
+          ),
+          applyUpsert: (map) async {
+            final id = map['id'] as String;
+            if (await _shouldSkipLww(
+              'checklist_run',
+              id,
+              map['updated_at'] as String,
+              ownerId,
+            )) {
+              return;
+            }
+            await _db.checklistsDao.upsertRun(_runCompanionFromJson(map));
+            await _db.syncDao.removeOpsForEntity(
+              'checklist_run',
+              id,
+              userId: ownerId,
+            );
+          },
+        );
+
+        await _processEntityList<Map<String, dynamic>>(
+          changes['checklist_run_items']!,
+          entityType: 'checklist_run_item',
+          userId: ownerId,
+          tombstoneRecord: recordTombstone,
+          applyDeleted: (map) async =>
+              await _db.checklistsDao.softDeleteRunItem(
+                map['id'] as String,
+                map['deleted_at'] as String,
+              ),
+          applyUpsert: (map) async {
+            final id = map['id'] as String;
+            if (await _shouldSkipLww(
+              'checklist_run_item',
+              id,
+              map['updated_at'] as String,
+              ownerId,
+            )) {
+              return;
+            }
+            await _db.checklistsDao.upsertRunItem(
+              await _runItemCompanionFromJsonPreservingSnapshot(map),
+            );
+            await _db.syncDao.removeOpsForEntity(
+              'checklist_run_item',
+              id,
+              userId: ownerId,
+            );
+          },
+        );
+
+        // ── Self-heal: remove junctions pointing to tombstones (scoped) ──
+
+        final todoTombstones = tombstoneIds['todo'] ?? const [];
+        if (todoTombstones.isNotEmpty) {
+          await _db.todosDao.cleanJunctionsForDeletedTodos(todoTombstones);
+          // Self-heal: remove note_todo_links pointing to tombstoned todos
+          if (todoTombstones.isNotEmpty) {
+            await (_db.delete(
+              _db.noteTodoLinksTable,
+            )..where((l) => l.todoId.isIn(todoTombstones))).go();
           }
         }
-        await _db.syncDao.removeOpsForEntity('note', id);
-      },
-    );
-
-    await _processEntityList<Map<String, dynamic>>(
-      changes['habits'] as List? ?? const [],
-      entityType: 'habit',
-      tombstoneRecord: recordTombstone,
-      applyDeleted: (map) async => await _db.habitsDao.softDeleteHabit(
-        map['id'] as String,
-        map['deleted_at'] as String,
-      ),
-      applyUpsert: (map) async {
-        final id = map['id'] as String;
-        final serverUpdatedAt = map['updated_at'] as String;
-        // Streak from sync is cached, while UI can derive from logs when present.
-        final existing = await _db.habitsDao.getHabitById(id);
-        if (existing != null && existing.updatedAt != serverUpdatedAt) {
-          await _db.habitsDao.adoptStreak(
-            id,
-            (map['current_streak'] as num?)?.toInt() ?? 0,
-            (map['longest_streak'] as num?)?.toInt() ?? 0,
-            serverUpdatedAt,
-          );
+        final noteTombstones = tombstoneIds['note'] ?? const [];
+        if (noteTombstones.isNotEmpty) {
+          await _db.notesDao.cleanJunctionsForDeletedNotes(noteTombstones);
         }
-        if (await _shouldSkipLww('habit', id, serverUpdatedAt)) {
-          return;
-        }
-        await _db.habitsDao.upsertHabit(_habitCompanionFromJson(map));
-        await _db.syncDao.removeOpsForEntity('habit', id);
-      },
-    );
 
-    await _processEntityList<Map<String, dynamic>>(
-      changes['habit_logs'] as List? ?? const [],
-      entityType: 'habit_log',
-      tombstoneRecord: recordTombstone,
-      applyDeleted: (map) async => await _db.habitsDao.softDeleteHabitLog(
-        map['id'] as String,
-        map['deleted_at'] as String,
-      ),
-      applyUpsert: (map) async {
-        final id = map['id'] as String;
-        if (await _shouldSkipLww(
-          'habit_log',
-          id,
-          map['updated_at'] as String,
-        )) {
-          return;
-        }
-        await _db.habitsDao.upsertHabitLog(_habitLogCompanionFromJson(map));
-        await _db.syncDao.removeOpsForEntity('habit_log', id);
-      },
-    );
+        // ── Update lastSyncedAt ───────────────────────────────────────
 
-    await _processEntityList<Map<String, dynamic>>(
-      changes['checklist_categories'] as List? ?? const [],
-      entityType: 'checklist_category',
-      tombstoneRecord: recordTombstone,
-      applyDeleted: (map) async => await _db.checklistsDao.softDeleteCategory(
-        map['id'] as String,
-        map['deleted_at'] as String,
-      ),
-      applyUpsert: (map) async {
-        final id = map['id'] as String;
-        if (await _shouldSkipLww(
-          'checklist_category',
-          id,
-          map['updated_at'] as String,
-        )) {
-          return;
-        }
-        await _db.checklistsDao.upsertCategory(
-          _checklistCategoryCompanionFromJson(map),
-        );
-        await _db.syncDao.removeOpsForEntity('checklist_category', id);
-      },
-    );
+        await _db.syncDao.setLastSyncedAt(serverTime, userId: ownerId);
+      });
+    } on ApiException {
+      rethrow;
+    } catch (error) {
+      throw ApiException(
+        0,
+        'sync_model_parse_error',
+        'Failed to decode or persist sync payload: $error',
+        rawResponse: error.toString(),
+      );
+    }
 
-    await _processEntityList<Map<String, dynamic>>(
-      changes['checklist_templates'] as List? ?? const [],
-      entityType: 'checklist_template',
-      tombstoneRecord: recordTombstone,
-      applyDeleted: (map) async => await _db.checklistsDao.softDeleteTemplate(
-        map['id'] as String,
-        map['deleted_at'] as String,
-      ),
-      applyUpsert: (map) async {
-        final id = map['id'] as String;
-        if (await _shouldSkipLww(
-          'checklist_template',
-          id,
-          map['updated_at'] as String,
-        )) {
-          return;
-        }
-        await _db.checklistsDao.upsertTemplate(_templateCompanionFromJson(map));
-        await _db.syncDao.removeOpsForEntity('checklist_template', id);
-      },
-    );
+    if (_postPullHook != null) await _postPullHook!();
+    TodoLocalEvents.instance.notifyChanged();
+    DashboardLocalEvents.instance.notifyChanged();
+    NoteLocalEvents.instance.notifyChanged();
+  }
 
-    await _processEntityList<Map<String, dynamic>>(
-      changes['checklist_template_orders'] as List? ?? const [],
-      entityType: 'checklist_template_order',
-      tombstoneRecord: recordTombstone,
-      applyDeleted: (map) async =>
-          await _db.checklistsDao.softDeleteTemplateOrder(
-            map['id'] as String,
-            map['deleted_at'] as String,
+  Future<void> _reconcileNoteRelations(
+    String noteId,
+    Map<String, dynamic> map, {
+    required bool replaceOnlyWhenPresent,
+  }) async {
+    if (!replaceOnlyWhenPresent || map.containsKey('tag_ids')) {
+      final tagIds =
+          (map['tag_ids'] as List?)?.whereType<String>().toList() ?? const [];
+      await _db.notesDao.setNoteTags(noteId, tagIds);
+    }
+
+    if (!replaceOnlyWhenPresent || map.containsKey('note_links')) {
+      final noteLinks = (map['note_links'] as List?) ?? const [];
+      await (_db.delete(
+        _db.noteLinksTable,
+      )..where((link) => link.sourceNoteId.equals(noteId))).go();
+      for (final rawLink in noteLinks) {
+        if (rawLink is! Map) continue;
+        final link = Map<String, dynamic>.from(rawLink);
+        final targetNoteId = link['target_note_id'] as String?;
+        if (targetNoteId == null || targetNoteId == noteId) continue;
+        final now = DateTime.now().toUtc().toIso8601String();
+        await _db.notesDao.upsertNoteLink(
+          NoteLinksTableCompanion(
+            id: Value(link['id'] as String? ?? '$noteId->$targetNoteId'),
+            sourceNoteId: Value(noteId),
+            targetNoteId: Value(targetNoteId),
+            label: Value(link['label'] as String?),
+            createdAt: Value(link['created_at'] as String? ?? now),
+            updatedAt: Value(link['updated_at'] as String? ?? now),
+            deletedAt: const Value(null),
           ),
-      applyUpsert: (map) async {
-        final id = map['id'] as String;
-        if (await _shouldSkipLww(
-          'checklist_template_order',
-          id,
-          map['updated_at'] as String,
-        )) {
-          return;
-        }
-        await _db.checklistsDao.upsertTemplateOrder(
-          _templateOrderCompanionFromJson(map),
         );
-        await _db.syncDao.removeOpsForEntity('checklist_template_order', id);
-      },
-    );
-
-    await _processEntityList<Map<String, dynamic>>(
-      changes['checklist_template_items'] as List? ?? const [],
-      entityType: 'checklist_template_item',
-      tombstoneRecord: recordTombstone,
-      applyDeleted: (map) async =>
-          await _db.checklistsDao.softDeleteTemplateItem(
-            map['id'] as String,
-            map['deleted_at'] as String,
-          ),
-      applyUpsert: (map) async {
-        final id = map['id'] as String;
-        if (await _shouldSkipLww(
-          'checklist_template_item',
-          id,
-          map['updated_at'] as String,
-        )) {
-          return;
-        }
-        await _db.checklistsDao.upsertTemplateItem(
-          _templateItemCompanionFromJson(map),
-        );
-        await _db.syncDao.removeOpsForEntity('checklist_template_item', id);
-      },
-    );
-
-    await _processEntityList<Map<String, dynamic>>(
-      changes['checklist_runs'] as List? ?? const [],
-      entityType: 'checklist_run',
-      tombstoneRecord: recordTombstone,
-      applyDeleted: (map) async => await _db.checklistsDao.softDeleteRun(
-        map['id'] as String,
-        map['deleted_at'] as String,
-      ),
-      applyUpsert: (map) async {
-        final id = map['id'] as String;
-        if (await _shouldSkipLww(
-          'checklist_run',
-          id,
-          map['updated_at'] as String,
-        )) {
-          return;
-        }
-        await _db.checklistsDao.upsertRun(_runCompanionFromJson(map));
-        await _db.syncDao.removeOpsForEntity('checklist_run', id);
-      },
-    );
-
-    await _processEntityList<Map<String, dynamic>>(
-      changes['checklist_run_items'] as List? ?? const [],
-      entityType: 'checklist_run_item',
-      tombstoneRecord: recordTombstone,
-      applyDeleted: (map) async => await _db.checklistsDao.softDeleteRunItem(
-        map['id'] as String,
-        map['deleted_at'] as String,
-      ),
-      applyUpsert: (map) async {
-        final id = map['id'] as String;
-        if (await _shouldSkipLww(
-          'checklist_run_item',
-          id,
-          map['updated_at'] as String,
-        )) {
-          return;
-        }
-        await _db.checklistsDao.upsertRunItem(_runItemCompanionFromJson(map));
-        await _db.syncDao.removeOpsForEntity('checklist_run_item', id);
-      },
-    );
-
-    // ── Self-heal: remove junctions pointing to tombstones (scoped) ──
-
-    final todoTombstones = tombstoneIds['todo'] ?? const [];
-    if (todoTombstones.isNotEmpty) {
-      await _db.todosDao.cleanJunctionsForDeletedTodos(todoTombstones);
-      // Self-heal: remove note_todo_links pointing to tombstoned todos
-      if (todoTombstones.isNotEmpty) {
-        await (_db.delete(
-          _db.noteTodoLinksTable,
-        )..where((l) => l.todoId.isIn(todoTombstones))).go();
       }
     }
-    final noteTombstones = tombstoneIds['note'] ?? const [];
-    if (noteTombstones.isNotEmpty) {
-      await _db.notesDao.cleanJunctionsForDeletedNotes(noteTombstones);
+
+    if (!replaceOnlyWhenPresent || map.containsKey('linked_todo_ids')) {
+      final linkedTodoIds =
+          (map['linked_todo_ids'] as List?)?.whereType<String>().toSet() ??
+          const <String>{};
+      final existing = await _db.notesDao.getTodoLinksForNote(noteId);
+      for (final link in existing) {
+        if (!linkedTodoIds.contains(link.todoId)) {
+          await _db.notesDao.removeNoteTodoLink(noteId, link.todoId);
+        }
+      }
+      final existingIds = existing.map((link) => link.todoId).toSet();
+      for (final todoId in linkedTodoIds) {
+        if (existingIds.contains(todoId)) continue;
+        await _db.notesDao.upsertNoteTodoLink(
+          NoteTodoLinksTableCompanion.insert(
+            noteId: noteId,
+            todoId: todoId,
+            createdAt: DateTime.now().toUtc().toIso8601String(),
+          ),
+        );
+      }
     }
-
-    // ── Update lastSyncedAt ───────────────────────────────────────
-
-    await _db.syncDao.setLastSyncedAt(serverTime);
-
-    // ── Post-pull hook (e.g. generate recurrence instances) ──────
-    _postPullHook?.call().ignore();
   }
 
   // ─── LWW (Last-Write-Wins) check ─────────────────────────────────
@@ -979,17 +1409,14 @@ class SyncWorker {
     String entityType,
     String entityId,
     String serverUpdatedAt,
+    String userId,
   ) async {
     // Check if there's a pending sync op for this entity
-    final pending =
-        await (_db.select(_db.syncQueueTable)
-              ..where(
-                (q) =>
-                    q.entityType.equals(entityType) &
-                    q.entityId.equals(entityId),
-              )
-              ..limit(1))
-            .getSingleOrNull();
+    final pending = await _db.syncDao.getPendingForEntity(
+      entityType,
+      entityId,
+      userId: userId,
+    );
     if (pending == null) return false;
 
     // Fetch local updatedAt
@@ -997,7 +1424,15 @@ class SyncWorker {
     if (localUpdatedAt == null) return false;
 
     // If local >= server, keep local
-    return localUpdatedAt.compareTo(serverUpdatedAt) >= 0;
+    final local = parseSyncTimestamp(
+      localUpdatedAt,
+      field: '$entityType#$entityId.local.updated_at',
+    );
+    final server = parseSyncTimestamp(
+      serverUpdatedAt,
+      field: '$entityType#$entityId.server.updated_at',
+    );
+    return !local.isBefore(server);
   }
 
   Future<String?> _getLocalUpdatedAt(String entityType, String entityId) async {
@@ -1045,6 +1480,7 @@ class SyncWorker {
   Future<void> _processEntityList<T>(
     List<dynamic> list, {
     required String entityType,
+    required String userId,
     required void Function(String, String) tombstoneRecord,
     required Future<void> Function(Map<String, dynamic>) applyDeleted,
     required Future<void> Function(Map<String, dynamic>) applyUpsert,
@@ -1054,10 +1490,12 @@ class SyncWorker {
       Map<String, dynamic>? map;
       String id = '?';
       try {
-        map = item as Map<String, dynamic>;
+        map = Map<String, dynamic>.from(item as Map<String, dynamic>);
+        _scopeServerRecordToUser(map, entityType: entityType, userId: userId);
         id = map['id'] as String? ?? '?';
         if (map['deleted_at'] != null) {
           tombstoneRecord(entityType, id);
+          await _db.syncDao.removeOpsForEntity(entityType, id, userId: userId);
           await applyDeleted(map);
         } else {
           await applyUpsert(map);
@@ -1073,6 +1511,23 @@ class SyncWorker {
     if (failures > 0) {
       throw StateError('failed to apply $failures $entityType sync record(s)');
     }
+  }
+
+  void _scopeServerRecordToUser(
+    Map<String, dynamic> map, {
+    required String entityType,
+    required String userId,
+  }) {
+    if (entityType == 'user' ||
+        entityType == 'checklist_template_item' ||
+        entityType == 'checklist_run_item') {
+      return;
+    }
+    if (entityType == 'checklist_template' && _parseBool(map['is_system'])) {
+      map['user_id'] = null;
+      return;
+    }
+    map['user_id'] = userId;
   }
 
   // ─── JSON → Drift companion converters ───────────────────────────
@@ -1113,32 +1568,34 @@ class SyncWorker {
 
   static TodosTableCompanion _todoCompanionFromJson(Map<String, dynamic> j) {
     final isSubtask = j['parent_id'] != null;
+    final scheduledDate = isSubtask ? null : j['scheduled_date'] as String?;
+    final isFrog =
+        !isSubtask && scheduledDate != null && _parseBool(j['is_frog']);
+    final frogDate = isFrog
+        ? (j['frog_date'] as String? ?? scheduledDate)
+        : null;
     return TodosTableCompanion(
       id: Value(_req(j, 'id')),
       userId: Value(j['user_id'] as String? ?? ''),
       parentId: Value(j['parent_id'] as String?),
       title: Value(_req(j, 'title')),
-      description: Value(isSubtask ? null : j['description'] as String?),
+      description: Value(j['description'] as String?),
       status: Value(j['status'] as String? ?? 'open'),
       position: Value((j['position'] as num?)?.toInt() ?? 0),
-      isFrog: Value(isSubtask ? false : _parseBool(j['is_frog'])),
-      frogDate: Value(isSubtask ? null : j['frog_date'] as String?),
-      isImportant: Value(
-        isSubtask ? null : _parseBoolNullable(j['is_important']),
+      isFrog: Value(isFrog),
+      frogDate: Value(frogDate),
+      isImportant: Value(isFrog ? true : _parseBoolNullable(j['is_important'])),
+      isUrgent: Value(isFrog ? true : _parseBoolNullable(j['is_urgent'])),
+      estimatedMinutes: Value((j['estimated_minutes'] as num?)?.toInt()),
+      actualMinutes: Value((j['actual_minutes'] as num?)?.toInt()),
+      startAt: Value(j['start_at'] as String?),
+      dueAt: Value(j['due_at'] as String?),
+      scheduledDate: Value(scheduledDate),
+      time: Value(
+        isSubtask || scheduledDate == null ? null : j['time'] as String?,
       ),
-      isUrgent: Value(isSubtask ? null : _parseBoolNullable(j['is_urgent'])),
-      estimatedMinutes: Value(
-        isSubtask ? null : (j['estimated_minutes'] as num?)?.toInt(),
-      ),
-      actualMinutes: Value(
-        isSubtask ? null : (j['actual_minutes'] as num?)?.toInt(),
-      ),
-      startAt: Value(isSubtask ? null : j['start_at'] as String?),
-      dueAt: Value(isSubtask ? null : j['due_at'] as String?),
-      scheduledDate: Value(isSubtask ? null : j['scheduled_date'] as String?),
-      triggerAfterTodoId: Value(
-        isSubtask ? null : j['trigger_after_todo_id'] as String?,
-      ),
+      triggerAfterTodoId: Value(j['trigger_after_todo_id'] as String?),
+      habitId: Value(j['habit_id'] as String?),
       completedAt: Value(j['completed_at'] as String?),
       createdAt: Value(_req(j, 'created_at')),
       updatedAt: Value(_req(j, 'updated_at')),
@@ -1168,6 +1625,14 @@ class SyncWorker {
         body: Value(j['body'] as String?),
         cornellCue: Value(j['cornell_cue'] as String?),
         cornellSummary: Value(j['cornell_summary'] as String?),
+        contentFormat: Value(
+          j['content_format'] == 'quill_delta_v1' ? 'quill_delta_v1' : 'plain',
+        ),
+        bodyDelta: Value(_jsonObjectToStorage(j['body_delta'])),
+        cornellCueDelta: Value(_jsonObjectToStorage(j['cornell_cue_delta'])),
+        cornellSummaryDelta: Value(
+          _jsonObjectToStorage(j['cornell_summary_delta']),
+        ),
         isPinned: Value(_parseBool(j['is_pinned'])),
         createdAt: Value(_req(j, 'created_at')),
         updatedAt: Value(_req(j, 'updated_at')),
@@ -1291,31 +1756,68 @@ class SyncWorker {
     deletedAt: Value(j['deleted_at'] as String?),
   );
 
-  static ChecklistRunItemsTableCompanion _runItemCompanionFromJson(
-    Map<String, dynamic> j,
-  ) => ChecklistRunItemsTableCompanion(
-    id: Value(_req(j, 'id')),
-    runId: Value(_req(j, 'run_id')),
-    templateItemId: Value(j['template_item_id'] as String?),
-    title: Value(j['title'] as String? ?? ''),
-    isRequired: Value(_parseBool(j['is_required'])),
-    status: Value(j['status'] as String? ?? 'pending'),
-    completedAt: Value(j['completed_at'] as String?),
-    note: Value(j['note'] as String?),
-    orderIndex: Value(
-      (j['position'] as num?)?.toInt() ??
-          (j['order_index'] as num?)?.toInt() ??
-          0,
-    ),
-    createdAt: Value(_req(j, 'created_at')),
-    updatedAt: Value(_req(j, 'updated_at')),
-    deletedAt: Value(j['deleted_at'] as String?),
-  );
+  Future<ChecklistRunItemsTableCompanion>
+  _runItemCompanionFromJsonPreservingSnapshot(Map<String, dynamic> j) async {
+    final id = _req(j, 'id');
+    final templateItemId = j['template_item_id'] as String?;
+    final existing = await _db.checklistsDao.getRunItemById(id);
+    final templateItem = templateItemId == null
+        ? null
+        : await _db.checklistsDao.getTemplateItemById(templateItemId);
+    final rawTitle = j['title'] as String?;
+    final rawPosition =
+        (j['position'] as num?)?.toInt() ?? (j['order_index'] as num?)?.toInt();
+
+    return ChecklistRunItemsTableCompanion(
+      id: Value(id),
+      runId: Value(_req(j, 'run_id')),
+      templateItemId: Value(templateItemId),
+      title: Value(
+        rawTitle == null || rawTitle.isEmpty
+            ? existing?.title.isNotEmpty == true
+                  ? existing!.title
+                  : templateItem?.title ?? ''
+            : rawTitle,
+      ),
+      isRequired: Value(
+        j.containsKey('is_required') && j['is_required'] != null
+            ? _parseBool(j['is_required'])
+            : existing?.isRequired ?? templateItem?.isRequired ?? true,
+      ),
+      status: Value(j['status'] as String? ?? 'pending'),
+      completedAt: Value(j['completed_at'] as String?),
+      note: Value(j['note'] as String?),
+      orderIndex: Value(
+        rawPosition ?? existing?.orderIndex ?? templateItem?.orderIndex ?? 0,
+      ),
+      createdAt: Value(_req(j, 'created_at')),
+      updatedAt: Value(_req(j, 'updated_at')),
+      deletedAt: Value(j['deleted_at'] as String?),
+    );
+  }
 
   static String? _settingsToString(dynamic value) {
     if (value == null) return null;
     if (value is String) return value;
     return jsonEncode(value);
+  }
+
+  static String? _jsonObjectToStorage(dynamic value) {
+    if (value == null) return null;
+    if (value is Map) {
+      final sanitized = sanitizeNoteDelta(value);
+      return sanitized == null ? null : jsonEncode(sanitized);
+    }
+    if (value is String && value.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(value);
+        final sanitized = decoded is Map ? sanitizeNoteDelta(decoded) : null;
+        return sanitized == null ? null : jsonEncode(sanitized);
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
   }
 
   // ─── Bool parse helpers (contract uses true/false JSON booleans) ──
@@ -1343,4 +1845,107 @@ class SyncWorker {
     if (v == null) throw StateError('required field "$key" is null or absent');
     return v as String;
   }
+}
+
+const syncChangeKeys = <String>[
+  'users',
+  'tags',
+  'todos',
+  'notes',
+  'habits',
+  'habit_logs',
+  'checklist_categories',
+  'checklist_templates',
+  'checklist_template_orders',
+  'checklist_template_items',
+  'checklist_runs',
+  'checklist_run_items',
+];
+
+@visibleForTesting
+Map<String, List<dynamic>> validateSyncChanges(Map<String, dynamic> changes) {
+  final validated = <String, List<dynamic>>{};
+  for (final key in syncChangeKeys) {
+    if (!changes.containsKey(key)) {
+      throw StateError('sync changes missing required list "$key"');
+    }
+    final value = changes[key];
+    if (value is! List) {
+      throw StateError('sync changes "$key" must be a List');
+    }
+    validated[key] = value;
+  }
+  return validated;
+}
+
+@visibleForTesting
+List<dynamic> sortTodoChangesTopologically(List<dynamic> items) {
+  final maps = items.map((item) {
+    if (item is! Map<String, dynamic>) {
+      throw StateError('todos sync item must be an object');
+    }
+    return item;
+  }).toList();
+  final byId = <String, Map<String, dynamic>>{};
+  for (final map in maps) {
+    final id = map['id'];
+    if (id is! String || id.isEmpty) {
+      throw StateError('todos sync item is missing id');
+    }
+    byId[id] = map;
+  }
+
+  final depthCache = <String, int>{};
+  int depthFor(String id, Set<String> visiting) {
+    final cached = depthCache[id];
+    if (cached != null) return cached;
+    if (!visiting.add(id)) {
+      throw StateError('todos sync contains a parent cycle at $id');
+    }
+    final parentId = byId[id]?['parent_id'] as String?;
+    final depth = parentId == null || !byId.containsKey(parentId)
+        ? 0
+        : depthFor(parentId, visiting) + 1;
+    visiting.remove(id);
+    depthCache[id] = depth;
+    return depth;
+  }
+
+  maps.sort((a, b) {
+    final aId = a['id'] as String;
+    final bId = b['id'] as String;
+    final depthOrder = depthFor(
+      aId,
+      <String>{},
+    ).compareTo(depthFor(bId, <String>{}));
+    if (depthOrder != 0) return depthOrder;
+    final positionOrder = ((a['position'] as num?)?.toInt() ?? 0).compareTo(
+      (b['position'] as num?)?.toInt() ?? 0,
+    );
+    if (positionOrder != 0) return positionOrder;
+    return aId.compareTo(bId);
+  });
+  return maps;
+}
+
+DateTime parseSyncTimestamp(String value, {required String field}) {
+  try {
+    return DateTime.parse(value).toUtc();
+  } on FormatException {
+    throw StateError('invalid sync timestamp for $field: "$value"');
+  }
+}
+
+@visibleForTesting
+bool shouldDropGeneratedRecurrenceOperation({
+  required String operation,
+  required Map<String, dynamic> payload,
+  required bool isLocalProjection,
+}) {
+  if (operation == 'create') {
+    return payload['recurrence_template_id'] != null &&
+        payload['recurrence_type'] == null;
+  }
+  if (operation != 'delete' || payload['delete_scope'] != null) return false;
+  return isLocalProjection;
 }

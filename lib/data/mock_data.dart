@@ -221,7 +221,7 @@ class MockData {
             'Kết hợp 4 module: Todo, Note, Habit và Checklist trong cùng 1 app. '
             'Điểm nhấn: Eisenhower matrix cho Todo, Cornell cho Note, streak cho Habit, '
             'và template-based Checklist để chuẩn hóa các workflow lặp lại. '
-            'Mỗi ngày tính điểm 0-100 dựa trên tỷ lệ hoàn thành.',
+            'Mỗi ngày tính điểm theo các việc được đánh dấu ưu tiên.',
         isPinned: true,
         tags: const [
           Tag(id: 't1', name: 'work', color: AppColors.tagIndigo),
@@ -617,7 +617,7 @@ class MockData {
   static bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
-  /// Score giả cho 1 ngày quá khứ — deterministic theo day-of-year.
+  /// Điểm giả cho 1 ngày quá khứ — deterministic theo day-of-year.
   static int scoreForDate(DateTime date) {
     final doy = date.difference(DateTime(date.year)).inDays;
     return 35 + (doy * 7 % 60); // 35..94

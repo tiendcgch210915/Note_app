@@ -3,7 +3,9 @@ import '../models/todo.dart';
 import '../theme/app_colors.dart';
 import '../utils/date_utils.dart';
 import 'duration_picker_sheet.dart';
+import 'habit_link_chip.dart';
 import 'tag_chip.dart';
+import 'todo_timed_title.dart';
 
 /// 1 hàng todo theo style Microsoft To Do.
 class TodoTile extends StatelessWidget {
@@ -39,11 +41,12 @@ class TodoTile extends StatelessWidget {
     if (todo.isImportant == true) {
       subtitleChips.add(_chip(Icons.star, 'Quan trọng', Colors.amber));
     }
-    if (todo.dueAt != null) {
+    final displayDate = todo.scheduledDate ?? todo.dueAt;
+    if (displayDate != null) {
       subtitleChips.add(
         _chip(
           Icons.calendar_today,
-          AppDateUtils.formatRelative(todo.dueAt!),
+          AppDateUtils.formatRelative(displayDate),
           textSecondary,
         ),
       );
@@ -65,6 +68,9 @@ class TodoTile extends StatelessWidget {
           AppColors.primary,
         ),
       );
+    }
+    if (todo.habitId != null) {
+      subtitleChips.add(HabitLinkChip(habitId: todo.habitId));
     }
 
     return InkWell(
@@ -97,8 +103,10 @@ class TodoTile extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    todo.title,
+                  TodoTimedTitle(
+                    title: todo.title,
+                    time: todo.time,
+                    scheduledDate: todo.scheduledDate,
                     style: TextStyle(
                       fontSize: 16,
                       color: done ? textSecondary : textPrimary,

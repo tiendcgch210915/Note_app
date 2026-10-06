@@ -76,6 +76,10 @@ Color? jsonColorNullable(String? hex) {
 /// DateTime → ISO 8601 UTC string.
 String formatIsoDate(DateTime d) => d.toUtc().toIso8601String();
 
+/// DateTime → ISO 8601 UTC string ở cuối ngày đó.
+String formatEndOfDayIso(DateTime d) =>
+    DateTime.utc(d.year, d.month, d.day, 23, 59).toIso8601String();
+
 /// DateTime → "YYYY-MM-DD".
 String formatDateOnly(DateTime d) {
   final mm = d.month.toString().padLeft(2, '0');

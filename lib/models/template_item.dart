@@ -33,4 +33,22 @@ class TemplateItem {
     'description': description,
     'is_required': isRequired,
   };
+
+  TemplateItem copyWith({
+    String? id,
+    String? templateId,
+    int? position,
+    String? title,
+    String? description,
+    bool? isRequired,
+  }) {
+    return TemplateItem(
+      id: id ?? this.id,
+      templateId: templateId ?? this.templateId,
+      position: position ?? this.position,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      isRequired: isRequired ?? this.isRequired,
+    );
+  }
 }

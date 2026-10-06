@@ -1,6 +1,8 @@
 import '../utils/json_utils.dart';
 import 'tag.dart';
 
+const Object _unset = Object();
+
 // ─── TodoStatus ───────────────────────────────────────────────────────────────
 
 enum TodoStatus {
@@ -66,7 +68,9 @@ class Todo {
   final DateTime? startAt;
   final DateTime? dueAt;
   final DateTime? scheduledDate;
+  final String? time;
   final String? triggerAfterTodoId;
+  final String? habitId;
   final List<Tag> tags;
   final List<String> tagIds;
   final bool tagsLoaded;
@@ -109,7 +113,9 @@ class Todo {
     this.startAt,
     this.dueAt,
     this.scheduledDate,
+    this.time,
     this.triggerAfterTodoId,
+    this.habitId,
     this.tags = const [],
     this.tagIds = const [],
     this.tagsLoaded = false,
@@ -148,7 +154,9 @@ class Todo {
       startAt: jsonDateNullable(json['start_at'] as String?),
       dueAt: jsonDateNullable(json['due_at'] as String?),
       scheduledDate: jsonDateOnlyNullable(json['scheduled_date'] as String?),
+      time: json['parent_id'] == null ? json['time'] as String? : null,
       triggerAfterTodoId: json['trigger_after_todo_id'] as String?,
+      habitId: json['habit_id'] as String?,
       tags: tags,
       tagIds: explicitTagIds ?? tags.map((tag) => tag.id).toList(),
       tagsLoaded: json.containsKey('tags') || json.containsKey('tag_ids'),
@@ -178,8 +186,12 @@ class Todo {
     int? estimatedMinutes,
     DateTime? startAt,
     DateTime? dueAt,
+    String? time,
+    bool clearTime = false,
     String? triggerAfterTodoId,
     bool clearTriggerAfterTodo = false,
+    String? habitId,
+    bool clearHabit = false,
     int? position,
   }) {
     return {
@@ -198,22 +210,34 @@ class Todo {
       if (estimatedMinutes != null) 'estimated_minutes': estimatedMinutes,
       if (startAt != null) 'start_at': formatIsoDate(startAt),
       if (dueAt != null) 'due_at': formatIsoDate(dueAt),
+      if (clearScheduledDate || clearTime)
+        'time': null
+      else if (time != null)
+        'time': time,
       if (clearTriggerAfterTodo)
         'trigger_after_todo_id': null
       else if (triggerAfterTodoId != null)
         'trigger_after_todo_id': triggerAfterTodoId,
+      if (clearHabit)
+        'habit_id': null
+      else if (habitId != null)
+        'habit_id': habitId,
       if (position != null) 'position': position,
     };
   }
 
   Todo copyWith({
     TodoStatus? status,
+    int? position,
     DateTime? completedAt,
     bool? isFrog,
-    DateTime? frogDate,
+    Object? frogDate = _unset,
     bool? isImportant,
     bool? isUrgent,
-    DateTime? scheduledDate,
+    Object? scheduledDate = _unset,
+    Object? time = _unset,
+    Object? triggerAfterTodoId = _unset,
+    Object? habitId = _unset,
     List<Tag>? tags,
     List<String>? tagIds,
     bool? tagsLoaded,
@@ -224,17 +248,23 @@ class Todo {
       title: title,
       description: description,
       status: status ?? this.status,
-      position: position,
+      position: position ?? this.position,
       isFrog: isFrog ?? this.isFrog,
-      frogDate: frogDate ?? this.frogDate,
+      frogDate: frogDate == _unset ? this.frogDate : frogDate as DateTime?,
       isImportant: isImportant ?? this.isImportant,
       isUrgent: isUrgent ?? this.isUrgent,
       estimatedMinutes: estimatedMinutes,
       actualMinutes: actualMinutes,
       startAt: startAt,
       dueAt: dueAt,
-      scheduledDate: scheduledDate ?? this.scheduledDate,
-      triggerAfterTodoId: triggerAfterTodoId,
+      scheduledDate: scheduledDate == _unset
+          ? this.scheduledDate
+          : scheduledDate as DateTime?,
+      time: time == _unset ? this.time : time as String?,
+      triggerAfterTodoId: triggerAfterTodoId == _unset
+          ? this.triggerAfterTodoId
+          : triggerAfterTodoId as String?,
+      habitId: habitId == _unset ? this.habitId : habitId as String?,
       tags: tags ?? this.tags,
       tagIds: tagIds ?? this.tagIds,
       tagsLoaded: tagsLoaded ?? this.tagsLoaded,

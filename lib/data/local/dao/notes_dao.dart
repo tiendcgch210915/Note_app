@@ -12,6 +12,7 @@ part 'notes_dao.g.dart';
     TagsTable,
     NoteLinksTable,
     NoteTodoLinksTable,
+    TodosTable,
   ],
 )
 class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
@@ -37,16 +38,40 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
     )..where((n) => n.id.equals(id) & n.deletedAt.isNull())).getSingleOrNull();
   }
 
-  Future<List<NoteRow>> getNotes({String? q, int limit = 50}) {
+  Future<NoteRow?> getNoteByIdIncludingDeleted(String id) {
+    return (select(
+      db.notesTable,
+    )..where((n) => n.id.equals(id))).getSingleOrNull();
+  }
+
+  Future<List<NoteRow>> getNotes({
+    required String userId,
+    String? q,
+    String? type,
+    bool? pinned,
+    int limit = 50,
+  }) {
     final query = select(db.notesTable)
-      ..where((n) => n.deletedAt.isNull())
+      ..where((n) => n.userId.equals(userId) & n.deletedAt.isNull())
       ..orderBy([
         (n) => OrderingTerm.desc(n.isPinned),
         (n) => OrderingTerm.desc(n.updatedAt),
       ])
       ..limit(limit);
+    if (type != null && type.isNotEmpty) {
+      query.where((n) => n.type.equals(type));
+    }
+    if (pinned != null) {
+      query.where((n) => n.isPinned.equals(pinned));
+    }
     if (q != null && q.isNotEmpty) {
-      query.where((n) => n.title.contains(q) | n.body.contains(q));
+      query.where(
+        (n) =>
+            n.title.contains(q) |
+            n.body.contains(q) |
+            n.cornellCue.contains(q) |
+            n.cornellSummary.contains(q),
+      );
     }
     return query.get();
   }
@@ -60,6 +85,13 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
     return (select(
       db.tagsTable,
     )..where((t) => t.id.isIn(tagIds) & t.deletedAt.isNull())).get();
+  }
+
+  Future<List<String>> getTagIdsForNote(String noteId) async {
+    final rows = await (select(
+      db.noteTagsTable,
+    )..where((j) => j.noteId.equals(noteId))).get();
+    return rows.map((row) => row.tagId).toList();
   }
 
   Future<void> setNoteTags(String noteId, List<String> tagIds) async {
@@ -103,6 +135,30 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
         .get();
   }
 
+  Future<NoteLinkRow?> getActiveNoteLink(
+    String sourceNoteId,
+    String targetNoteId,
+  ) {
+    return (select(db.noteLinksTable)
+          ..where(
+            (link) =>
+                link.sourceNoteId.equals(sourceNoteId) &
+                link.targetNoteId.equals(targetNoteId) &
+                link.deletedAt.isNull(),
+          )
+          ..limit(1))
+        .getSingleOrNull();
+  }
+
+  Future<void> removeNoteLink(String sourceNoteId, String targetNoteId) async {
+    await (delete(db.noteLinksTable)..where(
+          (link) =>
+              link.sourceNoteId.equals(sourceNoteId) &
+              link.targetNoteId.equals(targetNoteId),
+        ))
+        .go();
+  }
+
   Future<void> softDeleteNoteLink(String id, String deletedAtIso) async {
     await (update(db.noteLinksTable)..where((l) => l.id.equals(id))).write(
       NoteLinksTableCompanion(
@@ -124,6 +180,12 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
     )..where((l) => l.noteId.equals(noteId))).get();
   }
 
+  Future<TodoRow?> getLinkedTodo(String todoId) {
+    return (select(db.todosTable)
+          ..where((todo) => todo.id.equals(todoId) & todo.deletedAt.isNull()))
+        .getSingleOrNull();
+  }
+
   Future<void> removeNoteTodoLink(String noteId, String todoId) async {
     await (delete(
       db.noteTodoLinksTable,
@@ -139,6 +201,11 @@ class NotesDao extends DatabaseAccessor<AppDatabase> with _$NotesDaoMixin {
         updatedAt: Value(deletedAtIso),
       ),
     );
+  }
+
+  Future<void> hardDeleteNote(String id) async {
+    await cleanJunctionsForDeletedNotes([id]);
+    await (delete(db.notesTable)..where((note) => note.id.equals(id))).go();
   }
 
   /// Self-heal: remove junction rows for tombstoned notes.

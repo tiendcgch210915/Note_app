@@ -8,6 +8,8 @@ mixin _$TodosDaoMixin on DatabaseAccessor<AppDatabase> {
   $TodoTagsTableTable get todoTagsTable => attachedDatabase.todoTagsTable;
   $TagsTableTable get tagsTable => attachedDatabase.tagsTable;
   $NoteTagsTableTable get noteTagsTable => attachedDatabase.noteTagsTable;
+  $NoteTodoLinksTableTable get noteTodoLinksTable =>
+      attachedDatabase.noteTodoLinksTable;
   TodosDaoManager get managers => TodosDaoManager(this);
 }
 
@@ -22,4 +24,9 @@ class TodosDaoManager {
       $$TagsTableTableTableManager(_db.attachedDatabase, _db.tagsTable);
   $$NoteTagsTableTableTableManager get noteTagsTable =>
       $$NoteTagsTableTableTableManager(_db.attachedDatabase, _db.noteTagsTable);
+  $$NoteTodoLinksTableTableTableManager get noteTodoLinksTable =>
+      $$NoteTodoLinksTableTableTableManager(
+        _db.attachedDatabase,
+        _db.noteTodoLinksTable,
+      );
 }

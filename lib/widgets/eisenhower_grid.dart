@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import '../models/dashboard.dart';
 import '../theme/app_colors.dart';
 import '../utils/quadrant_utils.dart';
-import 'tag_chip.dart';
+import '../utils/todo_time_utils.dart';
+import 'todo_timed_title.dart';
 
 /// 2x2 grid hiển thị count + preview todos cho mỗi quadrant.
 /// previews là Map từ 'q1'/'q2'/'q3'/'q4' tới dashboard todos.
@@ -39,7 +40,7 @@ class EisenhowerGrid extends StatelessWidget {
         final count = counts[key] ?? 0;
         final preview = previews == null
             ? const <DashboardEisenhowerTodo>[]
-            : (previews![key] ?? const []);
+            : _sortPreviewTodos(previews![key] ?? const []);
         return _QuadrantCard(
           info: info,
           count: count,
@@ -48,6 +49,18 @@ class EisenhowerGrid extends StatelessWidget {
         );
       },
     );
+  }
+
+  List<DashboardEisenhowerTodo> _sortPreviewTodos(
+    List<DashboardEisenhowerTodo> todos,
+  ) {
+    final sorted = [...todos];
+    sorted.sort((a, b) {
+      final byTime = compareTodoTimes(a.time, b.time);
+      if (byTime != 0) return byTime;
+      return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+    });
+    return sorted;
   }
 }
 
@@ -112,24 +125,22 @@ class _QuadrantCard extends StatelessWidget {
             const SizedBox(height: 4),
             // EXP 10 — Preview titles
             ...previewTodos
-                .take(3)
+                .take(6)
                 .map(
                   (t) => Padding(
                     padding: const EdgeInsets.only(top: 2),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          '· ${t.title}',
+                        TodoTimedTitle(
+                          prefix: '· ',
+                          title: t.title,
+                          time: t.time,
+                          scheduledDate: t.scheduledDate,
                           style: TextStyle(fontSize: 10, color: secondary),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        if (t.tags.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 2, left: 8),
-                            child: TodoTagWrap(tags: t.tags.take(2).toList()),
-                          ),
                       ],
                     ),
                   ),

@@ -75,7 +75,9 @@ class TodosTable extends Table with Timestamps {
   TextColumn get dueAt => text().nullable()();
   // M-RECON: scheduledDate nullable (date-only string "YYYY-MM-DD")
   TextColumn get scheduledDate => text().nullable()();
+  TextColumn get time => text().nullable()(); // local wall-clock "HH:mm"
   TextColumn get triggerAfterTodoId => text().nullable()();
+  TextColumn get habitId => text().nullable()();
   TextColumn get completedAt => text().nullable()();
 
   // Recurrence columns.
@@ -124,6 +126,10 @@ class NotesTable extends Table with Timestamps {
   TextColumn get body => text().nullable()();
   TextColumn get cornellCue => text().nullable()();
   TextColumn get cornellSummary => text().nullable()();
+  TextColumn get contentFormat => text().withDefault(const Constant('plain'))();
+  TextColumn get bodyDelta => text().nullable()();
+  TextColumn get cornellCueDelta => text().nullable()();
+  TextColumn get cornellSummaryDelta => text().nullable()();
   BoolColumn get isPinned => boolean().withDefault(const Constant(false))();
 
   @override
@@ -388,6 +394,7 @@ class SyncQueueTable extends Table {
 
   /// Auto-increment PK (simple integer for ordering)
   IntColumn get id => integer().autoIncrement()();
+  TextColumn get userId => text().withDefault(const Constant(''))();
   TextColumn get entityType =>
       text()(); // 'todo','note','tag','habit','habit_log','checklist_template','checklist_template_item','checklist_run','checklist_run_item','user'
   TextColumn get entityId => text()();
@@ -397,6 +404,8 @@ class SyncQueueTable extends Table {
 
   /// Epoch millis; null = ready now
   IntColumn get nextRetryAt => integer().nullable()();
+  TextColumn get lastError => text().nullable()();
+  BoolColumn get isDeadLetter => boolean().withDefault(const Constant(false))();
   TextColumn get createdAt => text()();
 }
 

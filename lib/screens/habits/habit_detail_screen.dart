@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 import '../../data/api_exception.dart';
 import '../../data/habits_repository.dart';
+import '../../data/todos_repository.dart';
 import '../../models/habit.dart';
 import '../../models/habit_log.dart';
+import '../../models/todo.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/date_utils.dart';
 import '../../utils/habit_streak_utils.dart';
 import '../../widgets/section_header.dart';
+import '../../widgets/todo_tile.dart';
+import 'habit_edit_screen.dart';
+import '../todos/todo_detail_screen.dart';
 
 /// HabitDetailScreen — fetch detail + log today + 28-day grid.
 /// EXP 5: Archive/Unarchive via PopupMenu.
@@ -23,6 +28,7 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
   Habit? _habit;
   List<HabitLog> _recentLogs = [];
   List<HabitLog> _calendarLogs = [];
+  List<Todo> _relatedTodos = [];
   bool _loading = false;
   bool _logging = false;
 
@@ -59,11 +65,44 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
         _recentLogs = detail.recentLogs;
         _calendarLogs = calendarLogs;
       });
+      await _loadRelatedTodos();
     } on ApiException catch (e) {
       if (mounted) _showError(e.vnMessage);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _loadRelatedTodos() async {
+    final local = await TodosRepository.instance.listByHabitLocal(
+      widget.habitId,
+    );
+    if (mounted) setState(() => _relatedTodos = local);
+    try {
+      final remote = await TodosRepository.instance.list(
+        habitId: widget.habitId,
+        limit: 100,
+      );
+      if (mounted) setState(() => _relatedTodos = remote.items);
+    } on ApiException catch (e) {
+      if (e.code != 'no_connection' && mounted) _showError(e.vnMessage);
+    }
+  }
+
+  Future<void> _openTodo(Todo todo) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => TodoDetailScreen(todoId: todo.id)),
+    );
+    if (mounted) _loadRelatedTodos();
+  }
+
+  Future<void> _openEdit() async {
+    final habit = _habit;
+    if (habit == null) return;
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => HabitEditScreen(habit: habit)));
+    if (mounted) _load();
   }
 
   Future<void> _setTodayLog(bool completed) async {
@@ -459,6 +498,11 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
         title: Text(habit.title),
         backgroundColor: habit.color.withValues(alpha: 0.12),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.edit_outlined),
+            tooltip: 'Chỉnh sửa',
+            onPressed: _openEdit,
+          ),
           PopupMenuButton<String>(
             onSelected: (v) {
               if (v == 'archive') {
@@ -645,6 +689,23 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
                 ),
               ),
             ],
+            const SectionHeader(label: 'Todos liên quan'),
+            if (_relatedTodos.isEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: Text(
+                  'Chưa có todo liên kết',
+                  style: TextStyle(color: textSecondary),
+                ),
+              )
+            else
+              ..._relatedTodos.map(
+                (todo) => TodoTile(
+                  todo: todo,
+                  compact: true,
+                  onTap: () => _openTodo(todo),
+                ),
+              ),
           ],
         ),
       ),

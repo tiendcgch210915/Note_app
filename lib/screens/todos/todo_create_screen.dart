@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../data/api_exception.dart';
 import '../../data/todos_repository.dart';
+import '../../models/habit.dart';
 import '../../models/tag.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/date_utils.dart';
@@ -8,6 +9,7 @@ import '../../utils/json_utils.dart';
 import '../../utils/quadrant_utils.dart';
 import '../../utils/todo_trigger_picker.dart';
 import '../../widgets/duration_picker_sheet.dart';
+import '../../widgets/habit_selector_sheet.dart';
 import '../../widgets/repeat_picker_sheet.dart';
 import '../../widgets/tag_chip.dart';
 import '../../widgets/todo_flag_button.dart';
@@ -17,7 +19,9 @@ import '../../widgets/todo_tag_selector_sheet.dart';
 class TodoCreateScreen extends StatefulWidget {
   /// Optional parent_id để tạo subtask trực tiếp từ TodoDetailScreen.
   final String? parentId;
-  const TodoCreateScreen({super.key, this.parentId});
+  final DateTime? initialScheduledDate;
+
+  const TodoCreateScreen({super.key, this.parentId, this.initialScheduledDate});
 
   @override
   State<TodoCreateScreen> createState() => _TodoCreateScreenState();
@@ -26,18 +30,28 @@ class TodoCreateScreen extends StatefulWidget {
 class _TodoCreateScreenState extends State<TodoCreateScreen> {
   final _title = TextEditingController();
   final _desc = TextEditingController();
-  DateTime _scheduledDate = AppDateUtils.dateOnly(DateTime.now());
+  late DateTime _scheduledDate;
+  String? _time;
   int? _estimated;
   bool _frog = false;
   bool _important = false;
   bool _urgent = false;
   List<Tag> _tags = [];
+  Habit? _habit;
   String? _triggerTodoId;
   String? _triggerTodoTitle;
   RepeatSettings _repeat = RepeatSettings.none;
   bool _saving = false;
 
   bool get _isSubtask => widget.parentId != null;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduledDate = AppDateUtils.dateOnly(
+      widget.initialScheduledDate ?? DateTime.now(),
+    );
+  }
 
   @override
   void dispose() {
@@ -65,13 +79,16 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
               if (_desc.text.trim().isNotEmpty)
                 'description': _desc.text.trim(),
               'scheduled_date': formatDateOnly(_scheduledDate),
+              if (_time != null) 'time': _time,
+              'due_at': formatEndOfDayIso(_scheduledDate),
               'is_frog': _frog,
               if (_frog) 'frog_date': formatDateOnly(_scheduledDate),
-              'is_important': _important,
-              'is_urgent': _urgent,
+              'is_important': _frog || _important,
+              'is_urgent': _frog || _urgent,
               if (_estimated != null) 'estimated_minutes': _estimated,
               if (_triggerTodoId != null)
                 'trigger_after_todo_id': _triggerTodoId,
+              if (_habit != null) 'habit_id': _habit!.id,
               if (_tags.isNotEmpty)
                 'tag_ids': _tags.map((tag) => tag.id).toList(),
               if (_repeat.hasRepeat) ...{
@@ -83,9 +100,7 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
                   'recurrence_end_date': _repeat.endDate,
               },
             };
-      final result = !_isSubtask
-          ? await TodosRepository.instance.create(body)
-          : await TodosRepository.instance.createLocalFirst(body);
+      final result = await TodosRepository.instance.createLocalFirst(body);
       if (!mounted) return;
       Navigator.of(context).pop(!_isSubtask ? true : result.todo);
       ScaffoldMessenger.of(
@@ -158,7 +173,10 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
         ? AppColors.textSecondaryDark
         : AppColors.textSecondary;
     final qInfo = QuadrantUtils.info(
-      QuadrantUtils.from(important: _important, urgent: _urgent),
+      QuadrantUtils.from(
+        important: _frog || _important,
+        urgent: _frog || _urgent,
+      ),
     );
 
     return Scaffold(
@@ -244,6 +262,23 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
             ),
             ListTile(
               leading: Icon(
+                Icons.schedule,
+                size: 20,
+                color: _time == null ? null : AppColors.primary,
+              ),
+              title: const Text('Giờ nhắc'),
+              subtitle: Text(_time ?? 'Không đặt giờ'),
+              trailing: _time == null
+                  ? const Icon(Icons.chevron_right)
+                  : IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      tooltip: 'Bỏ giờ nhắc',
+                      onPressed: () => setState(() => _time = null),
+                    ),
+              onTap: _pickTime,
+            ),
+            ListTile(
+              leading: Icon(
                 Icons.repeat,
                 size: 20,
                 color: _repeat.hasRepeat ? AppColors.primary : null,
@@ -281,28 +316,38 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
                       selectedColor: AppColors.frog,
                       label: 'Frog',
                       emoji: '🐸',
-                      onTap: () => setState(() => _frog = !_frog),
+                      onTap: () => setState(() {
+                        _frog = !_frog;
+                        if (_frog) {
+                          _important = true;
+                          _urgent = true;
+                        }
+                      }),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: TodoFlagButton(
-                      selected: _important,
+                      selected: _frog || _important,
                       selectedColor: const Color(0xFFB91C1C),
                       label: 'Quan trọng',
                       icon: Icons.star_rounded,
-                      onTap: () => setState(() => _important = !_important),
+                      onTap: _frog
+                          ? null
+                          : () => setState(() => _important = !_important),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
                     child: TodoFlagButton(
-                      selected: _urgent,
+                      selected: _frog || _urgent,
                       selectedColor: AppColors.warning,
                       selectedForeground: AppColors.textPrimary,
                       label: 'Khẩn cấp',
                       icon: Icons.bolt_rounded,
-                      onTap: () => setState(() => _urgent = !_urgent),
+                      onTap: _frog
+                          ? null
+                          : () => setState(() => _urgent = !_urgent),
                     ),
                   ),
                 ],
@@ -369,6 +414,27 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
               ),
             ),
             const SizedBox(height: 8),
+            ListTile(
+              leading: Icon(
+                _habit?.icon ?? Icons.flag_outlined,
+                color: _habit?.color,
+              ),
+              title: const Text('Habit liên kết'),
+              subtitle: Text(_habit?.title ?? 'Không liên kết'),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_habit != null)
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      tooltip: 'Bỏ liên kết',
+                      onPressed: () => setState(() => _habit = null),
+                    ),
+                  const Icon(Icons.chevron_right),
+                ],
+              ),
+              onTap: _pickHabit,
+            ),
             ListTile(
               leading: const Icon(Icons.account_tree_outlined),
               title: const Text('Làm sau khi hoàn thành...'),
@@ -443,6 +509,28 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
     setState(() => _estimated = custom);
   }
 
+  Future<void> _pickTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _time == null
+          ? TimeOfDay.now()
+          : _timeOfDayFromString(_time!),
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _time = _formatTimeOfDay(picked));
+  }
+
+  TimeOfDay _timeOfDayFromString(String value) {
+    final parts = value.split(':');
+    return TimeOfDay(hour: int.parse(parts[0]), minute: int.parse(parts[1]));
+  }
+
+  String _formatTimeOfDay(TimeOfDay value) {
+    final hour = value.hour.toString().padLeft(2, '0');
+    final minute = value.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
   Future<void> _pickTags() async {
     final selected = await showTodoTagSelectorSheet(
       context,
@@ -450,6 +538,15 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
     );
     if (selected == null || !mounted) return;
     setState(() => _tags = selected);
+  }
+
+  Future<void> _pickHabit() async {
+    final selected = await showHabitSelectorSheet(
+      context,
+      selectedHabitId: _habit?.id,
+    );
+    if (selected == null || !mounted) return;
+    setState(() => _habit = selected.habit);
   }
 
   Future<void> _pickTriggerTodo() async {

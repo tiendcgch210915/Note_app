@@ -37,8 +37,10 @@ class _TodoTagSelectorSheetState extends State<TodoTagSelectorSheet> {
   List<Tag> _items = [];
   bool _loading = false;
   bool _creating = false;
+  bool _deleting = false;
   String? _creatingPresetName;
   Timer? _debounce;
+  int _loadGeneration = 0;
 
   @override
   void initState() {
@@ -58,18 +60,35 @@ class _TodoTagSelectorSheetState extends State<TodoTagSelectorSheet> {
   }
 
   Future<void> _load() async {
+    final generation = ++_loadGeneration;
+    final q = _search.text;
     setState(() => _loading = true);
     try {
-      final items = await TagsRepository.instance.list(
+      final items = await TagsRepository.instance.listLocal(
         scope: 'todo',
-        q: _search.text,
+        q: q,
       );
       if (!mounted) return;
       setState(() => _items = items);
+      unawaited(_refreshRemote(q, generation));
     } on ApiException catch (e) {
       if (mounted) _showError(e.vnMessage);
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && generation == _loadGeneration) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  Future<void> _refreshRemote(String q, int generation) async {
+    try {
+      final items = await TagsRepository.instance.list(scope: 'todo', q: q);
+      if (!mounted || generation != _loadGeneration || q != _search.text) {
+        return;
+      }
+      setState(() => _items = _dedupe([...items, ..._items]));
+    } on ApiException catch (e) {
+      if (e.code != 'no_connection' && mounted) _showError(e.vnMessage);
     }
   }
 
@@ -112,7 +131,7 @@ class _TodoTagSelectorSheetState extends State<TodoTagSelectorSheet> {
       _creatingPresetName = preset.name;
     });
     try {
-      final tag = await TagsRepository.instance.create(
+      final tag = await TagsRepository.instance.createLocal(
         name: preset.name,
         color: preset.color,
       );
@@ -138,7 +157,7 @@ class _TodoTagSelectorSheetState extends State<TodoTagSelectorSheet> {
     if (name.isEmpty || _creating) return;
     setState(() => _creating = true);
     try {
-      final tag = await TagsRepository.instance.create(
+      final tag = await TagsRepository.instance.createLocal(
         name: name,
         color: _defaultTagColor(name),
       );
@@ -152,6 +171,53 @@ class _TodoTagSelectorSheetState extends State<TodoTagSelectorSheet> {
       if (mounted) _showError(e.vnMessage);
     } finally {
       if (mounted) setState(() => _creating = false);
+    }
+  }
+
+  Future<void> _deleteSelectedCustomTags() async {
+    final tagsToDelete = _deletableSelectedTags;
+    if (tagsToDelete.isEmpty || _deleting) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Xóa tag?'),
+        content: Text(
+          tagsToDelete.length == 1
+              ? 'Xóa tag "${tagsToDelete.single.name}" khỏi tài khoản của bạn?'
+              : 'Xóa ${tagsToDelete.length} tag đã chọn khỏi tài khoản của bạn?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Hủy'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Xóa', style: TextStyle(color: AppColors.danger)),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
+    setState(() => _deleting = true);
+    try {
+      for (final tag in tagsToDelete) {
+        await TagsRepository.instance.delete(tag);
+      }
+      if (!mounted) return;
+      final deletedIds = tagsToDelete.map((tag) => tag.id).toSet();
+      setState(() {
+        _selected = _selected
+            .where((tag) => !deletedIds.contains(tag.id))
+            .toList();
+        _items = _items.where((tag) => !deletedIds.contains(tag.id)).toList();
+      });
+    } on ApiException catch (e) {
+      if (mounted) _showError(e.vnMessage);
+    } finally {
+      if (mounted) setState(() => _deleting = false);
     }
   }
 
@@ -187,11 +253,25 @@ class _TodoTagSelectorSheetState extends State<TodoTagSelectorSheet> {
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
                   ),
                   const Spacer(),
+                  if (_deletableSelectedTags.isNotEmpty)
+                    TextButton(
+                      onPressed: _deleting ? null : _deleteSelectedCustomTags,
+                      child: _deleting
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text(
+                              'Xóa',
+                              style: TextStyle(color: AppColors.danger),
+                            ),
+                    ),
                   TextButton(
                     onPressed: _selected.isEmpty
                         ? null
                         : () => setState(() => _selected = []),
-                    child: const Text('Xóa hết'),
+                    child: const Text('Clear'),
                   ),
                 ],
               ),
@@ -335,6 +415,12 @@ class _TodoTagSelectorSheetState extends State<TodoTagSelectorSheet> {
           (tag) =>
               !featuredNames.contains(normalizeFeaturedTodoTagName(tag.name)),
         )
+        .toList(growable: false);
+  }
+
+  List<Tag> get _deletableSelectedTags {
+    return _selected
+        .where((tag) => featuredTodoTagForName(tag.name) == null)
         .toList(growable: false);
   }
 

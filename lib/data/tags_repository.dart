@@ -46,11 +46,26 @@ class TagsRepository {
     } on ApiException catch (e) {
       if (e.code != 'no_connection') rethrow;
       final rows = await _db.todosDao.getTags(
+        userId: _userId,
         q: q,
         onlyUsedByTodos: scope == 'todo',
       );
       return rows.map(_tagRowToModel).take(limit).toList();
     }
+  }
+
+  Future<List<Tag>> listLocal({
+    String scope = 'all',
+    int limit = 100,
+    String? q,
+    bool includeUnused = true,
+  }) async {
+    final rows = await _db.todosDao.getTags(
+      userId: _userId,
+      q: q,
+      onlyUsedByTodos: scope == 'todo' && !includeUnused,
+    );
+    return rows.map(_tagRowToModel).take(limit).toList();
   }
 
   Future<List<Tag>> suggestions({

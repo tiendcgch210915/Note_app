@@ -9,7 +9,7 @@ class TodoFlagButton extends StatelessWidget {
   final String label;
   final IconData? icon;
   final String? emoji;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   const TodoFlagButton({
     super.key,
@@ -34,48 +34,53 @@ class TodoFlagButton extends StatelessWidget {
     final foreground = selected
         ? (selectedForeground ?? Colors.white)
         : disabledForeground;
+    final enabled = onTap != null;
 
     return Semantics(
       button: true,
       selected: selected,
+      enabled: enabled,
       label: label,
-      child: Material(
-        color: selected ? selectedColor : disabledBackground,
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          onTap: onTap,
+      child: Opacity(
+        opacity: enabled ? 1 : 0.62,
+        child: Material(
+          color: selected ? selectedColor : disabledBackground,
           borderRadius: BorderRadius.circular(8),
-          child: AspectRatio(
-            aspectRatio: 1,
-            child: Padding(
-              padding: const EdgeInsets.all(10),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  if (emoji != null)
-                    Opacity(
-                      opacity: selected ? 1 : 0.35,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(8),
+            child: AspectRatio(
+              aspectRatio: 1,
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    if (emoji != null)
+                      Opacity(
+                        opacity: selected ? 1 : 0.35,
+                        child: Text(
+                          emoji!,
+                          style: const TextStyle(fontSize: 32, height: 1),
+                        ),
+                      )
+                    else
+                      Icon(icon, size: 32, color: foreground),
+                    const SizedBox(height: 8),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
                       child: Text(
-                        emoji!,
-                        style: const TextStyle(fontSize: 32, height: 1),
-                      ),
-                    )
-                  else
-                    Icon(icon, size: 32, color: foreground),
-                  const SizedBox(height: 8),
-                  FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: foreground,
+                        label,
+                        maxLines: 1,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: foreground,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

@@ -79,26 +79,59 @@ class HabitsDao extends DatabaseAccessor<AppDatabase> with _$HabitsDaoMixin {
     String habitId,
     String logDate,
   ) {
-    return (select(db.habitLogsTable)..where(
-          (l) =>
-              l.habitId.equals(habitId) &
-              l.logDate.equals(logDate) &
-              l.deletedAt.isNull(),
-        ))
-        .getSingleOrNull();
+    final q = select(db.habitLogsTable)
+      ..where(
+        (l) =>
+            l.habitId.equals(habitId) &
+            l.logDate.equals(logDate) &
+            l.deletedAt.isNull(),
+      )
+      ..orderBy([
+        (l) => OrderingTerm.desc(l.updatedAt),
+        (l) => OrderingTerm.desc(l.createdAt),
+        (l) => OrderingTerm.asc(l.id),
+      ])
+      ..limit(1);
+    return q.getSingleOrNull();
+  }
+
+  Future<List<HabitLogRow>> getActiveHabitLogsByHabitAndDate(
+    String habitId,
+    String logDate,
+  ) {
+    final q = select(db.habitLogsTable)
+      ..where(
+        (l) =>
+            l.habitId.equals(habitId) &
+            l.logDate.equals(logDate) &
+            l.deletedAt.isNull(),
+      )
+      ..orderBy([
+        (l) => OrderingTerm.desc(l.updatedAt),
+        (l) => OrderingTerm.desc(l.createdAt),
+        (l) => OrderingTerm.asc(l.id),
+      ]);
+    return q.get();
   }
 
   /// Resurrect-local-first (contract §3.5): find a soft-deleted log for the
   /// same (habitId, logDate) so callers can reuse its id instead of minting
   /// a new one when creating a log for a date that was previously deleted.
   Future<HabitLogRow?> findSoftDeletedHabitLog(String habitId, String logDate) {
-    return (select(db.habitLogsTable)..where(
-          (l) =>
-              l.habitId.equals(habitId) &
-              l.logDate.equals(logDate) &
-              l.deletedAt.isNotNull(),
-        ))
-        .getSingleOrNull();
+    final q = select(db.habitLogsTable)
+      ..where(
+        (l) =>
+            l.habitId.equals(habitId) &
+            l.logDate.equals(logDate) &
+            l.deletedAt.isNotNull(),
+      )
+      ..orderBy([
+        (l) => OrderingTerm.desc(l.updatedAt),
+        (l) => OrderingTerm.desc(l.createdAt),
+        (l) => OrderingTerm.asc(l.id),
+      ])
+      ..limit(1);
+    return q.getSingleOrNull();
   }
 
   Future<List<HabitLogRow>> getLogsForRange(
@@ -106,24 +139,64 @@ class HabitsDao extends DatabaseAccessor<AppDatabase> with _$HabitsDaoMixin {
     String fromDate,
     String toDate,
   ) {
-    return (select(db.habitLogsTable)..where(
-          (l) =>
-              l.habitId.equals(habitId) &
-              l.logDate.isBiggerOrEqualValue(fromDate) &
-              l.logDate.isSmallerOrEqualValue(toDate) &
-              l.deletedAt.isNull(),
-        ))
-        .get();
+    final q = select(db.habitLogsTable)
+      ..where(
+        (l) =>
+            l.habitId.equals(habitId) &
+            l.logDate.isBiggerOrEqualValue(fromDate) &
+            l.logDate.isSmallerOrEqualValue(toDate) &
+            l.deletedAt.isNull(),
+      )
+      ..orderBy([
+        (l) => OrderingTerm.asc(l.logDate),
+        (l) => OrderingTerm.desc(l.updatedAt),
+        (l) => OrderingTerm.desc(l.createdAt),
+        (l) => OrderingTerm.asc(l.id),
+      ]);
+    return q.get();
   }
 
   Future<List<HabitLogRow>> getAllLogsForRange(String fromDate, String toDate) {
-    return (select(db.habitLogsTable)..where(
-          (l) =>
-              l.logDate.isBiggerOrEqualValue(fromDate) &
-              l.logDate.isSmallerOrEqualValue(toDate) &
-              l.deletedAt.isNull(),
-        ))
-        .get();
+    final q = select(db.habitLogsTable)
+      ..where(
+        (l) =>
+            l.logDate.isBiggerOrEqualValue(fromDate) &
+            l.logDate.isSmallerOrEqualValue(toDate) &
+            l.deletedAt.isNull(),
+      )
+      ..orderBy([
+        (l) => OrderingTerm.asc(l.habitId),
+        (l) => OrderingTerm.asc(l.logDate),
+        (l) => OrderingTerm.desc(l.updatedAt),
+        (l) => OrderingTerm.desc(l.createdAt),
+        (l) => OrderingTerm.asc(l.id),
+      ]);
+    return q.get();
+  }
+
+  Future<void> softDeleteDuplicateHabitLogs(
+    String habitId,
+    String logDate, {
+    required String keepId,
+    required String deletedAtIso,
+  }) async {
+    final rows = await getActiveHabitLogsByHabitAndDate(habitId, logDate);
+    for (final row in rows) {
+      if (row.id == keepId) continue;
+      await softDeleteHabitLog(row.id, deletedAtIso);
+    }
+  }
+
+  Future<List<HabitLogRow>> softDeleteActiveHabitLogsByHabitAndDate(
+    String habitId,
+    String logDate,
+    String deletedAtIso,
+  ) async {
+    final rows = await getActiveHabitLogsByHabitAndDate(habitId, logDate);
+    for (final row in rows) {
+      await softDeleteHabitLog(row.id, deletedAtIso);
+    }
+    return rows;
   }
 
   Future<void> softDeleteHabitLog(String id, String deletedAtIso) async {

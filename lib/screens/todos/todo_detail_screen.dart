@@ -6,8 +6,12 @@ import '../../data/api_exception.dart';
 import '../../data/todos_repository.dart';
 import '../../models/todo.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/frog_completion_events.dart';
 import '../../utils/habit_stacking_dialog.dart';
+import '../../utils/todo_delete_dialog.dart';
+import '../../utils/todo_local_events.dart';
 import '../../widgets/duration_picker_sheet.dart';
+import '../../widgets/habit_link_chip.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/section_header.dart';
 import '../../widgets/tag_chip.dart';
@@ -37,28 +41,52 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
   bool _draftingSubtask = false;
   bool _savingDraftSubtask = false;
   bool _queueNextDraftAfterSave = false;
+  bool _doneSubtasksExpanded = false;
   int _celebrationSeed = 0;
+  final Set<String> _expandedSubtaskIds = {};
 
   @override
   void initState() {
     super.initState();
+    TodoLocalEvents.instance.revision.addListener(_onLocalTodoChanged);
     _load();
+  }
+
+  @override
+  void dispose() {
+    TodoLocalEvents.instance.revision.removeListener(_onLocalTodoChanged);
+    super.dispose();
+  }
+
+  void _onLocalTodoChanged() {
+    unawaited(_loadLocalDetail());
+  }
+
+  Future<void> _loadLocalDetail() async {
+    final local = await TodosRepository.instance.getLocalDetail(widget.todoId);
+    if (!mounted || local == null) return;
+    setState(() => _detail = local);
   }
 
   Future<void> _load() async {
     if (_detail == null) {
-      final local = await TodosRepository.instance.getLocalDetail(
-        widget.todoId,
-      );
-      if (!mounted) return;
-      if (local != null) {
-        setState(() => _detail = local);
-      }
+      await _loadLocalDetail();
+    }
+    final hasPending = await TodosRepository.instance.hasPendingLocalWrites();
+    if (hasPending && _detail != null) {
+      if (mounted) setState(() => _loading = false);
+      return;
     }
     setState(() => _loading = true);
     try {
       final detail = await TodosRepository.instance.getDetail(widget.todoId);
       if (!mounted) return;
+      final hasPendingAfter = await TodosRepository.instance
+          .hasPendingLocalWrites();
+      if (hasPendingAfter) {
+        await _loadLocalDetail();
+        return;
+      }
       setState(() => _detail = detail);
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -82,10 +110,45 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
         if (!mounted) return;
         setState(() => _detail = _detailWith(todo: reopened));
       } else {
-        final res = await TodosRepository.instance.completeLocalFirst(todo);
+        final shouldCelebrateFrog = todo.isFrog && !todo.isDone;
+        final res = await TodosRepository.instance.completeLocalFirst(
+          todo,
+          celebrateFrog: false,
+        );
         if (!mounted) return;
-        setState(() => _detail = _detailWith(todo: res.todo));
-        await showHabitStackingDialog(context, res.triggeredTodos, (t) {
+        _returnAfterComplete(
+          completedTodo: res.todo,
+          celebrateFrog: shouldCelebrateFrog,
+        );
+      }
+    } on ApiException catch (e) {
+      if (mounted) _showError(e.vnMessage);
+    }
+  }
+
+  Future<void> _toggleSubtaskComplete(Todo subtask) async {
+    if (_hasLoadedChildren(subtask.id)) {
+      _toggleSubtaskExpansion(subtask.id);
+      return;
+    }
+    try {
+      final triggeredTodos = <Todo>[];
+      Todo updated;
+      if (subtask.isDone) {
+        updated = await TodosRepository.instance.uncompleteLocalFirst(subtask);
+      } else {
+        final res = await TodosRepository.instance.completeLocalFirst(subtask);
+        updated = res.todo;
+        triggeredTodos.addAll(res.triggeredTodos);
+      }
+      final reconciled = await TodosRepository.instance
+          .reconcileSubtaskAncestorsLocalFirst(updated);
+      triggeredTodos.addAll(reconciled.triggeredTodos);
+      if (!mounted) return;
+      await _loadLocalDetail();
+      if (!mounted) return;
+      if (triggeredTodos.isNotEmpty) {
+        await showHabitStackingDialog(context, triggeredTodos, (t) {
           Navigator.of(context).push(
             MaterialPageRoute(builder: (_) => TodoDetailScreen(todoId: t.id)),
           );
@@ -96,27 +159,19 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
     }
   }
 
-  Future<void> _toggleSubtaskComplete(Todo subtask) async {
-    try {
-      if (subtask.isDone) {
-        final reopened = await TodosRepository.instance.uncompleteLocalFirst(
-          subtask,
-        );
-        if (!mounted) return;
-        setState(() => _replaceSubtask(reopened));
-      } else {
-        final res = await TodosRepository.instance.completeLocalFirst(subtask);
-        if (!mounted) return;
-        setState(() => _replaceSubtask(res.todo));
-        await showHabitStackingDialog(context, res.triggeredTodos, (t) {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => TodoDetailScreen(todoId: t.id)),
-          );
-        });
-      }
-    } on ApiException catch (e) {
-      if (mounted) _showError(e.vnMessage);
+  void _returnAfterComplete({
+    required Todo completedTodo,
+    required bool celebrateFrog,
+  }) {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop(true);
     }
+
+    if (!celebrateFrog) return;
+    Future<void>.delayed(const Duration(milliseconds: 260), () {
+      FrogCompletionCelebrations.instance.celebrate(completedTodo);
+    });
   }
 
   Future<void> _saveTitle(String todoId, String newTitle) async {
@@ -144,132 +199,10 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
   Future<void> _confirmDelete() async {
     final todo = _detail?.todo;
     if (todo == null) return;
-
-    // Recurring instance: show scope selector
-    if (todo.isRecurrenceInstance) {
-      await _confirmDeleteRecurring(todo);
-      return;
-    }
-    // Recurring template: offer delete-all or just this
-    if (todo.isRecurrenceTemplate) {
-      await _confirmDeleteTemplate(todo);
-      return;
-    }
-
-    // Non-recurring: simple confirm
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Xóa việc?'),
-        content: const Text('Hành động này không thể hoàn tác.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Hủy'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Xóa', style: TextStyle(color: AppColors.danger)),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true) return;
-    try {
-      await TodosRepository.instance.delete(widget.todoId);
-      if (mounted) {
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Đã xóa')));
-      }
-    } on ApiException catch (e) {
-      if (mounted) _showError(e.vnMessage);
-    }
-  }
-
-  /// Scope picker for recurring instances.
-  Future<void> _confirmDeleteRecurring(Todo todo) async {
-    final scope = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Xóa lịch lặp?'),
-        content: const Text('Chọn phạm vi xóa:'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(null),
-            child: const Text('Hủy'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop('this'),
-            child: const Text('Lần này thôi'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop('future'),
-            child: const Text('Lần này và sau'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop('all'),
-            child: const Text(
-              'Tất cả',
-              style: TextStyle(color: AppColors.danger),
-            ),
-          ),
-        ],
-      ),
-    );
+    final scope = await showTodoDeleteScopeDialog(context, todo);
     if (scope == null || !mounted) return;
     try {
-      if (scope == 'this') {
-        await TodosRepository.instance.delete(widget.todoId);
-      } else if (scope == 'future') {
-        await TodosRepository.instance.deleteFutureAndThis(
-          widget.todoId,
-          todo.recurrenceTemplateId!,
-        );
-      } else {
-        await TodosRepository.instance.deleteAllRecurrences(
-          todo.recurrenceTemplateId!,
-        );
-      }
-      if (mounted) {
-        Navigator.of(context).pop();
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Đã xóa')));
-      }
-    } on ApiException catch (e) {
-      if (mounted) _showError(e.vnMessage);
-    }
-  }
-
-  /// Scope picker when deleting a template directly.
-  Future<void> _confirmDeleteTemplate(Todo todo) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Xóa lịch lặp?'),
-        content: const Text(
-          'Xóa template sẽ xóa tất cả các lần lặp chưa hoàn thành.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Hủy'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text(
-              'Xóa tất cả',
-              style: TextStyle(color: AppColors.danger),
-            ),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true || !mounted) return;
-    try {
-      await TodosRepository.instance.deleteAllRecurrences(todo.id);
+      await TodosRepository.instance.deleteTodoLocalFirst(todo, scope: scope);
       if (mounted) {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(
@@ -282,10 +215,18 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
   }
 
   Future<void> _openEdit() async {
-    await Navigator.of(context).push(
+    final result = await Navigator.of(context).push<TodoWithRelations>(
       MaterialPageRoute(builder: (_) => TodoEditScreen(todoId: widget.todoId)),
     );
-    if (mounted) _load();
+    if (!mounted) return;
+    if (result != null) {
+      setState(() => _detail = result);
+      return;
+    }
+    await _loadLocalDetail();
+    if (!mounted) return;
+    final hasPending = await TodosRepository.instance.hasPendingLocalWrites();
+    if (!hasPending) unawaited(_load());
   }
 
   Future<void> _startFocus() async {
@@ -310,7 +251,7 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
     setState(() {
       _detail = _detailWith(todo: result.todo, subtasks: result.subtasks);
     });
-    if (result.completedAll) {
+    if (result.completedAll && !result.todo.isFrog) {
       _showCelebration();
     }
     if (result.triggeredTodos.isNotEmpty && mounted) {
@@ -370,6 +311,97 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
           if (subtask.id == updated.id) updated else subtask,
       ],
     );
+  }
+
+  List<Todo> _childrenOf(String parentId) {
+    final detail = _detail;
+    if (detail == null) return const [];
+    final children =
+        detail.subtasks
+            .where((subtask) => subtask.parentId == parentId)
+            .toList()
+          ..sort(_compareSubtaskOrder);
+    return children;
+  }
+
+  bool _hasLoadedChildren(String todoId) {
+    final detail = _detail;
+    if (detail == null) return false;
+    return detail.subtasks.any((subtask) => subtask.parentId == todoId);
+  }
+
+  void _toggleSubtaskExpansion(String todoId) {
+    setState(() {
+      if (!_expandedSubtaskIds.add(todoId)) {
+        _expandedSubtaskIds.remove(todoId);
+      }
+    });
+  }
+
+  Future<void> _openSubtaskDetail(Todo subtask) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => TodoDetailScreen(todoId: subtask.id)),
+    );
+    if (mounted) _load();
+  }
+
+  Future<void> _reorderSubtaskSection({
+    required String parentId,
+    required List<Todo> section,
+    required bool doneSection,
+    required int oldIndex,
+    required int newIndex,
+  }) async {
+    if (newIndex > oldIndex) newIndex -= 1;
+    if (oldIndex == newIndex || oldIndex < 0 || oldIndex >= section.length) {
+      return;
+    }
+    final movedSection = [...section];
+    final moved = movedSection.removeAt(oldIndex);
+    final targetIndex = newIndex.clamp(0, movedSection.length).toInt();
+    movedSection.insert(targetIndex, moved);
+
+    final allChildren = _childrenOf(parentId);
+    final pending = allChildren.where((subtask) => !subtask.isDone).toList();
+    final done = allChildren.where((subtask) => subtask.isDone).toList();
+    final fullOrder = doneSection
+        ? [...pending, ...movedSection]
+        : [...movedSection, ...done];
+
+    _applyOptimisticSubtaskOrder(fullOrder);
+    try {
+      await TodosRepository.instance.reorderSubtasksLocalFirst(
+        parentId: parentId,
+        orderedIds: fullOrder.map((subtask) => subtask.id).toList(),
+      );
+      await _loadLocalDetail();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      await _loadLocalDetail();
+      _showError(e.vnMessage);
+    } catch (_) {
+      if (!mounted) return;
+      await _loadLocalDetail();
+      _showError('Không thể đổi thứ tự việc con');
+    }
+  }
+
+  void _applyOptimisticSubtaskOrder(List<Todo> ordered) {
+    final positions = <String, int>{};
+    for (var i = 0; i < ordered.length; i++) {
+      positions[ordered[i].id] = i;
+    }
+    setState(() {
+      _detail = _detailWith(
+        subtasks: [
+          for (final subtask in _detail!.subtasks)
+            if (positions.containsKey(subtask.id))
+              subtask.copyWith(position: positions[subtask.id])
+            else
+              subtask,
+        ],
+      );
+    });
   }
 
   Future<void> _addSubtask() async {
@@ -442,6 +474,83 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
     );
   }
 
+  Widget _buildNestedSubtasks(String parentId, int depth) {
+    final children = _childrenOf(parentId);
+    if (children.isEmpty) return const SizedBox.shrink();
+    final pending = children.where((subtask) => !subtask.isDone).toList();
+    final done = children.where((subtask) => subtask.isDone).toList();
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (pending.isNotEmpty)
+          _buildSubtaskReorderList(
+            parentId: parentId,
+            subtasks: pending,
+            doneSection: false,
+            depth: depth,
+          ),
+        if (done.isNotEmpty)
+          _buildSubtaskReorderList(
+            parentId: parentId,
+            subtasks: done,
+            doneSection: true,
+            depth: depth,
+          ),
+      ],
+    );
+  }
+
+  Widget _buildSubtaskReorderList({
+    required String parentId,
+    required List<Todo> subtasks,
+    required bool doneSection,
+    required int depth,
+  }) {
+    if (subtasks.isEmpty) return const SizedBox.shrink();
+    return ReorderableListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      buildDefaultDragHandles: false,
+      itemCount: subtasks.length,
+      onReorder: (oldIndex, newIndex) {
+        unawaited(
+          _reorderSubtaskSection(
+            parentId: parentId,
+            section: subtasks,
+            doneSection: doneSection,
+            oldIndex: oldIndex,
+            newIndex: newIndex,
+          ),
+        );
+      },
+      itemBuilder: (context, index) {
+        final subtask = subtasks[index];
+        final hasChildren = _hasLoadedChildren(subtask.id);
+        final expanded = _expandedSubtaskIds.contains(subtask.id);
+        return Column(
+          key: ValueKey('subtask_${parentId}_${subtask.id}_$doneSection'),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _SubtaskRow(
+              subtask: subtask,
+              depth: depth,
+              hasChildren: hasChildren,
+              expanded: expanded,
+              dragIndex: index,
+              canReorder: subtasks.length > 1,
+              onToggle: () => _toggleSubtaskComplete(subtask),
+              onToggleExpand: () => _toggleSubtaskExpansion(subtask.id),
+              onSaveTitle: (newTitle) => _saveTitle(subtask.id, newTitle),
+              onOpenDetail: () => _openSubtaskDetail(subtask),
+            ),
+            if (hasChildren && expanded)
+              _buildNestedSubtasks(subtask.id, depth + 1),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading && _detail == null) {
@@ -461,6 +570,13 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
     final secondary = isDark
         ? AppColors.textSecondaryDark
         : AppColors.textSecondary;
+    final rootSubtasks = _childrenOf(todo.id);
+    final pendingSubtasks = rootSubtasks
+        .where((subtask) => !subtask.isDone)
+        .toList();
+    final doneSubtasks = rootSubtasks
+        .where((subtask) => subtask.isDone)
+        .toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -496,9 +612,19 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                     child: TodoTagWrap(tags: _detail!.tags, compact: false),
                   ),
+                if (todo.habitId != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: HabitLinkChip(habitId: todo.habitId),
+                    ),
+                  ),
                 const Divider(height: 1),
                 const SectionHeader(label: 'Việc con'),
-                if (_detail!.subtasks.isEmpty && !_draftingSubtask)
+                if (pendingSubtasks.isEmpty &&
+                    doneSubtasks.isEmpty &&
+                    !_draftingSubtask)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                     child: Text(
@@ -507,20 +633,11 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
                     ),
                   )
                 else
-                  ..._detail!.subtasks.map(
-                    (s) => _SubtaskRow(
-                      subtask: s,
-                      onToggle: () => _toggleSubtaskComplete(s),
-                      onSaveTitle: (newTitle) => _saveTitle(s.id, newTitle),
-                      onOpenDetail: () async {
-                        await Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => TodoDetailScreen(todoId: s.id),
-                          ),
-                        );
-                        if (mounted) _load();
-                      },
-                    ),
+                  _buildSubtaskReorderList(
+                    parentId: todo.id,
+                    subtasks: pendingSubtasks,
+                    doneSection: false,
+                    depth: 0,
                   ),
                 if (_draftingSubtask)
                   _DraftSubtaskRow(
@@ -547,6 +664,28 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
                     ),
                   ),
                 ),
+                if (doneSubtasks.isNotEmpty) ...[
+                  SectionHeader(
+                    label: '✅ Đã xong (${doneSubtasks.length})',
+                    trailing: IconButton(
+                      icon: Icon(
+                        _doneSubtasksExpanded
+                            ? Icons.expand_less
+                            : Icons.expand_more,
+                      ),
+                      onPressed: () => setState(
+                        () => _doneSubtasksExpanded = !_doneSubtasksExpanded,
+                      ),
+                    ),
+                  ),
+                  if (_doneSubtasksExpanded)
+                    _buildSubtaskReorderList(
+                      parentId: todo.id,
+                      subtasks: doneSubtasks,
+                      doneSection: true,
+                      depth: 0,
+                    ),
+                ],
               ],
             ),
           ),
@@ -570,6 +709,12 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
       ),
     );
   }
+}
+
+int _compareSubtaskOrder(Todo a, Todo b) {
+  final byPosition = a.position.compareTo(b.position);
+  if (byPosition != 0) return byPosition;
+  return a.createdAt.compareTo(b.createdAt);
 }
 
 class _TodoFocusResult {
@@ -622,16 +767,37 @@ class _TodoFocusScreenState extends State<_TodoFocusScreen> {
     super.dispose();
   }
 
+  List<Todo> _childrenOf(String parentId) {
+    final children =
+        _subtasks.where((subtask) => subtask.parentId == parentId).toList()
+          ..sort(_compareSubtaskOrder);
+    return children;
+  }
+
+  List<Todo> _orderedLeafSubtasks(String parentId) {
+    final result = <Todo>[];
+    for (final child in _childrenOf(parentId)) {
+      final nested = _orderedLeafSubtasks(child.id);
+      if (nested.isEmpty) {
+        result.add(child);
+      } else {
+        result.addAll(nested);
+      }
+    }
+    return result;
+  }
+
   Todo? get _currentTask {
     if (_subtasks.isEmpty) return _todo.isDone ? null : _todo;
-    for (final subtask in _subtasks) {
+    for (final subtask in _orderedLeafSubtasks(_todo.id)) {
       if (!subtask.isDone) return subtask;
     }
     return _todo.isDone ? null : _todo;
   }
 
-  List<Todo> get _pendingSubtasks =>
-      _subtasks.where((subtask) => !subtask.isDone).toList();
+  List<Todo> get _pendingSubtasks => _orderedLeafSubtasks(
+    _todo.id,
+  ).where((subtask) => !subtask.isDone).toList();
 
   List<Todo> _nextSubtasksAfter(Todo current) {
     final pending = _pendingSubtasks;
@@ -640,6 +806,25 @@ class _TodoFocusScreenState extends State<_TodoFocusScreen> {
     );
     if (currentIndex < 0) return const [];
     return pending.skip(currentIndex + 1).toList();
+  }
+
+  Todo? _subtaskById(String id) {
+    for (final subtask in _subtasks) {
+      if (subtask.id == id) return subtask;
+    }
+    return null;
+  }
+
+  List<Todo> _parentChainFor(Todo current) {
+    final chain = <Todo>[];
+    var parentId = current.parentId;
+    while (parentId != null && parentId != _todo.id) {
+      final parent = _subtaskById(parentId);
+      if (parent == null) break;
+      chain.add(parent);
+      parentId = parent.parentId;
+    }
+    return chain.reversed.toList(growable: false);
   }
 
   void _tick(Timer timer) {
@@ -668,12 +853,12 @@ class _TodoFocusScreenState extends State<_TodoFocusScreen> {
       }
       final res = await TodosRepository.instance.completeLocalFirst(current);
       _addTriggered(res.triggeredTodos);
+      final reconciled = await TodosRepository.instance
+          .reconcileSubtaskAncestorsLocalFirst(res.todo);
+      _addTriggered(reconciled.triggeredTodos);
       if (!mounted) return;
       setState(() {
-        _subtasks = [
-          for (final subtask in _subtasks)
-            if (subtask.id == res.todo.id) res.todo else subtask,
-        ];
+        _replaceFocusSubtasks([res.todo, ...reconciled.updatedTodos]);
       });
       if (_currentTask == null) {
         await _completeParentAndExit();
@@ -723,6 +908,11 @@ class _TodoFocusScreenState extends State<_TodoFocusScreen> {
     }
   }
 
+  void _replaceFocusSubtasks(List<Todo> updatedTodos) {
+    final byId = {for (final todo in updatedTodos) todo.id: todo};
+    _subtasks = [for (final subtask in _subtasks) byId[subtask.id] ?? subtask];
+  }
+
   void _close({required bool completedAll}) {
     if (_closed || !mounted) return;
     _closed = true;
@@ -766,6 +956,7 @@ class _TodoFocusScreenState extends State<_TodoFocusScreen> {
                 : _FocusSessionPane(
                     key: ValueKey(current.id),
                     current: current,
+                    parentChain: _parentChainFor(current),
                     nextSubtasks: _nextSubtasksAfter(current),
                     remaining: _remaining,
                     total: widget.focusDuration,
@@ -781,6 +972,7 @@ class _TodoFocusScreenState extends State<_TodoFocusScreen> {
 
 class _FocusSessionPane extends StatelessWidget {
   final Todo current;
+  final List<Todo> parentChain;
   final List<Todo> nextSubtasks;
   final Duration remaining;
   final Duration total;
@@ -790,6 +982,7 @@ class _FocusSessionPane extends StatelessWidget {
   const _FocusSessionPane({
     super.key,
     required this.current,
+    required this.parentChain,
     required this.nextSubtasks,
     required this.remaining,
     required this.total,
@@ -827,17 +1020,11 @@ class _FocusSessionPane extends StatelessWidget {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        current.title,
-                        textAlign: TextAlign.center,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 26,
-                          fontWeight: FontWeight.w700,
-                          height: 1.14,
-                          color: textPrimary,
-                        ),
+                      _CurrentFocusTaskHeader(
+                        parentChain: parentChain,
+                        current: current,
+                        secondary: secondary,
+                        textPrimary: textPrimary,
                       ),
                       const SizedBox(height: 24),
                       SizedBox.square(
@@ -908,6 +1095,143 @@ class _FocusSessionPane extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _CurrentFocusTaskHeader extends StatelessWidget {
+  final List<Todo> parentChain;
+  final Todo current;
+  final Color secondary;
+  final Color textPrimary;
+
+  const _CurrentFocusTaskHeader({
+    required this.parentChain,
+    required this.current,
+    required this.secondary,
+    required this.textPrimary,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (parentChain.isEmpty) {
+      return Text(
+        current.title,
+        textAlign: TextAlign.center,
+        maxLines: 3,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 26,
+          fontWeight: FontWeight.w700,
+          height: 1.14,
+          color: textPrimary,
+        ),
+      );
+    }
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _ParentTaskTrail(
+          parents: parentChain,
+          secondary: secondary,
+          textPrimary: textPrimary,
+        ),
+        const SizedBox(height: 12),
+        Text(
+          current.title,
+          textAlign: TextAlign.center,
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 26,
+            fontWeight: FontWeight.w800,
+            height: 1.14,
+            color: textPrimary,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ParentTaskTrail extends StatelessWidget {
+  final List<Todo> parents;
+  final Color secondary;
+  final Color textPrimary;
+
+  const _ParentTaskTrail({
+    required this.parents,
+    required this.secondary,
+    required this.textPrimary,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final border = isDark ? AppColors.dividerDark : AppColors.divider;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: secondary.withValues(alpha: isDark ? 0.08 : 0.07),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: border.withValues(alpha: 0.82)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.account_tree_outlined,
+                size: 14,
+                color: secondary.withValues(alpha: 0.82),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'Trong việc con',
+                style: TextStyle(
+                  color: secondary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          for (var index = 0; index < parents.length; index++)
+            Padding(
+              padding: EdgeInsets.only(top: index == 0 ? 0 : 4),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (index > 0) SizedBox(width: 14.0 * index),
+                  Icon(
+                    Icons.subdirectory_arrow_right_rounded,
+                    size: 15,
+                    color: secondary.withValues(alpha: 0.7),
+                  ),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      parents[index].title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: textPrimary.withValues(alpha: 0.9),
+                        fontSize: 14,
+                        height: 1.18,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1314,13 +1638,25 @@ class _DraftSubtaskRowState extends State<_DraftSubtaskRow> {
 /// Hàng việc con — checkbox + tiêu đề inline edit + nút ">" mở chi tiết.
 class _SubtaskRow extends StatelessWidget {
   final Todo subtask;
+  final int depth;
+  final bool hasChildren;
+  final bool expanded;
+  final int dragIndex;
+  final bool canReorder;
   final VoidCallback onToggle;
+  final VoidCallback onToggleExpand;
   final Future<void> Function(String) onSaveTitle;
   final VoidCallback onOpenDetail;
 
   const _SubtaskRow({
     required this.subtask,
+    required this.depth,
+    required this.hasChildren,
+    required this.expanded,
+    required this.dragIndex,
+    required this.canReorder,
     required this.onToggle,
+    required this.onToggleExpand,
     required this.onSaveTitle,
     required this.onOpenDetail,
   });
@@ -1343,18 +1679,43 @@ class _SubtaskRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
+          SizedBox(width: 8 + depth * 20),
           InkWell(
-            onTap: onToggle,
+            onTap: hasChildren ? onToggleExpand : onToggle,
             customBorder: const CircleBorder(),
             child: Padding(
               padding: const EdgeInsets.all(12),
-              child: Icon(
-                subtask.isDone
-                    ? Icons.check_circle
-                    : Icons.radio_button_unchecked,
-                size: 22,
-                color: subtask.isDone ? AppColors.primary : textSecondary,
-              ),
+              child: hasChildren
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          expanded
+                              ? Icons.keyboard_arrow_down_rounded
+                              : Icons.chevron_right_rounded,
+                          size: 22,
+                          color: subtask.isDone
+                              ? AppColors.primary
+                              : textSecondary,
+                        ),
+                        if (subtask.isDone)
+                          const Padding(
+                            padding: EdgeInsets.only(left: 2),
+                            child: Icon(
+                              Icons.check_circle,
+                              size: 14,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                      ],
+                    )
+                  : Icon(
+                      subtask.isDone
+                          ? Icons.check_circle
+                          : Icons.radio_button_unchecked,
+                      size: 22,
+                      color: subtask.isDone ? AppColors.primary : textSecondary,
+                    ),
             ),
           ),
           Expanded(
@@ -1372,6 +1733,19 @@ class _SubtaskRow extends StatelessWidget {
               ),
             ),
           ),
+          if (canReorder)
+            ReorderableDelayedDragStartListener(
+              index: dragIndex,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 16,
+                ),
+                child: Icon(Icons.drag_handle, size: 20, color: textSecondary),
+              ),
+            )
+          else
+            const SizedBox(width: 40),
           // Chevron với vùng nhấn rộng để dễ tap mở chi tiết
           InkWell(
             onTap: onOpenDetail,

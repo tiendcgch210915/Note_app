@@ -8,6 +8,7 @@ import '../../models/template_item.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/checklist_step_text_utils.dart';
 import '../../utils/date_utils.dart';
+import '../../widgets/checklist_paste_steps_sheet.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/section_header.dart';
 import 'run_detail_screen.dart';
@@ -28,6 +29,14 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
   List<ChecklistCategory> _categories = [];
   bool _loading = false;
   bool _editMode = false;
+  bool _savingTitle = false;
+  final _titleCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -48,6 +57,7 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
         _template = res.template;
         _items = res.items;
         _categories = results[1] as List<ChecklistCategory>;
+        _titleCtrl.text = res.template.title;
       });
     } on ApiException catch (e) {
       if (mounted) _showError(e.vnMessage);
@@ -131,54 +141,16 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
   Future<void> _showPasteStepsSheet() async {
     final clipboard = await Clipboard.getData('text/plain');
     if (!mounted) return;
-    final ctrl = TextEditingController(text: clipboard?.text ?? '');
-    final raw = await showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (ctx) {
-        final bottom = MediaQuery.viewInsetsOf(ctx).bottom;
-        return SafeArea(
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(20, 8, 20, 20 + bottom),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Dán nhiều bước',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: ctrl,
-                  autofocus: true,
-                  minLines: 5,
-                  maxLines: 10,
-                  decoration: const InputDecoration(
-                    hintText: 'Mỗi dòng là một bước',
-                    alignLabelWithHint: true,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  height: 46,
-                  child: ElevatedButton.icon(
-                    onPressed: () => Navigator.of(ctx).pop(ctrl.text),
-                    icon: const Icon(Icons.content_paste_go_outlined),
-                    label: const Text('Thêm vào checklist'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+    final raw = await showChecklistPasteStepsSheet(
+      context,
+      initialText: clipboard?.text ?? '',
     );
-    ctrl.dispose();
-    if (raw == null) return;
-    await _appendPastedSteps(parseChecklistStepLines(raw));
+    if (!mounted || raw == null) return;
+    final titles = parseChecklistStepLines(raw);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _appendPastedSteps(titles);
+    });
   }
 
   Future<void> _appendPastedSteps(List<String> titles) async {
@@ -213,6 +185,63 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
       setState(() => _items.removeWhere((i) => i.id == item.id));
     } on ApiException catch (e) {
       if (mounted) _showError(e.vnMessage);
+    }
+  }
+
+  Future<void> _editItemTitle(TemplateItem item) async {
+    final ctrl = TextEditingController(text: item.title);
+    final title = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sửa bước'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          textInputAction: TextInputAction.done,
+          decoration: const InputDecoration(hintText: 'Tên bước'),
+          onSubmitted: (value) => Navigator.of(ctx).pop(value.trim()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Hủy'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
+            child: const Text('Lưu'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (!mounted) return;
+    if (title == null) return;
+    if (title.isEmpty) {
+      _showError('Tên bước không được để trống');
+      return;
+    }
+    if (title == item.title) return;
+
+    final previousItems = List<TemplateItem>.of(_items);
+    final optimistic = item.copyWith(title: title);
+    setState(() {
+      _items = _items.map((i) => i.id == item.id ? optimistic : i).toList();
+    });
+
+    try {
+      final updated = await ChecklistsRepository.instance.patchItem(
+        widget.templateId,
+        item.id,
+        {'title': title},
+      );
+      if (!mounted) return;
+      setState(() {
+        _items = _items.map((i) => i.id == item.id ? updated : i).toList();
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _items = previousItems);
+      _showError(e.vnMessage);
     }
   }
 
@@ -287,6 +316,61 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
     }
   }
 
+  Future<bool> _saveTemplateTitle() async {
+    final template = _template;
+    if (template == null || template.isSystem || _savingTitle) return false;
+    final title = _titleCtrl.text.trim();
+    if (title.isEmpty) {
+      _showError('Vui lòng nhập tiêu đề checklist');
+      return false;
+    }
+    if (title == template.title) return true;
+
+    final previous = template;
+    setState(() {
+      _savingTitle = true;
+      _template = template.copyWith(title: title, updatedAt: DateTime.now());
+    });
+    try {
+      final updated = await ChecklistsRepository.instance.updateTemplate(
+        template.id,
+        {'title': title},
+      );
+      if (!mounted) return false;
+      setState(() {
+        _template = updated;
+        _titleCtrl.text = updated.title;
+      });
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Đã lưu tiêu đề')));
+      return true;
+    } on ApiException catch (e) {
+      if (!mounted) return false;
+      setState(() {
+        _template = previous;
+        _titleCtrl.text = previous.title;
+      });
+      _showError(e.vnMessage);
+      return false;
+    } finally {
+      if (mounted) setState(() => _savingTitle = false);
+    }
+  }
+
+  Future<void> _toggleEditMode() async {
+    if (!_editMode) {
+      setState(() {
+        _titleCtrl.text = _template?.title ?? '';
+        _editMode = true;
+      });
+      return;
+    }
+    final saved = await _saveTemplateTitle();
+    if (!mounted || !saved) return;
+    setState(() => _editMode = false);
+  }
+
   void _showError(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), backgroundColor: AppColors.danger),
@@ -325,7 +409,7 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
           if (canEdit)
             IconButton(
               icon: Icon(_editMode ? Icons.check : Icons.edit_outlined),
-              onPressed: () => setState(() => _editMode = !_editMode),
+              onPressed: _savingTitle ? null : _toggleEditMode,
             ),
         ],
       ),
@@ -354,13 +438,48 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        template.title,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
+                      if (_editMode)
+                        TextField(
+                          controller: _titleCtrl,
+                          textInputAction: TextInputAction.done,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          decoration: InputDecoration(
+                            hintText: 'Tiêu đề checklist',
+                            isDense: true,
+                            contentPadding: EdgeInsets.zero,
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            suffixIcon: _savingTitle
+                                ? const SizedBox(
+                                    width: 20,
+                                    height: 20,
+                                    child: Padding(
+                                      padding: EdgeInsets.all(12),
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                  )
+                                : IconButton(
+                                    icon: const Icon(Icons.check_rounded),
+                                    tooltip: 'Lưu tiêu đề',
+                                    onPressed: _saveTemplateTitle,
+                                  ),
+                          ),
+                          onSubmitted: (_) => _saveTemplateTitle(),
+                        )
+                      else
+                        Text(
+                          template.title,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      ),
                       if (template.description != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
@@ -504,7 +623,23 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
                   child: Icon(Icons.drag_handle),
                 ),
               ),
-              Expanded(child: Text(it.title)),
+              Expanded(
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () => _editItemTitle(it),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 12,
+                    ),
+                    child: Text(
+                      it.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ),
               IconButton(
                 icon: Icon(
                   it.isRequired ? Icons.star : Icons.star_outline,

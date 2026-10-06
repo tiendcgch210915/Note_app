@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../data/auth_repository.dart';
+import '../../models/note.dart';
 import '../../sync/connectivity_sync.dart';
 import '../../sync/sync_status_notifier.dart';
 import '../../sync/sync_worker.dart';
@@ -15,6 +16,7 @@ import '../notes/notes_list_screen.dart';
 import '../settings/settings_screen.dart';
 import '../todos/todo_create_screen.dart';
 import '../todos/todos_list_screen.dart';
+import 'home_shell_controller.dart';
 
 /// Shell chính của app sau khi login — Scaffold + BottomNav 5 tab + Drawer.
 class HomeShell extends StatefulWidget {
@@ -26,15 +28,29 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _currentIndex = 0;
+  final _controller = HomeShellController.instance;
 
   static const _titles = ['Hôm nay', 'Todos', 'Notes', 'Thói quen', 'Lịch'];
 
   @override
   void initState() {
     super.initState();
+    _controller.currentIndex.addListener(_onTabChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       SyncWorker.instance.sync();
     });
+  }
+
+  @override
+  void dispose() {
+    _controller.currentIndex.removeListener(_onTabChanged);
+    super.dispose();
+  }
+
+  void _onTabChanged() {
+    final next = _controller.currentIndex.value;
+    if (next == _currentIndex || !mounted) return;
+    setState(() => _currentIndex = next);
   }
 
   Widget _screenForTab(int index) {
@@ -67,9 +83,7 @@ class _HomeShellState extends State<HomeShell> {
         );
       case 2:
         return FloatingActionButton(
-          onPressed: () => Navigator.of(
-            context,
-          ).push(MaterialPageRoute(builder: (_) => const NoteEditorScreen())),
+          onPressed: _createNote,
           tooltip: 'Tạo note',
           child: const Icon(Icons.edit_outlined),
         );
@@ -84,6 +98,81 @@ class _HomeShellState extends State<HomeShell> {
       default:
         return null;
     }
+  }
+
+  Future<void> _createNote() async {
+    final type = await showModalBottomSheet<NoteType>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Chọn loại note',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: AspectRatio(
+                      aspectRatio: 1,
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        onPressed: () =>
+                            Navigator.of(context).pop(NoteType.free),
+                        child: const Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.notes, size: 32),
+                            SizedBox(height: 10),
+                            Text('Ghi chú thường', textAlign: TextAlign.center),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: AspectRatio(
+                      aspectRatio: 1,
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        onPressed: () =>
+                            Navigator.of(context).pop(NoteType.cornell),
+                        child: const Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.view_column_outlined, size: 32),
+                            SizedBox(height: 10),
+                            Text('Cornell'),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (type == null || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => NoteEditorScreen(initialType: type)),
+    );
   }
 
   @override
@@ -126,7 +215,7 @@ class _HomeShellState extends State<HomeShell> {
       body: _screenForTab(_currentIndex),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
-        onTap: (i) => setState(() => _currentIndex = i),
+        onTap: _controller.setTab,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.home_outlined),

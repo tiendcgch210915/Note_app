@@ -1236,6 +1236,15 @@ class $TodosTableTable extends TodosTable
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _timeMeta = const VerificationMeta('time');
+  @override
+  late final GeneratedColumn<String> time = GeneratedColumn<String>(
+    'time',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _triggerAfterTodoIdMeta =
       const VerificationMeta('triggerAfterTodoId');
   @override
@@ -1247,6 +1256,17 @@ class $TodosTableTable extends TodosTable
         type: DriftSqlType.string,
         requiredDuringInsert: false,
       );
+  static const VerificationMeta _habitIdMeta = const VerificationMeta(
+    'habitId',
+  );
+  @override
+  late final GeneratedColumn<String> habitId = GeneratedColumn<String>(
+    'habit_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _completedAtMeta = const VerificationMeta(
     'completedAt',
   );
@@ -1334,7 +1354,9 @@ class $TodosTableTable extends TodosTable
     startAt,
     dueAt,
     scheduledDate,
+    time,
     triggerAfterTodoId,
+    habitId,
     completedAt,
     recurrenceType,
     recurrenceInterval,
@@ -1490,6 +1512,12 @@ class $TodosTableTable extends TodosTable
         ),
       );
     }
+    if (data.containsKey('time')) {
+      context.handle(
+        _timeMeta,
+        time.isAcceptableOrUnknown(data['time']!, _timeMeta),
+      );
+    }
     if (data.containsKey('trigger_after_todo_id')) {
       context.handle(
         _triggerAfterTodoIdMeta,
@@ -1497,6 +1525,12 @@ class $TodosTableTable extends TodosTable
           data['trigger_after_todo_id']!,
           _triggerAfterTodoIdMeta,
         ),
+      );
+    }
+    if (data.containsKey('habit_id')) {
+      context.handle(
+        _habitIdMeta,
+        habitId.isAcceptableOrUnknown(data['habit_id']!, _habitIdMeta),
       );
     }
     if (data.containsKey('completed_at')) {
@@ -1638,9 +1672,17 @@ class $TodosTableTable extends TodosTable
         DriftSqlType.string,
         data['${effectivePrefix}scheduled_date'],
       ),
+      time: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}time'],
+      ),
       triggerAfterTodoId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}trigger_after_todo_id'],
+      ),
+      habitId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}habit_id'],
       ),
       completedAt: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -1695,7 +1737,9 @@ class TodoRow extends DataClass implements Insertable<TodoRow> {
   final String? startAt;
   final String? dueAt;
   final String? scheduledDate;
+  final String? time;
   final String? triggerAfterTodoId;
+  final String? habitId;
   final String? completedAt;
   final String? recurrenceType;
   final int? recurrenceInterval;
@@ -1726,7 +1770,9 @@ class TodoRow extends DataClass implements Insertable<TodoRow> {
     this.startAt,
     this.dueAt,
     this.scheduledDate,
+    this.time,
     this.triggerAfterTodoId,
+    this.habitId,
     this.completedAt,
     this.recurrenceType,
     this.recurrenceInterval,
@@ -1778,8 +1824,14 @@ class TodoRow extends DataClass implements Insertable<TodoRow> {
     if (!nullToAbsent || scheduledDate != null) {
       map['scheduled_date'] = Variable<String>(scheduledDate);
     }
+    if (!nullToAbsent || time != null) {
+      map['time'] = Variable<String>(time);
+    }
     if (!nullToAbsent || triggerAfterTodoId != null) {
       map['trigger_after_todo_id'] = Variable<String>(triggerAfterTodoId);
+    }
+    if (!nullToAbsent || habitId != null) {
+      map['habit_id'] = Variable<String>(habitId);
     }
     if (!nullToAbsent || completedAt != null) {
       map['completed_at'] = Variable<String>(completedAt);
@@ -1845,9 +1897,13 @@ class TodoRow extends DataClass implements Insertable<TodoRow> {
       scheduledDate: scheduledDate == null && nullToAbsent
           ? const Value.absent()
           : Value(scheduledDate),
+      time: time == null && nullToAbsent ? const Value.absent() : Value(time),
       triggerAfterTodoId: triggerAfterTodoId == null && nullToAbsent
           ? const Value.absent()
           : Value(triggerAfterTodoId),
+      habitId: habitId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(habitId),
       completedAt: completedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(completedAt),
@@ -1894,9 +1950,11 @@ class TodoRow extends DataClass implements Insertable<TodoRow> {
       startAt: serializer.fromJson<String?>(json['startAt']),
       dueAt: serializer.fromJson<String?>(json['dueAt']),
       scheduledDate: serializer.fromJson<String?>(json['scheduledDate']),
+      time: serializer.fromJson<String?>(json['time']),
       triggerAfterTodoId: serializer.fromJson<String?>(
         json['triggerAfterTodoId'],
       ),
+      habitId: serializer.fromJson<String?>(json['habitId']),
       completedAt: serializer.fromJson<String?>(json['completedAt']),
       recurrenceType: serializer.fromJson<String?>(json['recurrenceType']),
       recurrenceInterval: serializer.fromJson<int?>(json['recurrenceInterval']),
@@ -1934,7 +1992,9 @@ class TodoRow extends DataClass implements Insertable<TodoRow> {
       'startAt': serializer.toJson<String?>(startAt),
       'dueAt': serializer.toJson<String?>(dueAt),
       'scheduledDate': serializer.toJson<String?>(scheduledDate),
+      'time': serializer.toJson<String?>(time),
       'triggerAfterTodoId': serializer.toJson<String?>(triggerAfterTodoId),
+      'habitId': serializer.toJson<String?>(habitId),
       'completedAt': serializer.toJson<String?>(completedAt),
       'recurrenceType': serializer.toJson<String?>(recurrenceType),
       'recurrenceInterval': serializer.toJson<int?>(recurrenceInterval),
@@ -1964,7 +2024,9 @@ class TodoRow extends DataClass implements Insertable<TodoRow> {
     Value<String?> startAt = const Value.absent(),
     Value<String?> dueAt = const Value.absent(),
     Value<String?> scheduledDate = const Value.absent(),
+    Value<String?> time = const Value.absent(),
     Value<String?> triggerAfterTodoId = const Value.absent(),
+    Value<String?> habitId = const Value.absent(),
     Value<String?> completedAt = const Value.absent(),
     Value<String?> recurrenceType = const Value.absent(),
     Value<int?> recurrenceInterval = const Value.absent(),
@@ -1997,9 +2059,11 @@ class TodoRow extends DataClass implements Insertable<TodoRow> {
     scheduledDate: scheduledDate.present
         ? scheduledDate.value
         : this.scheduledDate,
+    time: time.present ? time.value : this.time,
     triggerAfterTodoId: triggerAfterTodoId.present
         ? triggerAfterTodoId.value
         : this.triggerAfterTodoId,
+    habitId: habitId.present ? habitId.value : this.habitId,
     completedAt: completedAt.present ? completedAt.value : this.completedAt,
     recurrenceType: recurrenceType.present
         ? recurrenceType.value
@@ -2048,9 +2112,11 @@ class TodoRow extends DataClass implements Insertable<TodoRow> {
       scheduledDate: data.scheduledDate.present
           ? data.scheduledDate.value
           : this.scheduledDate,
+      time: data.time.present ? data.time.value : this.time,
       triggerAfterTodoId: data.triggerAfterTodoId.present
           ? data.triggerAfterTodoId.value
           : this.triggerAfterTodoId,
+      habitId: data.habitId.present ? data.habitId.value : this.habitId,
       completedAt: data.completedAt.present
           ? data.completedAt.value
           : this.completedAt,
@@ -2094,7 +2160,9 @@ class TodoRow extends DataClass implements Insertable<TodoRow> {
           ..write('startAt: $startAt, ')
           ..write('dueAt: $dueAt, ')
           ..write('scheduledDate: $scheduledDate, ')
+          ..write('time: $time, ')
           ..write('triggerAfterTodoId: $triggerAfterTodoId, ')
+          ..write('habitId: $habitId, ')
           ..write('completedAt: $completedAt, ')
           ..write('recurrenceType: $recurrenceType, ')
           ..write('recurrenceInterval: $recurrenceInterval, ')
@@ -2126,7 +2194,9 @@ class TodoRow extends DataClass implements Insertable<TodoRow> {
     startAt,
     dueAt,
     scheduledDate,
+    time,
     triggerAfterTodoId,
+    habitId,
     completedAt,
     recurrenceType,
     recurrenceInterval,
@@ -2157,7 +2227,9 @@ class TodoRow extends DataClass implements Insertable<TodoRow> {
           other.startAt == this.startAt &&
           other.dueAt == this.dueAt &&
           other.scheduledDate == this.scheduledDate &&
+          other.time == this.time &&
           other.triggerAfterTodoId == this.triggerAfterTodoId &&
+          other.habitId == this.habitId &&
           other.completedAt == this.completedAt &&
           other.recurrenceType == this.recurrenceType &&
           other.recurrenceInterval == this.recurrenceInterval &&
@@ -2186,7 +2258,9 @@ class TodosTableCompanion extends UpdateCompanion<TodoRow> {
   final Value<String?> startAt;
   final Value<String?> dueAt;
   final Value<String?> scheduledDate;
+  final Value<String?> time;
   final Value<String?> triggerAfterTodoId;
+  final Value<String?> habitId;
   final Value<String?> completedAt;
   final Value<String?> recurrenceType;
   final Value<int?> recurrenceInterval;
@@ -2214,7 +2288,9 @@ class TodosTableCompanion extends UpdateCompanion<TodoRow> {
     this.startAt = const Value.absent(),
     this.dueAt = const Value.absent(),
     this.scheduledDate = const Value.absent(),
+    this.time = const Value.absent(),
     this.triggerAfterTodoId = const Value.absent(),
+    this.habitId = const Value.absent(),
     this.completedAt = const Value.absent(),
     this.recurrenceType = const Value.absent(),
     this.recurrenceInterval = const Value.absent(),
@@ -2243,7 +2319,9 @@ class TodosTableCompanion extends UpdateCompanion<TodoRow> {
     this.startAt = const Value.absent(),
     this.dueAt = const Value.absent(),
     this.scheduledDate = const Value.absent(),
+    this.time = const Value.absent(),
     this.triggerAfterTodoId = const Value.absent(),
+    this.habitId = const Value.absent(),
     this.completedAt = const Value.absent(),
     this.recurrenceType = const Value.absent(),
     this.recurrenceInterval = const Value.absent(),
@@ -2276,7 +2354,9 @@ class TodosTableCompanion extends UpdateCompanion<TodoRow> {
     Expression<String>? startAt,
     Expression<String>? dueAt,
     Expression<String>? scheduledDate,
+    Expression<String>? time,
     Expression<String>? triggerAfterTodoId,
+    Expression<String>? habitId,
     Expression<String>? completedAt,
     Expression<String>? recurrenceType,
     Expression<int>? recurrenceInterval,
@@ -2305,8 +2385,10 @@ class TodosTableCompanion extends UpdateCompanion<TodoRow> {
       if (startAt != null) 'start_at': startAt,
       if (dueAt != null) 'due_at': dueAt,
       if (scheduledDate != null) 'scheduled_date': scheduledDate,
+      if (time != null) 'time': time,
       if (triggerAfterTodoId != null)
         'trigger_after_todo_id': triggerAfterTodoId,
+      if (habitId != null) 'habit_id': habitId,
       if (completedAt != null) 'completed_at': completedAt,
       if (recurrenceType != null) 'recurrence_type': recurrenceType,
       if (recurrenceInterval != null) 'recurrence_interval': recurrenceInterval,
@@ -2338,7 +2420,9 @@ class TodosTableCompanion extends UpdateCompanion<TodoRow> {
     Value<String?>? startAt,
     Value<String?>? dueAt,
     Value<String?>? scheduledDate,
+    Value<String?>? time,
     Value<String?>? triggerAfterTodoId,
+    Value<String?>? habitId,
     Value<String?>? completedAt,
     Value<String?>? recurrenceType,
     Value<int?>? recurrenceInterval,
@@ -2367,7 +2451,9 @@ class TodosTableCompanion extends UpdateCompanion<TodoRow> {
       startAt: startAt ?? this.startAt,
       dueAt: dueAt ?? this.dueAt,
       scheduledDate: scheduledDate ?? this.scheduledDate,
+      time: time ?? this.time,
       triggerAfterTodoId: triggerAfterTodoId ?? this.triggerAfterTodoId,
+      habitId: habitId ?? this.habitId,
       completedAt: completedAt ?? this.completedAt,
       recurrenceType: recurrenceType ?? this.recurrenceType,
       recurrenceInterval: recurrenceInterval ?? this.recurrenceInterval,
@@ -2438,8 +2524,14 @@ class TodosTableCompanion extends UpdateCompanion<TodoRow> {
     if (scheduledDate.present) {
       map['scheduled_date'] = Variable<String>(scheduledDate.value);
     }
+    if (time.present) {
+      map['time'] = Variable<String>(time.value);
+    }
     if (triggerAfterTodoId.present) {
       map['trigger_after_todo_id'] = Variable<String>(triggerAfterTodoId.value);
+    }
+    if (habitId.present) {
+      map['habit_id'] = Variable<String>(habitId.value);
     }
     if (completedAt.present) {
       map['completed_at'] = Variable<String>(completedAt.value);
@@ -2489,7 +2581,9 @@ class TodosTableCompanion extends UpdateCompanion<TodoRow> {
           ..write('startAt: $startAt, ')
           ..write('dueAt: $dueAt, ')
           ..write('scheduledDate: $scheduledDate, ')
+          ..write('time: $time, ')
           ..write('triggerAfterTodoId: $triggerAfterTodoId, ')
+          ..write('habitId: $habitId, ')
           ..write('completedAt: $completedAt, ')
           ..write('recurrenceType: $recurrenceType, ')
           ..write('recurrenceInterval: $recurrenceInterval, ')
@@ -2817,6 +2911,51 @@ class $NotesTableTable extends NotesTable
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _contentFormatMeta = const VerificationMeta(
+    'contentFormat',
+  );
+  @override
+  late final GeneratedColumn<String> contentFormat = GeneratedColumn<String>(
+    'content_format',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('plain'),
+  );
+  static const VerificationMeta _bodyDeltaMeta = const VerificationMeta(
+    'bodyDelta',
+  );
+  @override
+  late final GeneratedColumn<String> bodyDelta = GeneratedColumn<String>(
+    'body_delta',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _cornellCueDeltaMeta = const VerificationMeta(
+    'cornellCueDelta',
+  );
+  @override
+  late final GeneratedColumn<String> cornellCueDelta = GeneratedColumn<String>(
+    'cornell_cue_delta',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _cornellSummaryDeltaMeta =
+      const VerificationMeta('cornellSummaryDelta');
+  @override
+  late final GeneratedColumn<String> cornellSummaryDelta =
+      GeneratedColumn<String>(
+        'cornell_summary_delta',
+        aliasedName,
+        true,
+        type: DriftSqlType.string,
+        requiredDuringInsert: false,
+      );
   static const VerificationMeta _isPinnedMeta = const VerificationMeta(
     'isPinned',
   );
@@ -2844,6 +2983,10 @@ class $NotesTableTable extends NotesTable
     body,
     cornellCue,
     cornellSummary,
+    contentFormat,
+    bodyDelta,
+    cornellCueDelta,
+    cornellSummaryDelta,
     isPinned,
   ];
   @override
@@ -2928,6 +3071,39 @@ class $NotesTableTable extends NotesTable
         ),
       );
     }
+    if (data.containsKey('content_format')) {
+      context.handle(
+        _contentFormatMeta,
+        contentFormat.isAcceptableOrUnknown(
+          data['content_format']!,
+          _contentFormatMeta,
+        ),
+      );
+    }
+    if (data.containsKey('body_delta')) {
+      context.handle(
+        _bodyDeltaMeta,
+        bodyDelta.isAcceptableOrUnknown(data['body_delta']!, _bodyDeltaMeta),
+      );
+    }
+    if (data.containsKey('cornell_cue_delta')) {
+      context.handle(
+        _cornellCueDeltaMeta,
+        cornellCueDelta.isAcceptableOrUnknown(
+          data['cornell_cue_delta']!,
+          _cornellCueDeltaMeta,
+        ),
+      );
+    }
+    if (data.containsKey('cornell_summary_delta')) {
+      context.handle(
+        _cornellSummaryDeltaMeta,
+        cornellSummaryDelta.isAcceptableOrUnknown(
+          data['cornell_summary_delta']!,
+          _cornellSummaryDeltaMeta,
+        ),
+      );
+    }
     if (data.containsKey('is_pinned')) {
       context.handle(
         _isPinnedMeta,
@@ -2983,6 +3159,22 @@ class $NotesTableTable extends NotesTable
         DriftSqlType.string,
         data['${effectivePrefix}cornell_summary'],
       ),
+      contentFormat: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}content_format'],
+      )!,
+      bodyDelta: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}body_delta'],
+      ),
+      cornellCueDelta: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}cornell_cue_delta'],
+      ),
+      cornellSummaryDelta: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}cornell_summary_delta'],
+      ),
       isPinned: attachedDatabase.typeMapping.read(
         DriftSqlType.bool,
         data['${effectivePrefix}is_pinned'],
@@ -3007,6 +3199,10 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
   final String? body;
   final String? cornellCue;
   final String? cornellSummary;
+  final String contentFormat;
+  final String? bodyDelta;
+  final String? cornellCueDelta;
+  final String? cornellSummaryDelta;
   final bool isPinned;
   const NoteRow({
     required this.createdAt,
@@ -3019,6 +3215,10 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
     this.body,
     this.cornellCue,
     this.cornellSummary,
+    required this.contentFormat,
+    this.bodyDelta,
+    this.cornellCueDelta,
+    this.cornellSummaryDelta,
     required this.isPinned,
   });
   @override
@@ -3042,6 +3242,16 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
     if (!nullToAbsent || cornellSummary != null) {
       map['cornell_summary'] = Variable<String>(cornellSummary);
     }
+    map['content_format'] = Variable<String>(contentFormat);
+    if (!nullToAbsent || bodyDelta != null) {
+      map['body_delta'] = Variable<String>(bodyDelta);
+    }
+    if (!nullToAbsent || cornellCueDelta != null) {
+      map['cornell_cue_delta'] = Variable<String>(cornellCueDelta);
+    }
+    if (!nullToAbsent || cornellSummaryDelta != null) {
+      map['cornell_summary_delta'] = Variable<String>(cornellSummaryDelta);
+    }
     map['is_pinned'] = Variable<bool>(isPinned);
     return map;
   }
@@ -3064,6 +3274,16 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
       cornellSummary: cornellSummary == null && nullToAbsent
           ? const Value.absent()
           : Value(cornellSummary),
+      contentFormat: Value(contentFormat),
+      bodyDelta: bodyDelta == null && nullToAbsent
+          ? const Value.absent()
+          : Value(bodyDelta),
+      cornellCueDelta: cornellCueDelta == null && nullToAbsent
+          ? const Value.absent()
+          : Value(cornellCueDelta),
+      cornellSummaryDelta: cornellSummaryDelta == null && nullToAbsent
+          ? const Value.absent()
+          : Value(cornellSummaryDelta),
       isPinned: Value(isPinned),
     );
   }
@@ -3084,6 +3304,12 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
       body: serializer.fromJson<String?>(json['body']),
       cornellCue: serializer.fromJson<String?>(json['cornellCue']),
       cornellSummary: serializer.fromJson<String?>(json['cornellSummary']),
+      contentFormat: serializer.fromJson<String>(json['contentFormat']),
+      bodyDelta: serializer.fromJson<String?>(json['bodyDelta']),
+      cornellCueDelta: serializer.fromJson<String?>(json['cornellCueDelta']),
+      cornellSummaryDelta: serializer.fromJson<String?>(
+        json['cornellSummaryDelta'],
+      ),
       isPinned: serializer.fromJson<bool>(json['isPinned']),
     );
   }
@@ -3101,6 +3327,10 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
       'body': serializer.toJson<String?>(body),
       'cornellCue': serializer.toJson<String?>(cornellCue),
       'cornellSummary': serializer.toJson<String?>(cornellSummary),
+      'contentFormat': serializer.toJson<String>(contentFormat),
+      'bodyDelta': serializer.toJson<String?>(bodyDelta),
+      'cornellCueDelta': serializer.toJson<String?>(cornellCueDelta),
+      'cornellSummaryDelta': serializer.toJson<String?>(cornellSummaryDelta),
       'isPinned': serializer.toJson<bool>(isPinned),
     };
   }
@@ -3116,6 +3346,10 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
     Value<String?> body = const Value.absent(),
     Value<String?> cornellCue = const Value.absent(),
     Value<String?> cornellSummary = const Value.absent(),
+    String? contentFormat,
+    Value<String?> bodyDelta = const Value.absent(),
+    Value<String?> cornellCueDelta = const Value.absent(),
+    Value<String?> cornellSummaryDelta = const Value.absent(),
     bool? isPinned,
   }) => NoteRow(
     createdAt: createdAt ?? this.createdAt,
@@ -3130,6 +3364,14 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
     cornellSummary: cornellSummary.present
         ? cornellSummary.value
         : this.cornellSummary,
+    contentFormat: contentFormat ?? this.contentFormat,
+    bodyDelta: bodyDelta.present ? bodyDelta.value : this.bodyDelta,
+    cornellCueDelta: cornellCueDelta.present
+        ? cornellCueDelta.value
+        : this.cornellCueDelta,
+    cornellSummaryDelta: cornellSummaryDelta.present
+        ? cornellSummaryDelta.value
+        : this.cornellSummaryDelta,
     isPinned: isPinned ?? this.isPinned,
   );
   NoteRow copyWithCompanion(NotesTableCompanion data) {
@@ -3148,6 +3390,16 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
       cornellSummary: data.cornellSummary.present
           ? data.cornellSummary.value
           : this.cornellSummary,
+      contentFormat: data.contentFormat.present
+          ? data.contentFormat.value
+          : this.contentFormat,
+      bodyDelta: data.bodyDelta.present ? data.bodyDelta.value : this.bodyDelta,
+      cornellCueDelta: data.cornellCueDelta.present
+          ? data.cornellCueDelta.value
+          : this.cornellCueDelta,
+      cornellSummaryDelta: data.cornellSummaryDelta.present
+          ? data.cornellSummaryDelta.value
+          : this.cornellSummaryDelta,
       isPinned: data.isPinned.present ? data.isPinned.value : this.isPinned,
     );
   }
@@ -3165,6 +3417,10 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
           ..write('body: $body, ')
           ..write('cornellCue: $cornellCue, ')
           ..write('cornellSummary: $cornellSummary, ')
+          ..write('contentFormat: $contentFormat, ')
+          ..write('bodyDelta: $bodyDelta, ')
+          ..write('cornellCueDelta: $cornellCueDelta, ')
+          ..write('cornellSummaryDelta: $cornellSummaryDelta, ')
           ..write('isPinned: $isPinned')
           ..write(')'))
         .toString();
@@ -3182,6 +3438,10 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
     body,
     cornellCue,
     cornellSummary,
+    contentFormat,
+    bodyDelta,
+    cornellCueDelta,
+    cornellSummaryDelta,
     isPinned,
   );
   @override
@@ -3198,6 +3458,10 @@ class NoteRow extends DataClass implements Insertable<NoteRow> {
           other.body == this.body &&
           other.cornellCue == this.cornellCue &&
           other.cornellSummary == this.cornellSummary &&
+          other.contentFormat == this.contentFormat &&
+          other.bodyDelta == this.bodyDelta &&
+          other.cornellCueDelta == this.cornellCueDelta &&
+          other.cornellSummaryDelta == this.cornellSummaryDelta &&
           other.isPinned == this.isPinned);
 }
 
@@ -3212,6 +3476,10 @@ class NotesTableCompanion extends UpdateCompanion<NoteRow> {
   final Value<String?> body;
   final Value<String?> cornellCue;
   final Value<String?> cornellSummary;
+  final Value<String> contentFormat;
+  final Value<String?> bodyDelta;
+  final Value<String?> cornellCueDelta;
+  final Value<String?> cornellSummaryDelta;
   final Value<bool> isPinned;
   final Value<int> rowid;
   const NotesTableCompanion({
@@ -3225,6 +3493,10 @@ class NotesTableCompanion extends UpdateCompanion<NoteRow> {
     this.body = const Value.absent(),
     this.cornellCue = const Value.absent(),
     this.cornellSummary = const Value.absent(),
+    this.contentFormat = const Value.absent(),
+    this.bodyDelta = const Value.absent(),
+    this.cornellCueDelta = const Value.absent(),
+    this.cornellSummaryDelta = const Value.absent(),
     this.isPinned = const Value.absent(),
     this.rowid = const Value.absent(),
   });
@@ -3239,6 +3511,10 @@ class NotesTableCompanion extends UpdateCompanion<NoteRow> {
     this.body = const Value.absent(),
     this.cornellCue = const Value.absent(),
     this.cornellSummary = const Value.absent(),
+    this.contentFormat = const Value.absent(),
+    this.bodyDelta = const Value.absent(),
+    this.cornellCueDelta = const Value.absent(),
+    this.cornellSummaryDelta = const Value.absent(),
     this.isPinned = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : createdAt = Value(createdAt),
@@ -3257,6 +3533,10 @@ class NotesTableCompanion extends UpdateCompanion<NoteRow> {
     Expression<String>? body,
     Expression<String>? cornellCue,
     Expression<String>? cornellSummary,
+    Expression<String>? contentFormat,
+    Expression<String>? bodyDelta,
+    Expression<String>? cornellCueDelta,
+    Expression<String>? cornellSummaryDelta,
     Expression<bool>? isPinned,
     Expression<int>? rowid,
   }) {
@@ -3271,6 +3551,11 @@ class NotesTableCompanion extends UpdateCompanion<NoteRow> {
       if (body != null) 'body': body,
       if (cornellCue != null) 'cornell_cue': cornellCue,
       if (cornellSummary != null) 'cornell_summary': cornellSummary,
+      if (contentFormat != null) 'content_format': contentFormat,
+      if (bodyDelta != null) 'body_delta': bodyDelta,
+      if (cornellCueDelta != null) 'cornell_cue_delta': cornellCueDelta,
+      if (cornellSummaryDelta != null)
+        'cornell_summary_delta': cornellSummaryDelta,
       if (isPinned != null) 'is_pinned': isPinned,
       if (rowid != null) 'rowid': rowid,
     });
@@ -3287,6 +3572,10 @@ class NotesTableCompanion extends UpdateCompanion<NoteRow> {
     Value<String?>? body,
     Value<String?>? cornellCue,
     Value<String?>? cornellSummary,
+    Value<String>? contentFormat,
+    Value<String?>? bodyDelta,
+    Value<String?>? cornellCueDelta,
+    Value<String?>? cornellSummaryDelta,
     Value<bool>? isPinned,
     Value<int>? rowid,
   }) {
@@ -3301,6 +3590,10 @@ class NotesTableCompanion extends UpdateCompanion<NoteRow> {
       body: body ?? this.body,
       cornellCue: cornellCue ?? this.cornellCue,
       cornellSummary: cornellSummary ?? this.cornellSummary,
+      contentFormat: contentFormat ?? this.contentFormat,
+      bodyDelta: bodyDelta ?? this.bodyDelta,
+      cornellCueDelta: cornellCueDelta ?? this.cornellCueDelta,
+      cornellSummaryDelta: cornellSummaryDelta ?? this.cornellSummaryDelta,
       isPinned: isPinned ?? this.isPinned,
       rowid: rowid ?? this.rowid,
     );
@@ -3339,6 +3632,20 @@ class NotesTableCompanion extends UpdateCompanion<NoteRow> {
     if (cornellSummary.present) {
       map['cornell_summary'] = Variable<String>(cornellSummary.value);
     }
+    if (contentFormat.present) {
+      map['content_format'] = Variable<String>(contentFormat.value);
+    }
+    if (bodyDelta.present) {
+      map['body_delta'] = Variable<String>(bodyDelta.value);
+    }
+    if (cornellCueDelta.present) {
+      map['cornell_cue_delta'] = Variable<String>(cornellCueDelta.value);
+    }
+    if (cornellSummaryDelta.present) {
+      map['cornell_summary_delta'] = Variable<String>(
+        cornellSummaryDelta.value,
+      );
+    }
     if (isPinned.present) {
       map['is_pinned'] = Variable<bool>(isPinned.value);
     }
@@ -3361,6 +3668,10 @@ class NotesTableCompanion extends UpdateCompanion<NoteRow> {
           ..write('body: $body, ')
           ..write('cornellCue: $cornellCue, ')
           ..write('cornellSummary: $cornellSummary, ')
+          ..write('contentFormat: $contentFormat, ')
+          ..write('bodyDelta: $bodyDelta, ')
+          ..write('cornellCueDelta: $cornellCueDelta, ')
+          ..write('cornellSummaryDelta: $cornellSummaryDelta, ')
           ..write('isPinned: $isPinned, ')
           ..write('rowid: $rowid')
           ..write(')'))
@@ -10297,6 +10608,16 @@ class $SyncQueueTableTable extends SyncQueueTable
       'PRIMARY KEY AUTOINCREMENT',
     ),
   );
+  static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
+  @override
+  late final GeneratedColumn<String> userId = GeneratedColumn<String>(
+    'user_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(''),
+  );
   static const VerificationMeta _entityTypeMeta = const VerificationMeta(
     'entityType',
   );
@@ -10364,6 +10685,32 @@ class $SyncQueueTableTable extends SyncQueueTable
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _lastErrorMeta = const VerificationMeta(
+    'lastError',
+  );
+  @override
+  late final GeneratedColumn<String> lastError = GeneratedColumn<String>(
+    'last_error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _isDeadLetterMeta = const VerificationMeta(
+    'isDeadLetter',
+  );
+  @override
+  late final GeneratedColumn<bool> isDeadLetter = GeneratedColumn<bool>(
+    'is_dead_letter',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("is_dead_letter" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   static const VerificationMeta _createdAtMeta = const VerificationMeta(
     'createdAt',
   );
@@ -10378,12 +10725,15 @@ class $SyncQueueTableTable extends SyncQueueTable
   @override
   List<GeneratedColumn> get $columns => [
     id,
+    userId,
     entityType,
     entityId,
     operation,
     payload,
     retryCount,
     nextRetryAt,
+    lastError,
+    isDeadLetter,
     createdAt,
   ];
   @override
@@ -10400,6 +10750,12 @@ class $SyncQueueTableTable extends SyncQueueTable
     final data = instance.toColumns(true);
     if (data.containsKey('id')) {
       context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('user_id')) {
+      context.handle(
+        _userIdMeta,
+        userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta),
+      );
     }
     if (data.containsKey('entity_type')) {
       context.handle(
@@ -10448,6 +10804,21 @@ class $SyncQueueTableTable extends SyncQueueTable
         ),
       );
     }
+    if (data.containsKey('last_error')) {
+      context.handle(
+        _lastErrorMeta,
+        lastError.isAcceptableOrUnknown(data['last_error']!, _lastErrorMeta),
+      );
+    }
+    if (data.containsKey('is_dead_letter')) {
+      context.handle(
+        _isDeadLetterMeta,
+        isDeadLetter.isAcceptableOrUnknown(
+          data['is_dead_letter']!,
+          _isDeadLetterMeta,
+        ),
+      );
+    }
     if (data.containsKey('created_at')) {
       context.handle(
         _createdAtMeta,
@@ -10468,6 +10839,10 @@ class $SyncQueueTableTable extends SyncQueueTable
       id: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}id'],
+      )!,
+      userId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}user_id'],
       )!,
       entityType: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
@@ -10493,6 +10868,14 @@ class $SyncQueueTableTable extends SyncQueueTable
         DriftSqlType.int,
         data['${effectivePrefix}next_retry_at'],
       ),
+      lastError: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_error'],
+      ),
+      isDeadLetter: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}is_dead_letter'],
+      )!,
       createdAt: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}created_at'],
@@ -10509,6 +10892,7 @@ class $SyncQueueTableTable extends SyncQueueTable
 class SyncQueueRow extends DataClass implements Insertable<SyncQueueRow> {
   /// Auto-increment PK (simple integer for ordering)
   final int id;
+  final String userId;
   final String entityType;
   final String entityId;
   final String operation;
@@ -10517,21 +10901,27 @@ class SyncQueueRow extends DataClass implements Insertable<SyncQueueRow> {
 
   /// Epoch millis; null = ready now
   final int? nextRetryAt;
+  final String? lastError;
+  final bool isDeadLetter;
   final String createdAt;
   const SyncQueueRow({
     required this.id,
+    required this.userId,
     required this.entityType,
     required this.entityId,
     required this.operation,
     required this.payload,
     required this.retryCount,
     this.nextRetryAt,
+    this.lastError,
+    required this.isDeadLetter,
     required this.createdAt,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<int>(id);
+    map['user_id'] = Variable<String>(userId);
     map['entity_type'] = Variable<String>(entityType);
     map['entity_id'] = Variable<String>(entityId);
     map['operation'] = Variable<String>(operation);
@@ -10540,6 +10930,10 @@ class SyncQueueRow extends DataClass implements Insertable<SyncQueueRow> {
     if (!nullToAbsent || nextRetryAt != null) {
       map['next_retry_at'] = Variable<int>(nextRetryAt);
     }
+    if (!nullToAbsent || lastError != null) {
+      map['last_error'] = Variable<String>(lastError);
+    }
+    map['is_dead_letter'] = Variable<bool>(isDeadLetter);
     map['created_at'] = Variable<String>(createdAt);
     return map;
   }
@@ -10547,6 +10941,7 @@ class SyncQueueRow extends DataClass implements Insertable<SyncQueueRow> {
   SyncQueueTableCompanion toCompanion(bool nullToAbsent) {
     return SyncQueueTableCompanion(
       id: Value(id),
+      userId: Value(userId),
       entityType: Value(entityType),
       entityId: Value(entityId),
       operation: Value(operation),
@@ -10555,6 +10950,10 @@ class SyncQueueRow extends DataClass implements Insertable<SyncQueueRow> {
       nextRetryAt: nextRetryAt == null && nullToAbsent
           ? const Value.absent()
           : Value(nextRetryAt),
+      lastError: lastError == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastError),
+      isDeadLetter: Value(isDeadLetter),
       createdAt: Value(createdAt),
     );
   }
@@ -10566,12 +10965,15 @@ class SyncQueueRow extends DataClass implements Insertable<SyncQueueRow> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return SyncQueueRow(
       id: serializer.fromJson<int>(json['id']),
+      userId: serializer.fromJson<String>(json['userId']),
       entityType: serializer.fromJson<String>(json['entityType']),
       entityId: serializer.fromJson<String>(json['entityId']),
       operation: serializer.fromJson<String>(json['operation']),
       payload: serializer.fromJson<String>(json['payload']),
       retryCount: serializer.fromJson<int>(json['retryCount']),
       nextRetryAt: serializer.fromJson<int?>(json['nextRetryAt']),
+      lastError: serializer.fromJson<String?>(json['lastError']),
+      isDeadLetter: serializer.fromJson<bool>(json['isDeadLetter']),
       createdAt: serializer.fromJson<String>(json['createdAt']),
     );
   }
@@ -10580,38 +10982,48 @@ class SyncQueueRow extends DataClass implements Insertable<SyncQueueRow> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'id': serializer.toJson<int>(id),
+      'userId': serializer.toJson<String>(userId),
       'entityType': serializer.toJson<String>(entityType),
       'entityId': serializer.toJson<String>(entityId),
       'operation': serializer.toJson<String>(operation),
       'payload': serializer.toJson<String>(payload),
       'retryCount': serializer.toJson<int>(retryCount),
       'nextRetryAt': serializer.toJson<int?>(nextRetryAt),
+      'lastError': serializer.toJson<String?>(lastError),
+      'isDeadLetter': serializer.toJson<bool>(isDeadLetter),
       'createdAt': serializer.toJson<String>(createdAt),
     };
   }
 
   SyncQueueRow copyWith({
     int? id,
+    String? userId,
     String? entityType,
     String? entityId,
     String? operation,
     String? payload,
     int? retryCount,
     Value<int?> nextRetryAt = const Value.absent(),
+    Value<String?> lastError = const Value.absent(),
+    bool? isDeadLetter,
     String? createdAt,
   }) => SyncQueueRow(
     id: id ?? this.id,
+    userId: userId ?? this.userId,
     entityType: entityType ?? this.entityType,
     entityId: entityId ?? this.entityId,
     operation: operation ?? this.operation,
     payload: payload ?? this.payload,
     retryCount: retryCount ?? this.retryCount,
     nextRetryAt: nextRetryAt.present ? nextRetryAt.value : this.nextRetryAt,
+    lastError: lastError.present ? lastError.value : this.lastError,
+    isDeadLetter: isDeadLetter ?? this.isDeadLetter,
     createdAt: createdAt ?? this.createdAt,
   );
   SyncQueueRow copyWithCompanion(SyncQueueTableCompanion data) {
     return SyncQueueRow(
       id: data.id.present ? data.id.value : this.id,
+      userId: data.userId.present ? data.userId.value : this.userId,
       entityType: data.entityType.present
           ? data.entityType.value
           : this.entityType,
@@ -10624,6 +11036,10 @@ class SyncQueueRow extends DataClass implements Insertable<SyncQueueRow> {
       nextRetryAt: data.nextRetryAt.present
           ? data.nextRetryAt.value
           : this.nextRetryAt,
+      lastError: data.lastError.present ? data.lastError.value : this.lastError,
+      isDeadLetter: data.isDeadLetter.present
+          ? data.isDeadLetter.value
+          : this.isDeadLetter,
       createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
     );
   }
@@ -10632,12 +11048,15 @@ class SyncQueueRow extends DataClass implements Insertable<SyncQueueRow> {
   String toString() {
     return (StringBuffer('SyncQueueRow(')
           ..write('id: $id, ')
+          ..write('userId: $userId, ')
           ..write('entityType: $entityType, ')
           ..write('entityId: $entityId, ')
           ..write('operation: $operation, ')
           ..write('payload: $payload, ')
           ..write('retryCount: $retryCount, ')
           ..write('nextRetryAt: $nextRetryAt, ')
+          ..write('lastError: $lastError, ')
+          ..write('isDeadLetter: $isDeadLetter, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -10646,12 +11065,15 @@ class SyncQueueRow extends DataClass implements Insertable<SyncQueueRow> {
   @override
   int get hashCode => Object.hash(
     id,
+    userId,
     entityType,
     entityId,
     operation,
     payload,
     retryCount,
     nextRetryAt,
+    lastError,
+    isDeadLetter,
     createdAt,
   );
   @override
@@ -10659,42 +11081,54 @@ class SyncQueueRow extends DataClass implements Insertable<SyncQueueRow> {
       identical(this, other) ||
       (other is SyncQueueRow &&
           other.id == this.id &&
+          other.userId == this.userId &&
           other.entityType == this.entityType &&
           other.entityId == this.entityId &&
           other.operation == this.operation &&
           other.payload == this.payload &&
           other.retryCount == this.retryCount &&
           other.nextRetryAt == this.nextRetryAt &&
+          other.lastError == this.lastError &&
+          other.isDeadLetter == this.isDeadLetter &&
           other.createdAt == this.createdAt);
 }
 
 class SyncQueueTableCompanion extends UpdateCompanion<SyncQueueRow> {
   final Value<int> id;
+  final Value<String> userId;
   final Value<String> entityType;
   final Value<String> entityId;
   final Value<String> operation;
   final Value<String> payload;
   final Value<int> retryCount;
   final Value<int?> nextRetryAt;
+  final Value<String?> lastError;
+  final Value<bool> isDeadLetter;
   final Value<String> createdAt;
   const SyncQueueTableCompanion({
     this.id = const Value.absent(),
+    this.userId = const Value.absent(),
     this.entityType = const Value.absent(),
     this.entityId = const Value.absent(),
     this.operation = const Value.absent(),
     this.payload = const Value.absent(),
     this.retryCount = const Value.absent(),
     this.nextRetryAt = const Value.absent(),
+    this.lastError = const Value.absent(),
+    this.isDeadLetter = const Value.absent(),
     this.createdAt = const Value.absent(),
   });
   SyncQueueTableCompanion.insert({
     this.id = const Value.absent(),
+    this.userId = const Value.absent(),
     required String entityType,
     required String entityId,
     required String operation,
     required String payload,
     this.retryCount = const Value.absent(),
     this.nextRetryAt = const Value.absent(),
+    this.lastError = const Value.absent(),
+    this.isDeadLetter = const Value.absent(),
     required String createdAt,
   }) : entityType = Value(entityType),
        entityId = Value(entityId),
@@ -10703,44 +11137,56 @@ class SyncQueueTableCompanion extends UpdateCompanion<SyncQueueRow> {
        createdAt = Value(createdAt);
   static Insertable<SyncQueueRow> custom({
     Expression<int>? id,
+    Expression<String>? userId,
     Expression<String>? entityType,
     Expression<String>? entityId,
     Expression<String>? operation,
     Expression<String>? payload,
     Expression<int>? retryCount,
     Expression<int>? nextRetryAt,
+    Expression<String>? lastError,
+    Expression<bool>? isDeadLetter,
     Expression<String>? createdAt,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
+      if (userId != null) 'user_id': userId,
       if (entityType != null) 'entity_type': entityType,
       if (entityId != null) 'entity_id': entityId,
       if (operation != null) 'operation': operation,
       if (payload != null) 'payload': payload,
       if (retryCount != null) 'retry_count': retryCount,
       if (nextRetryAt != null) 'next_retry_at': nextRetryAt,
+      if (lastError != null) 'last_error': lastError,
+      if (isDeadLetter != null) 'is_dead_letter': isDeadLetter,
       if (createdAt != null) 'created_at': createdAt,
     });
   }
 
   SyncQueueTableCompanion copyWith({
     Value<int>? id,
+    Value<String>? userId,
     Value<String>? entityType,
     Value<String>? entityId,
     Value<String>? operation,
     Value<String>? payload,
     Value<int>? retryCount,
     Value<int?>? nextRetryAt,
+    Value<String?>? lastError,
+    Value<bool>? isDeadLetter,
     Value<String>? createdAt,
   }) {
     return SyncQueueTableCompanion(
       id: id ?? this.id,
+      userId: userId ?? this.userId,
       entityType: entityType ?? this.entityType,
       entityId: entityId ?? this.entityId,
       operation: operation ?? this.operation,
       payload: payload ?? this.payload,
       retryCount: retryCount ?? this.retryCount,
       nextRetryAt: nextRetryAt ?? this.nextRetryAt,
+      lastError: lastError ?? this.lastError,
+      isDeadLetter: isDeadLetter ?? this.isDeadLetter,
       createdAt: createdAt ?? this.createdAt,
     );
   }
@@ -10750,6 +11196,9 @@ class SyncQueueTableCompanion extends UpdateCompanion<SyncQueueRow> {
     final map = <String, Expression>{};
     if (id.present) {
       map['id'] = Variable<int>(id.value);
+    }
+    if (userId.present) {
+      map['user_id'] = Variable<String>(userId.value);
     }
     if (entityType.present) {
       map['entity_type'] = Variable<String>(entityType.value);
@@ -10769,6 +11218,12 @@ class SyncQueueTableCompanion extends UpdateCompanion<SyncQueueRow> {
     if (nextRetryAt.present) {
       map['next_retry_at'] = Variable<int>(nextRetryAt.value);
     }
+    if (lastError.present) {
+      map['last_error'] = Variable<String>(lastError.value);
+    }
+    if (isDeadLetter.present) {
+      map['is_dead_letter'] = Variable<bool>(isDeadLetter.value);
+    }
     if (createdAt.present) {
       map['created_at'] = Variable<String>(createdAt.value);
     }
@@ -10779,12 +11234,15 @@ class SyncQueueTableCompanion extends UpdateCompanion<SyncQueueRow> {
   String toString() {
     return (StringBuffer('SyncQueueTableCompanion(')
           ..write('id: $id, ')
+          ..write('userId: $userId, ')
           ..write('entityType: $entityType, ')
           ..write('entityId: $entityId, ')
           ..write('operation: $operation, ')
           ..write('payload: $payload, ')
           ..write('retryCount: $retryCount, ')
           ..write('nextRetryAt: $nextRetryAt, ')
+          ..write('lastError: $lastError, ')
+          ..write('isDeadLetter: $isDeadLetter, ')
           ..write('createdAt: $createdAt')
           ..write(')'))
         .toString();
@@ -11585,7 +12043,9 @@ typedef $$TodosTableTableCreateCompanionBuilder =
       Value<String?> startAt,
       Value<String?> dueAt,
       Value<String?> scheduledDate,
+      Value<String?> time,
       Value<String?> triggerAfterTodoId,
+      Value<String?> habitId,
       Value<String?> completedAt,
       Value<String?> recurrenceType,
       Value<int?> recurrenceInterval,
@@ -11615,7 +12075,9 @@ typedef $$TodosTableTableUpdateCompanionBuilder =
       Value<String?> startAt,
       Value<String?> dueAt,
       Value<String?> scheduledDate,
+      Value<String?> time,
       Value<String?> triggerAfterTodoId,
+      Value<String?> habitId,
       Value<String?> completedAt,
       Value<String?> recurrenceType,
       Value<int?> recurrenceInterval,
@@ -11729,8 +12191,18 @@ class $$TodosTableTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<String> get time => $composableBuilder(
+    column: $table.time,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<String> get triggerAfterTodoId => $composableBuilder(
     column: $table.triggerAfterTodoId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get habitId => $composableBuilder(
+    column: $table.habitId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -11869,8 +12341,18 @@ class $$TodosTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get time => $composableBuilder(
+    column: $table.time,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get triggerAfterTodoId => $composableBuilder(
     column: $table.triggerAfterTodoId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get habitId => $composableBuilder(
+    column: $table.habitId,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -11981,10 +12463,16 @@ class $$TodosTableTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get time =>
+      $composableBuilder(column: $table.time, builder: (column) => column);
+
   GeneratedColumn<String> get triggerAfterTodoId => $composableBuilder(
     column: $table.triggerAfterTodoId,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get habitId =>
+      $composableBuilder(column: $table.habitId, builder: (column) => column);
 
   GeneratedColumn<String> get completedAt => $composableBuilder(
     column: $table.completedAt,
@@ -12064,7 +12552,9 @@ class $$TodosTableTableTableManager
                 Value<String?> startAt = const Value.absent(),
                 Value<String?> dueAt = const Value.absent(),
                 Value<String?> scheduledDate = const Value.absent(),
+                Value<String?> time = const Value.absent(),
                 Value<String?> triggerAfterTodoId = const Value.absent(),
+                Value<String?> habitId = const Value.absent(),
                 Value<String?> completedAt = const Value.absent(),
                 Value<String?> recurrenceType = const Value.absent(),
                 Value<int?> recurrenceInterval = const Value.absent(),
@@ -12092,7 +12582,9 @@ class $$TodosTableTableTableManager
                 startAt: startAt,
                 dueAt: dueAt,
                 scheduledDate: scheduledDate,
+                time: time,
                 triggerAfterTodoId: triggerAfterTodoId,
+                habitId: habitId,
                 completedAt: completedAt,
                 recurrenceType: recurrenceType,
                 recurrenceInterval: recurrenceInterval,
@@ -12122,7 +12614,9 @@ class $$TodosTableTableTableManager
                 Value<String?> startAt = const Value.absent(),
                 Value<String?> dueAt = const Value.absent(),
                 Value<String?> scheduledDate = const Value.absent(),
+                Value<String?> time = const Value.absent(),
                 Value<String?> triggerAfterTodoId = const Value.absent(),
+                Value<String?> habitId = const Value.absent(),
                 Value<String?> completedAt = const Value.absent(),
                 Value<String?> recurrenceType = const Value.absent(),
                 Value<int?> recurrenceInterval = const Value.absent(),
@@ -12150,7 +12644,9 @@ class $$TodosTableTableTableManager
                 startAt: startAt,
                 dueAt: dueAt,
                 scheduledDate: scheduledDate,
+                time: time,
                 triggerAfterTodoId: triggerAfterTodoId,
+                habitId: habitId,
                 completedAt: completedAt,
                 recurrenceType: recurrenceType,
                 recurrenceInterval: recurrenceInterval,
@@ -12336,6 +12832,10 @@ typedef $$NotesTableTableCreateCompanionBuilder =
       Value<String?> body,
       Value<String?> cornellCue,
       Value<String?> cornellSummary,
+      Value<String> contentFormat,
+      Value<String?> bodyDelta,
+      Value<String?> cornellCueDelta,
+      Value<String?> cornellSummaryDelta,
       Value<bool> isPinned,
       Value<int> rowid,
     });
@@ -12351,6 +12851,10 @@ typedef $$NotesTableTableUpdateCompanionBuilder =
       Value<String?> body,
       Value<String?> cornellCue,
       Value<String?> cornellSummary,
+      Value<String> contentFormat,
+      Value<String?> bodyDelta,
+      Value<String?> cornellCueDelta,
+      Value<String?> cornellSummaryDelta,
       Value<bool> isPinned,
       Value<int> rowid,
     });
@@ -12411,6 +12915,26 @@ class $$NotesTableTableFilterComposer
 
   ColumnFilters<String> get cornellSummary => $composableBuilder(
     column: $table.cornellSummary,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get contentFormat => $composableBuilder(
+    column: $table.contentFormat,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get bodyDelta => $composableBuilder(
+    column: $table.bodyDelta,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get cornellCueDelta => $composableBuilder(
+    column: $table.cornellCueDelta,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get cornellSummaryDelta => $composableBuilder(
+    column: $table.cornellSummaryDelta,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -12479,6 +13003,26 @@ class $$NotesTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get contentFormat => $composableBuilder(
+    column: $table.contentFormat,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get bodyDelta => $composableBuilder(
+    column: $table.bodyDelta,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get cornellCueDelta => $composableBuilder(
+    column: $table.cornellCueDelta,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get cornellSummaryDelta => $composableBuilder(
+    column: $table.cornellSummaryDelta,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<bool> get isPinned => $composableBuilder(
     column: $table.isPinned,
     builder: (column) => ColumnOrderings(column),
@@ -12528,6 +13072,24 @@ class $$NotesTableTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get contentFormat => $composableBuilder(
+    column: $table.contentFormat,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get bodyDelta =>
+      $composableBuilder(column: $table.bodyDelta, builder: (column) => column);
+
+  GeneratedColumn<String> get cornellCueDelta => $composableBuilder(
+    column: $table.cornellCueDelta,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get cornellSummaryDelta => $composableBuilder(
+    column: $table.cornellSummaryDelta,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<bool> get isPinned =>
       $composableBuilder(column: $table.isPinned, builder: (column) => column);
 }
@@ -12570,6 +13132,10 @@ class $$NotesTableTableTableManager
                 Value<String?> body = const Value.absent(),
                 Value<String?> cornellCue = const Value.absent(),
                 Value<String?> cornellSummary = const Value.absent(),
+                Value<String> contentFormat = const Value.absent(),
+                Value<String?> bodyDelta = const Value.absent(),
+                Value<String?> cornellCueDelta = const Value.absent(),
+                Value<String?> cornellSummaryDelta = const Value.absent(),
                 Value<bool> isPinned = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => NotesTableCompanion(
@@ -12583,6 +13149,10 @@ class $$NotesTableTableTableManager
                 body: body,
                 cornellCue: cornellCue,
                 cornellSummary: cornellSummary,
+                contentFormat: contentFormat,
+                bodyDelta: bodyDelta,
+                cornellCueDelta: cornellCueDelta,
+                cornellSummaryDelta: cornellSummaryDelta,
                 isPinned: isPinned,
                 rowid: rowid,
               ),
@@ -12598,6 +13168,10 @@ class $$NotesTableTableTableManager
                 Value<String?> body = const Value.absent(),
                 Value<String?> cornellCue = const Value.absent(),
                 Value<String?> cornellSummary = const Value.absent(),
+                Value<String> contentFormat = const Value.absent(),
+                Value<String?> bodyDelta = const Value.absent(),
+                Value<String?> cornellCueDelta = const Value.absent(),
+                Value<String?> cornellSummaryDelta = const Value.absent(),
                 Value<bool> isPinned = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => NotesTableCompanion.insert(
@@ -12611,6 +13185,10 @@ class $$NotesTableTableTableManager
                 body: body,
                 cornellCue: cornellCue,
                 cornellSummary: cornellSummary,
+                contentFormat: contentFormat,
+                bodyDelta: bodyDelta,
+                cornellCueDelta: cornellCueDelta,
+                cornellSummaryDelta: cornellSummaryDelta,
                 isPinned: isPinned,
                 rowid: rowid,
               ),
@@ -16171,23 +16749,29 @@ typedef $$RemindersTableTableProcessedTableManager =
 typedef $$SyncQueueTableTableCreateCompanionBuilder =
     SyncQueueTableCompanion Function({
       Value<int> id,
+      Value<String> userId,
       required String entityType,
       required String entityId,
       required String operation,
       required String payload,
       Value<int> retryCount,
       Value<int?> nextRetryAt,
+      Value<String?> lastError,
+      Value<bool> isDeadLetter,
       required String createdAt,
     });
 typedef $$SyncQueueTableTableUpdateCompanionBuilder =
     SyncQueueTableCompanion Function({
       Value<int> id,
+      Value<String> userId,
       Value<String> entityType,
       Value<String> entityId,
       Value<String> operation,
       Value<String> payload,
       Value<int> retryCount,
       Value<int?> nextRetryAt,
+      Value<String?> lastError,
+      Value<bool> isDeadLetter,
       Value<String> createdAt,
     });
 
@@ -16202,6 +16786,11 @@ class $$SyncQueueTableTableFilterComposer
   });
   ColumnFilters<int> get id => $composableBuilder(
     column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get userId => $composableBuilder(
+    column: $table.userId,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -16235,6 +16824,16 @@ class $$SyncQueueTableTableFilterComposer
     builder: (column) => ColumnFilters(column),
   );
 
+  ColumnFilters<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get isDeadLetter => $composableBuilder(
+    column: $table.isDeadLetter,
+    builder: (column) => ColumnFilters(column),
+  );
+
   ColumnFilters<String> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnFilters(column),
@@ -16252,6 +16851,11 @@ class $$SyncQueueTableTableOrderingComposer
   });
   ColumnOrderings<int> get id => $composableBuilder(
     column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get userId => $composableBuilder(
+    column: $table.userId,
     builder: (column) => ColumnOrderings(column),
   );
 
@@ -16285,6 +16889,16 @@ class $$SyncQueueTableTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get isDeadLetter => $composableBuilder(
+    column: $table.isDeadLetter,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get createdAt => $composableBuilder(
     column: $table.createdAt,
     builder: (column) => ColumnOrderings(column),
@@ -16302,6 +16916,9 @@ class $$SyncQueueTableTableAnnotationComposer
   });
   GeneratedColumn<int> get id =>
       $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get userId =>
+      $composableBuilder(column: $table.userId, builder: (column) => column);
 
   GeneratedColumn<String> get entityType => $composableBuilder(
     column: $table.entityType,
@@ -16324,6 +16941,14 @@ class $$SyncQueueTableTableAnnotationComposer
 
   GeneratedColumn<int> get nextRetryAt => $composableBuilder(
     column: $table.nextRetryAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get lastError =>
+      $composableBuilder(column: $table.lastError, builder: (column) => column);
+
+  GeneratedColumn<bool> get isDeadLetter => $composableBuilder(
+    column: $table.isDeadLetter,
     builder: (column) => column,
   );
 
@@ -16365,41 +16990,53 @@ class $$SyncQueueTableTableTableManager
           updateCompanionCallback:
               ({
                 Value<int> id = const Value.absent(),
+                Value<String> userId = const Value.absent(),
                 Value<String> entityType = const Value.absent(),
                 Value<String> entityId = const Value.absent(),
                 Value<String> operation = const Value.absent(),
                 Value<String> payload = const Value.absent(),
                 Value<int> retryCount = const Value.absent(),
                 Value<int?> nextRetryAt = const Value.absent(),
+                Value<String?> lastError = const Value.absent(),
+                Value<bool> isDeadLetter = const Value.absent(),
                 Value<String> createdAt = const Value.absent(),
               }) => SyncQueueTableCompanion(
                 id: id,
+                userId: userId,
                 entityType: entityType,
                 entityId: entityId,
                 operation: operation,
                 payload: payload,
                 retryCount: retryCount,
                 nextRetryAt: nextRetryAt,
+                lastError: lastError,
+                isDeadLetter: isDeadLetter,
                 createdAt: createdAt,
               ),
           createCompanionCallback:
               ({
                 Value<int> id = const Value.absent(),
+                Value<String> userId = const Value.absent(),
                 required String entityType,
                 required String entityId,
                 required String operation,
                 required String payload,
                 Value<int> retryCount = const Value.absent(),
                 Value<int?> nextRetryAt = const Value.absent(),
+                Value<String?> lastError = const Value.absent(),
+                Value<bool> isDeadLetter = const Value.absent(),
                 required String createdAt,
               }) => SyncQueueTableCompanion.insert(
                 id: id,
+                userId: userId,
                 entityType: entityType,
                 entityId: entityId,
                 operation: operation,
                 payload: payload,
                 retryCount: retryCount,
                 nextRetryAt: nextRetryAt,
+                lastError: lastError,
+                isDeadLetter: isDeadLetter,
                 createdAt: createdAt,
               ),
           withReferenceMapper: (p0) => p0

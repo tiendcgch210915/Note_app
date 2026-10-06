@@ -1,9 +1,12 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
+
 import '../../data/api_exception.dart';
 import '../../data/notes_repository.dart';
 import '../../models/note.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/note_local_events.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/note_card.dart';
 import 'note_detail_screen.dart';
@@ -17,145 +20,175 @@ class NotesListScreen extends StatefulWidget {
 
 class _NotesListScreenState extends State<NotesListScreen> {
   final _search = TextEditingController();
-  final _scrollCtrl = ScrollController();
+  final _scrollController = ScrollController();
   Timer? _debounce;
 
+  List<Note> _notes = const [];
   String _query = '';
-  List<Note> _notes = [];
+  NoteType? _type;
   String? _nextCursor;
+  String? _error;
   bool _loading = false;
   bool _loadingMore = false;
-  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _scrollCtrl.addListener(_onScroll);
-    _fetch(initial: true);
+    _scrollController.addListener(_handleScroll);
+    NoteLocalEvents.instance.addListener(_handleLocalChanged);
+    unawaited(_loadLocal());
+    unawaited(_refresh());
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
-    _scrollCtrl.dispose();
+    NoteLocalEvents.instance.removeListener(_handleLocalChanged);
+    _scrollController
+      ..removeListener(_handleScroll)
+      ..dispose();
     _search.dispose();
     super.dispose();
   }
 
-  void _onScroll() {
-    if (_scrollCtrl.position.pixels >
-            _scrollCtrl.position.maxScrollExtent - 200 &&
-        !_loadingMore &&
-        _nextCursor != null) {
-      _fetch(initial: false);
+  void _handleLocalChanged() => unawaited(_loadLocal());
+
+  void _handleScroll() {
+    if (_nextCursor == null || _loadingMore) return;
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 240) {
+      unawaited(_loadMore());
     }
   }
 
-  Future<void> _fetch({required bool initial}) async {
-    if (initial) {
-      setState(() {
-        _loading = true;
-        _error = null;
-      });
-    } else {
-      setState(() => _loadingMore = true);
-    }
+  Future<void> _loadLocal() async {
+    final notes = await NotesRepository.instance.listLocal(
+      limit: 500,
+      q: _query,
+      type: _type?.backendValue,
+    );
+    if (!mounted) return;
+    setState(() => _notes = notes);
+  }
+
+  Future<void> _refresh() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
-      final resp = await NotesRepository.instance.list(
-        q: _query.isEmpty ? null : _query,
-        cursor: initial ? null : _nextCursor,
+      final result = await NotesRepository.instance.refreshList(
         limit: 20,
+        q: _query,
+        type: _type?.backendValue,
       );
       if (!mounted) return;
-      setState(() {
-        if (initial) {
-          _notes = resp.items;
-        } else {
-          _notes = [..._notes, ...resp.items];
-        }
-        _nextCursor = resp.nextCursor;
-      });
-    } on ApiException catch (e) {
-      if (mounted) setState(() => _error = e.vnMessage);
+      _nextCursor = result.nextCursor;
+      await _loadLocal();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _error = error.vnMessage);
     } finally {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _loadingMore = false;
-        });
-      }
+      if (mounted) setState(() => _loading = false);
     }
   }
 
-  void _onSearchChanged(String v) {
+  Future<void> _loadMore() async {
+    final cursor = _nextCursor;
+    if (cursor == null) return;
+    setState(() => _loadingMore = true);
+    try {
+      final result = await NotesRepository.instance.refreshList(
+        cursor: cursor,
+        limit: 20,
+        q: _query,
+        type: _type?.backendValue,
+      );
+      _nextCursor = result.nextCursor;
+      await _loadLocal();
+    } on ApiException catch (error) {
+      if (mounted && _notes.isEmpty) setState(() => _error = error.vnMessage);
+    } finally {
+      if (mounted) setState(() => _loadingMore = false);
+    }
+  }
+
+  void _handleSearch(String value) {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () {
-      setState(() => _query = v.trim());
-      _fetch(initial: true);
+      _query = value.trim();
+      unawaited(_loadLocal());
+      unawaited(_refresh());
     });
   }
 
-  Future<void> _refresh() => _fetch(initial: true);
-
-  /// Sort: pinned first khi không search.
-  List<Note> get _sortedNotes {
-    if (_query.isNotEmpty) return _notes;
-    final sorted = List.of(_notes);
-    sorted.sort((a, b) {
-      if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
-      return b.updatedAt.compareTo(a.updatedAt);
-    });
-    return sorted;
+  void _selectType(NoteType? type) {
+    if (_type == type) return;
+    setState(() => _type = type);
+    unawaited(_loadLocal());
+    unawaited(_refresh());
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? AppColors.noteBackgroundDark : AppColors.noteBackground;
-    final notes = _sortedNotes;
-
-    return Container(
-      color: bg,
+    final background = isDark
+        ? AppColors.noteBackgroundDark
+        : AppColors.noteBackground;
+    return ColoredBox(
+      color: background,
       child: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: Row(
-              children: const [
-                Text(
-                  'Notes',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.5,
-                  ),
-                ),
-              ],
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Notes',
+                style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
+              ),
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
             child: TextField(
               controller: _search,
-              onChanged: _onSearchChanged,
+              onChanged: _handleSearch,
               decoration: const InputDecoration(
-                hintText: 'Tìm note',
+                hintText: 'Tìm trong Notes',
                 prefixIcon: Icon(Icons.search, size: 20),
                 isDense: true,
               ),
             ),
           ),
-          Expanded(child: _buildBody(notes)),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(value: 'all', label: Text('Tất cả')),
+                ButtonSegment(value: 'free', label: Text('Thường')),
+                ButtonSegment(value: 'cornell', label: Text('Cornell')),
+              ],
+              selected: {_type?.backendValue ?? 'all'},
+              onSelectionChanged: (selection) {
+                final value = selection.first;
+                _selectType(value == 'all' ? null : NoteType.parse(value));
+              },
+            ),
+          ),
+          if (_loading && _notes.isNotEmpty)
+            const LinearProgressIndicator(minHeight: 2),
+          Expanded(child: _buildBody()),
         ],
       ),
     );
   }
 
-  Widget _buildBody(List<Note> notes) {
-    if (_loading && notes.isEmpty) {
+  Widget _buildBody() {
+    if (_loading && _notes.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_error != null && notes.isEmpty) {
+    if (_notes.isEmpty && _error != null) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -170,12 +203,12 @@ class _NotesListScreenState extends State<NotesListScreen> {
         ),
       );
     }
-    if (notes.isEmpty) {
+    if (_notes.isEmpty) {
       return RefreshIndicator(
         onRefresh: _refresh,
         child: ListView(
           children: const [
-            SizedBox(height: 120),
+            SizedBox(height: 110),
             EmptyState(
               icon: Icons.sticky_note_2_outlined,
               title: 'Chưa có note nào',
@@ -188,27 +221,27 @@ class _NotesListScreenState extends State<NotesListScreen> {
     return RefreshIndicator(
       onRefresh: _refresh,
       child: ListView.separated(
-        controller: _scrollCtrl,
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
-        itemCount: notes.length + (_loadingMore ? 1 : 0),
-        separatorBuilder: (_, __) => const SizedBox(height: 12),
-        itemBuilder: (ctx, i) {
-          if (i >= notes.length) {
+        controller: _scrollController,
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 96),
+        itemCount: _notes.length + (_loadingMore ? 1 : 0),
+        separatorBuilder: (_, _) => const SizedBox(height: 10),
+        itemBuilder: (context, index) {
+          if (index == _notes.length) {
             return const Padding(
-              padding: EdgeInsets.symmetric(vertical: 16),
+              padding: EdgeInsets.all(16),
               child: Center(child: CircularProgressIndicator()),
             );
           }
-          final n = notes[i];
+          final note = _notes[index];
           return NoteCard(
-            note: n,
+            note: note,
             onTap: () async {
               await Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => NoteDetailScreen(noteId: n.id),
+                  builder: (_) => NoteDetailScreen(noteId: note.id),
                 ),
               );
-              if (mounted) _refresh();
+              await _loadLocal();
             },
           );
         },

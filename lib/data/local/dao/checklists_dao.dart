@@ -40,9 +40,16 @@ class ChecklistsDao extends DatabaseAccessor<AppDatabase>
     )..where((c) => c.id.equals(id) & c.deletedAt.isNull())).getSingleOrNull();
   }
 
-  Future<List<ChecklistCategoryRow>> getCategories({String scope = 'all'}) {
+  Future<List<ChecklistCategoryRow>> getCategories({
+    required String userId,
+    String scope = 'all',
+  }) {
     final q = select(db.checklistCategoriesTable)
-      ..where((c) => c.deletedAt.isNull())
+      ..where(
+        (c) =>
+            (c.userId.equals(userId) | c.isSystem.equals(true)) &
+            c.deletedAt.isNull(),
+      )
       ..orderBy([
         (c) => OrderingTerm.asc(c.sortOrder),
         (c) => OrderingTerm.asc(c.name),
@@ -96,12 +103,17 @@ class ChecklistsDao extends DatabaseAccessor<AppDatabase>
   }
 
   Future<List<TemplateRow>> getTemplates({
+    required String userId,
     bool? isSystem,
     String? categoryId,
     bool uncategorized = false,
   }) {
     final q = select(db.checklistTemplatesTable)
-      ..where((t) => t.deletedAt.isNull())
+      ..where(
+        (t) =>
+            (t.userId.equals(userId) | t.userId.isNull()) &
+            t.deletedAt.isNull(),
+      )
       ..orderBy([
         (t) => OrderingTerm.asc(t.sortOrder),
         (t) => OrderingTerm.desc(t.updatedAt),
@@ -257,11 +269,15 @@ class ChecklistsDao extends DatabaseAccessor<AppDatabase>
     )..where((r) => r.id.equals(id) & r.deletedAt.isNull())).getSingleOrNull();
   }
 
-  Future<RunRow?> getInProgressRunForTemplate(String templateId) {
+  Future<RunRow?> getInProgressRunForTemplate(
+    String templateId, {
+    required String userId,
+  }) {
     return (select(db.checklistRunsTable)
           ..where(
             (r) =>
                 r.templateId.equals(templateId) &
+                r.userId.equals(userId) &
                 r.status.equals('in_progress') &
                 r.deletedAt.isNull(),
           )
@@ -271,12 +287,13 @@ class ChecklistsDao extends DatabaseAccessor<AppDatabase>
   }
 
   Future<List<RunRow>> getRuns({
+    required String userId,
     int limit = 20,
     String? status,
     String? templateId,
   }) {
     final q = select(db.checklistRunsTable)
-      ..where((r) => r.deletedAt.isNull())
+      ..where((r) => r.userId.equals(userId) & r.deletedAt.isNull())
       ..orderBy([(r) => OrderingTerm.desc(r.createdAt)])
       ..limit(limit);
     if (status != null) {

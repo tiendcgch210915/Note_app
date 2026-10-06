@@ -10,6 +10,7 @@ mixin _$NotesDaoMixin on DatabaseAccessor<AppDatabase> {
   $NoteLinksTableTable get noteLinksTable => attachedDatabase.noteLinksTable;
   $NoteTodoLinksTableTable get noteTodoLinksTable =>
       attachedDatabase.noteTodoLinksTable;
+  $TodosTableTable get todosTable => attachedDatabase.todosTable;
   NotesDaoManager get managers => NotesDaoManager(this);
 }
 
@@ -32,4 +33,6 @@ class NotesDaoManager {
         _db.attachedDatabase,
         _db.noteTodoLinksTable,
       );
+  $$TodosTableTableTableManager get todosTable =>
+      $$TodosTableTableTableManager(_db.attachedDatabase, _db.todosTable);
 }

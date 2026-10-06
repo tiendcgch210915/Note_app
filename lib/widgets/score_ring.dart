@@ -2,9 +2,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../theme/app_colors.dart';
 
-/// Vòng tròn progress 0..100, vẽ bằng CustomPainter.
+/// Vòng tròn điểm dashboard. Progress được cap ở 100 để giữ UI ổn định,
+/// nhưng số điểm hiển thị luôn là điểm thật so với mốc mục tiêu 100.
 class ScoreRing extends StatelessWidget {
-  final int score; // 0..100
+  final int score;
   final double size;
   final double strokeWidth;
   final Color? color;
@@ -31,10 +32,14 @@ class ScoreRing extends StatelessWidget {
     final textColor = isDark
         ? AppColors.textPrimaryDark
         : AppColors.textPrimary;
+    final displayScore = math.max(0, score);
+    final exceptional = displayScore > 100;
+    final progress = math.min(displayScore, 100) / 100;
+    final effectiveRingColor =
+        color ?? (exceptional ? AppColors.warning : ringColor);
     final secondary = isDark
         ? AppColors.textSecondaryDark
         : AppColors.textSecondary;
-    final clamped = score.clamp(0, 100);
 
     return SizedBox(
       width: size,
@@ -45,26 +50,40 @@ class ScoreRing extends StatelessWidget {
           CustomPaint(
             size: Size.square(size),
             painter: _RingPainter(
-              progress: clamped / 100,
-              color: ringColor,
+              progress: progress,
+              color: effectiveRingColor,
               backgroundColor: bgColor,
               strokeWidth: strokeWidth,
+              overachieved: exceptional,
             ),
           ),
           if (showLabel)
             Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  '$clamped',
-                  style: TextStyle(
-                    fontSize: size * 0.36,
-                    fontWeight: FontWeight.w700,
-                    color: textColor,
-                    letterSpacing: -1,
+                SizedBox(
+                  width: size * 0.72,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      '$displayScore',
+                      style: TextStyle(
+                        fontSize: size * 0.34,
+                        fontWeight: FontWeight.w800,
+                        color: exceptional ? AppColors.warning : textColor,
+                        letterSpacing: 0,
+                      ),
+                    ),
                   ),
                 ),
-                Text('/ 100', style: TextStyle(fontSize: 12, color: secondary)),
+                Text(
+                  '/100',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: exceptional ? AppColors.warning : secondary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ],
             ),
         ],
@@ -78,12 +97,14 @@ class _RingPainter extends CustomPainter {
   final Color color;
   final Color backgroundColor;
   final double strokeWidth;
+  final bool overachieved;
 
   _RingPainter({
     required this.progress,
     required this.color,
     required this.backgroundColor,
     required this.strokeWidth,
+    required this.overachieved,
   });
 
   @override
@@ -96,6 +117,14 @@ class _RingPainter extends CustomPainter {
       ..strokeWidth = strokeWidth
       ..style = PaintingStyle.stroke;
     canvas.drawCircle(center, radius, bgPaint);
+
+    if (overachieved) {
+      final haloPaint = Paint()
+        ..color = color.withValues(alpha: 0.14)
+        ..strokeWidth = strokeWidth * 1.75
+        ..style = PaintingStyle.stroke;
+      canvas.drawCircle(center, radius, haloPaint);
+    }
 
     if (progress <= 0) return;
     final fgPaint = Paint()
@@ -113,5 +142,6 @@ class _RingPainter extends CustomPainter {
       old.progress != progress ||
       old.color != color ||
       old.backgroundColor != backgroundColor ||
-      old.strokeWidth != strokeWidth;
+      old.strokeWidth != strokeWidth ||
+      old.overachieved != overachieved;
 }

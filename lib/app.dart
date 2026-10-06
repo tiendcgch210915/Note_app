@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:flutter_quill/flutter_quill.dart';
 import 'data/api_client.dart';
 import 'data/auth_repository.dart';
 import 'data/auth_storage.dart';
@@ -10,6 +12,7 @@ import 'data/remote/api_client_dio.dart';
 import 'sync/connectivity_sync.dart';
 import 'sync/sync_worker.dart';
 import 'theme/app_theme.dart';
+import 'widgets/frog_completion_celebration.dart';
 
 /// Controller cho ThemeMode — expose qua AppThemeScope (InheritedWidget).
 class AppThemeController {
@@ -87,8 +90,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     // 5. Start connectivity listener (will trigger sync on reconnect)
     await ConnectivitySync.instance.init();
 
-    // Register post-pull hook so SyncWorker can trigger recurrence instance
-    // generation without importing TodosRepository (circular dep guard).
+    // Register post-pull repair without importing TodosRepository in the sync
+    // worker (circular dependency guard).
     SyncWorker.registerPostPullHook(
       TodosRepository.instance.ensureAllRecurrenceInstances,
     );
@@ -102,8 +105,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       }
     });
 
-    // 7. If authenticated, trigger initial pull to populate Drift
+    // 7. Repair legacy recurrence from Drift first, then sync with the server.
     if (isAuth) {
+      await TodosRepository.instance.ensureAllRecurrenceInstances();
       SyncWorker.instance.sync();
     }
   }
@@ -127,9 +131,19 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           return MaterialApp(
             title: 'Productivity',
             debugShowCheckedModeBanner: false,
+            localizationsDelegates: const [
+              GlobalMaterialLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              FlutterQuillLocalizations.delegate,
+            ],
+            supportedLocales: const [Locale('vi'), Locale('en')],
             theme: AppTheme.light(),
             darkTheme: AppTheme.dark(),
             themeMode: mode,
+            builder: (context, child) => FrogCompletionCelebrationHost(
+              child: child ?? const SizedBox.shrink(),
+            ),
             home: _isReady
                 ? (_isAuthenticated ? const HomeShell() : const LoginScreen())
                 : const _BootstrapLoading(),

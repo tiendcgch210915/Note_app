@@ -1,21 +1,27 @@
-import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 
 import '../models/tag.dart';
 import '../models/todo.dart';
+import '../models/recurring_todo_delete_scope.dart';
+import '../utils/dashboard_local_events.dart';
 import '../utils/json_utils.dart';
+import '../utils/frog_completion_events.dart';
 import '../utils/recurrence_helper.dart';
+import '../utils/todo_local_events.dart';
 import '../utils/todo_trigger_candidates.dart';
 import '../utils/uuid_utils.dart';
 import 'api_client.dart';
 import 'api_exception.dart';
 import 'auth_storage.dart';
+import 'habits_repository.dart';
 import 'local/database.dart';
 import 'local/model_converters.dart';
 import 'tags_repository.dart';
 import '../sync/connectivity_sync.dart';
 import '../sync/sync_payload.dart';
+import '../sync/sync_worker.dart';
 
 /// Repository cho Group T — Todos.
 ///
@@ -25,13 +31,43 @@ import '../sync/sync_payload.dart';
 ///               On no_connection → write to Drift + enqueue (offline mode)
 ///  - After any write → ConnectivitySync.scheduleWriteSync()
 class TodosRepository {
-  TodosRepository._();
+  TodosRepository._({
+    ApiClient? client,
+    AppDatabase? database,
+    String? userIdOverride,
+  }) : _client = client ?? ApiClient.instance,
+       _db = database ?? AppDatabase.instance,
+       _userIdOverride = userIdOverride;
   static final TodosRepository instance = TodosRepository._();
-  final ApiClient _client = ApiClient.instance;
-  final AppDatabase _db = AppDatabase.instance;
+  final ApiClient _client;
+  final AppDatabase _db;
+  final String? _userIdOverride;
+
+  factory TodosRepository.forTesting(
+    AppDatabase database, {
+    required String userId,
+  }) {
+    return TodosRepository._(database: database, userIdOverride: userId);
+  }
 
   String get _userId =>
-      AuthStorage.instance.currentUserJson?['id'] as String? ?? '';
+      _userIdOverride ??
+      AuthStorage.instance.currentUserJson?['id'] as String? ??
+      '';
+
+  bool _belongsToCurrentUser(String rowUserId) {
+    final userId = _userId;
+    return userId.isEmpty || rowUserId == userId;
+  }
+
+  Future<bool> hasPendingLocalWrites() async {
+    return (await _db.syncDao.getPendingCount()) > 0;
+  }
+
+  void _notifyTodoLocalChanged() {
+    TodoLocalEvents.instance.notifyChanged();
+    DashboardLocalEvents.instance.notifyChanged();
+  }
 
   // ─── F-T2 List ────────────────────────────────────────────────
 
@@ -45,6 +81,7 @@ class TodosRepository {
     String? q,
     String? tag,
     String? tagId,
+    String? habitId,
   }) async {
     final query = <String, dynamic>{
       if (cursor != null) 'cursor': cursor,
@@ -57,6 +94,7 @@ class TodosRepository {
       if (q != null && q.isNotEmpty) 'q': q,
       if (tagId != null && tagId.isNotEmpty) 'tag_id': tagId,
       if (tag != null && tag.isNotEmpty) 'tag': tag,
+      if (habitId != null && habitId.isNotEmpty) 'habit_id': habitId,
     };
     final resp = await _client.get('/todos', query: query);
     final map = resp as Map<String, dynamic>;
@@ -76,7 +114,11 @@ class TodosRepository {
       if (e.code != 'no_connection') rethrow;
       final rows = await _db.todosDao.getAllNonDeletedTodos();
       return filterTodoTriggerCandidates(
-        rows.map(_todoRowToModel).toList(),
+        rows
+            .where((row) => _belongsToCurrentUser(row.userId))
+            .map(_todoRowToModel)
+            .where((todo) => !_isLegacyRecurrenceProjection(todo))
+            .toList(),
         excludeId: excludeId,
       );
     }
@@ -122,14 +164,25 @@ class TodosRepository {
     );
     await _cacheTodoWithTags(result.todo, result.tags);
     await _cacheTodos(result.subtasks);
-    return result;
+    final cached = await getLocalDetail(id);
+    if (cached == null) return result;
+    return TodoWithRelations(
+      todo: result.todo,
+      tags: result.tags,
+      subtasks: cached.subtasks,
+      linkedNotes: result.linkedNotes,
+    );
   }
 
   Future<TodoWithRelations?> getLocalDetail(String id) async {
     final row = await _db.todosDao.getTodoById(id);
     if (row == null) return null;
+    if (!_belongsToCurrentUser(row.userId)) return null;
     final baseTodo = _todoRowToModel(row);
-    final subtasks = await _db.todosDao.getSubtasks(id);
+    final subtasks = await _db.todosDao.getActiveSubtree(
+      id,
+      userId: row.userId,
+    );
     final tags = baseTodo.parentId == null
         ? await _db.todosDao.getTagsForTodo(id)
         : const <TagRow>[];
@@ -147,11 +200,53 @@ class TodosRepository {
     );
   }
 
+  Future<List<Todo>> reorderSubtasksLocalFirst({
+    required String parentId,
+    required List<String> orderedIds,
+  }) async {
+    final rows = await _db.todosDao.getSubtasks(parentId);
+    if (rows.isEmpty || orderedIds.isEmpty) return const [];
+
+    final byId = {for (final row in rows) row.id: row};
+    final currentIds = byId.keys.toSet();
+    final incomingIds = orderedIds.toSet();
+    if (currentIds.length != incomingIds.length ||
+        !currentIds.containsAll(incomingIds)) {
+      throw const ApiException(400, 'bad_input', 'bad_input');
+    }
+
+    final now = DateTime.now().toUtc().toIso8601String();
+    var changed = false;
+    for (var i = 0; i < orderedIds.length; i++) {
+      final row = byId[orderedIds[i]]!;
+      if (!_belongsToCurrentUser(row.userId) || row.position == i) continue;
+      await _db.todosDao.updateTodoPosition(
+        row.id,
+        userId: row.userId,
+        position: i,
+        updatedAtIso: now,
+      );
+      await _enqueueTodoUpdate(row.id);
+      changed = true;
+    }
+
+    final reordered = await _db.todosDao.getSubtasks(parentId);
+    if (changed) {
+      _notifyTodoLocalChanged();
+      ConnectivitySync.instance.scheduleWriteSync();
+    }
+    return reordered.map(_todoRowToModel).toList(growable: false);
+  }
+
   // ─── F-T1 Create ──────────────────────────────────────────────
 
   Future<TodoWithRelations> create(Map<String, dynamic> body) async {
+    final writeBody = _ensureDonePatchHasCompletedAt(
+      _normalizeTodoWriteBody(body, requireScheduledForTime: true),
+      DateTime.now().toUtc(),
+    );
     try {
-      final resp = await _client.post('/todos', body: body);
+      final resp = await _client.post('/todos', body: writeBody);
       final result = TodoWithRelations.fromJson(resp as Map<String, dynamic>);
       // Server already has this — cache locally only, do NOT enqueue.
       await _cacheTodoWithTags(result.todo, result.tags);
@@ -162,14 +257,16 @@ class TodosRepository {
       return result;
     } on ApiException catch (e) {
       if (e.code == 'no_connection') {
-        return _createOffline(body);
+        return _createOffline(writeBody);
       }
       rethrow;
     }
   }
 
   Future<TodoWithRelations> createLocalFirst(Map<String, dynamic> body) async {
-    return _createOffline(body);
+    return _createOffline(
+      _normalizeTodoWriteBody(body, requireScheduledForTime: true),
+    );
   }
 
   /// Creates todo locally when offline. Returns optimistic result.
@@ -202,7 +299,12 @@ class TodosRepository {
       isImportant: body['is_important'] as bool?,
       isUrgent: body['is_urgent'] as bool?,
       estimatedMinutes: (body['estimated_minutes'] as num?)?.toInt(),
+      dueAt: body['due_at'] != null ? _dateTimeFromJson(body['due_at']) : null,
+      time: parentId == null && body['scheduled_date'] != null
+          ? body['time'] as String?
+          : null,
       triggerAfterTodoId: body['trigger_after_todo_id'] as String?,
+      habitId: parentId == null ? body['habit_id'] as String? : null,
       tags: tags,
       tagIds: tags.map((tag) => tag.id).toList(),
       tagsLoaded: true,
@@ -215,6 +317,7 @@ class TodosRepository {
     );
     final normalizedTodo = _normalizeSubtask(todo);
     await _upsertTodoWithSync(normalizedTodo, tags, 'create');
+    _notifyTodoLocalChanged();
     ConnectivitySync.instance.scheduleWriteSync();
     return TodoWithRelations(
       todo: normalizedTodo,
@@ -227,8 +330,12 @@ class TodosRepository {
   // ─── F-T5 Update ──────────────────────────────────────────────
 
   Future<Todo> update(String id, Map<String, dynamic> body) async {
+    final writeBody = _ensureDonePatchHasCompletedAt(
+      _normalizeTodoWriteBody(body),
+      DateTime.now().toUtc(),
+    );
     try {
-      final resp = await _client.patch('/todos/$id', body: body);
+      final resp = await _client.patch('/todos/$id', body: writeBody);
       final todo = _normalizeSubtask(
         Todo.fromJson(
           (resp as Map<String, dynamic>)['todo'] as Map<String, dynamic>,
@@ -239,10 +346,11 @@ class TodosRepository {
       if (todo.isRecurrenceTemplate) {
         await _ensureInstancesExist(todo);
       }
+      _notifyTodoLocalChanged();
       return todo;
     } on ApiException catch (e) {
       if (e.code == 'no_connection') {
-        await _enqueueOfflineUpdate(id, body);
+        await _enqueueOfflineUpdate(id, writeBody);
         rethrow; // UI handles re-render
       }
       rethrow;
@@ -252,65 +360,186 @@ class TodosRepository {
   Future<Todo> updateLocalFirst(Todo current, Map<String, dynamic> body) async {
     final localNow = DateTime.now();
     final nowUtc = localNow.toUtc();
-    final updated = _normalizeSubtask(_patchTodo(current, body, nowUtc));
-    final recurrenceChanged = _patchTouchesRecurrence(body);
+    final nowIsoString = nowUtc.toIso8601String();
+    final writeBody = _ensureDonePatchHasCompletedAt(
+      _normalizeTodoWriteBody(
+        body,
+        current: current,
+        requireScheduledForTime: true,
+      ),
+      nowUtc,
+    );
+    final updated = _normalizeSubtask(_patchTodo(current, writeBody, nowUtc));
+    final recurrenceChanged = _patchTouchesRecurrence(writeBody);
+    final recurrenceScheduleChanged =
+        recurrenceChanged || writeBody.containsKey('scheduled_date');
 
     await _db.todosDao.upsertTodo(todoToCompanion(updated, _userId));
+    final clearedFrogIds = await _clearOtherLocalFrogsForTodo(
+      updated,
+      updatedAtIso: nowIsoString,
+    );
 
-    if (current.isRecurrenceTemplate && recurrenceChanged) {
-      final tomorrow = DateTime(
-        localNow.year,
-        localNow.month,
-        localNow.day,
-      ).add(const Duration(days: 1));
+    if (current.isRecurrenceTemplate && recurrenceScheduleChanged) {
+      final today = DateTime(localNow.year, localNow.month, localNow.day);
       await _softDeleteFutureInstancesForLocalEdit(
         current.id,
-        formatDateOnly(tomorrow),
-        nowUtc.toIso8601String(),
+        formatDateOnly(today),
       );
     }
 
+    for (final id in clearedFrogIds) {
+      await _enqueueTodoUpdate(id);
+    }
     await _enqueueTodoUpdate(updated.id);
 
-    if (updated.isRecurrenceTemplate && recurrenceChanged) {
+    if (updated.isRecurrenceTemplate && recurrenceScheduleChanged) {
       await _ensureInstancesExist(updated);
     }
 
+    _notifyTodoLocalChanged();
     ConnectivitySync.instance.scheduleWriteSync();
     return updated;
   }
 
+  Future<Todo> setTodoFrogLocalFirst(
+    Todo current, {
+    required bool enabled,
+    DateTime? date,
+  }) async {
+    if (!enabled) {
+      return updateLocalFirst(current, const {
+        'is_frog': false,
+        'frog_date': null,
+      });
+    }
+    final frogDate = date ?? current.scheduledDate;
+    if (frogDate == null) {
+      throw const ApiException(400, 'bad_input', 'bad_input');
+    }
+    return updateLocalFirst(current, {
+      'is_frog': true,
+      'frog_date': formatDateOnly(frogDate),
+      'is_important': true,
+      'is_urgent': true,
+    });
+  }
+
   // ─── F-T6 Delete ──────────────────────────────────────────────
 
-  Future<void> delete(String id) async {
-    final now = nowIso();
-    bool isOffline = false;
-    try {
-      await _client.delete('/todos/$id');
-    } on ApiException catch (e) {
-      if (e.code != 'no_connection') rethrow;
-      isOffline = true;
+  Future<void> deleteTodoLocalFirst(
+    Todo todo, {
+    required RecurringTodoDeleteScope scope,
+  }) async {
+    await _applyTodoDeleteLocal(todo, scope: scope, enqueueDelete: true);
+    _notifyTodoLocalChanged();
+    ConnectivitySync.instance.scheduleWriteSync();
+  }
+
+  Future<void> deleteTodoRemote(
+    Todo todo, {
+    required RecurringTodoDeleteScope scope,
+  }) async {
+    await _client.delete('/todos/${todo.id}', query: {'scope': scope.apiValue});
+    await _applyTodoDeleteLocal(todo, scope: scope, enqueueDelete: false);
+    _notifyTodoLocalChanged();
+    ConnectivitySync.instance.scheduleWriteSync();
+  }
+
+  Future<void> _applyTodoDeleteLocal(
+    Todo todo, {
+    required RecurringTodoDeleteScope scope,
+    required bool enqueueDelete,
+  }) async {
+    final selected = await _db.todosDao.getTodoById(todo.id);
+    if (selected == null || !_belongsToCurrentUser(selected.userId)) {
+      throw const ApiException(404, 'not_found', 'not_found');
     }
-    // Soft-delete locally regardless
-    await _db.todosDao.softDeleteTodo(id, now);
-    // Only enqueue when offline — server already processed it when online.
-    if (isOffline) {
-      await _db.syncDao.enqueueSyncOp(
-        entityType: 'todo',
-        entityId: id,
-        operation: 'delete',
-        payload: jsonEncode({'id': id, 'deleted_at': now, 'updated_at': now}),
+
+    final deletedAt = nowIso();
+    final seriesId = todo.recurrenceTemplateId ?? todo.id;
+    var deletedIds = const <String>[];
+    var cappedIds = const <String>[];
+    String? cutoffDate;
+    switch (scope) {
+      case RecurringTodoDeleteScope.thisOccurrence:
+        deletedIds = await _db.todosDao.softDeleteTodoTree(
+          todo.id,
+          selected.userId,
+          deletedAt,
+        );
+        break;
+      case RecurringTodoDeleteScope.thisAndFuture:
+        final scheduledDate = todo.scheduledDate;
+        if (scheduledDate == null) {
+          throw const ApiException(400, 'bad_input', 'bad_input');
+        }
+        final cutoff = DateTime.utc(
+          scheduledDate.year,
+          scheduledDate.month,
+          scheduledDate.day,
+        ).subtract(const Duration(days: 1));
+        cutoffDate = formatDateOnly(cutoff);
+        final result = await _db.todosDao.softDeleteSeriesFromDate(
+          seriesId: seriesId,
+          userId: selected.userId,
+          fromDateInclusive: formatDateOnly(scheduledDate),
+          recurrenceEndDate: cutoffDate,
+          deletedAtIso: deletedAt,
+        );
+        deletedIds = result.deletedIds;
+        cappedIds = result.cappedIds;
+        break;
+      case RecurringTodoDeleteScope.all:
+        deletedIds = await _db.todosDao.softDeleteEntireSeries(
+          seriesId: seriesId,
+          userId: selected.userId,
+          deletedAtIso: deletedAt,
+        );
+        break;
+    }
+
+    for (final id in deletedIds) {
+      await _db.syncDao.removeOpsForEntity('todo', id, userId: _userId);
+    }
+    if (cutoffDate != null) {
+      await _db.syncDao.patchPendingTodoRecurrenceEndDate(
+        cappedIds,
+        userId: _userId,
+        recurrenceEndDate: cutoffDate,
+        updatedAt: deletedAt,
       );
-      ConnectivitySync.instance.scheduleWriteSync();
+    }
+
+    if (enqueueDelete) {
+      await _db.syncDao.enqueueSyncOp(
+        userId: _userId,
+        entityType: 'todo',
+        entityId: todo.id,
+        operation: 'delete',
+        payload: SyncPayload.encode(
+          SyncPayload.fromTodoDelete(
+            id: todo.id,
+            scope: scope,
+            deletedAt: deletedAt,
+          ),
+        ),
+      );
+    }
+
+    if (scope == RecurringTodoDeleteScope.thisOccurrence &&
+        todo.parentId == null &&
+        todo.isRecurring) {
+      await _materializeNextRecurringOccurrence(todo, syncCreate: false);
     }
   }
 
   // ─── F-T7 Complete ────────────────────────────────────────────
 
-  Future<({Todo todo, List<Todo> triggeredTodos})> complete(
-    String id, {
-    int? actualMinutes,
-  }) async {
+  Future<({Todo todo, List<Todo> triggeredTodos, Todo? nextRecurringTodo})>
+  complete(String id, {int? actualMinutes, bool celebrateFrog = true}) async {
+    final before = await _db.todosDao.getTodoById(id);
+    final wasDone = before?.status == TodoStatus.done.backendValue;
     final body = <String, dynamic>{
       if (actualMinutes != null) 'actual_minutes': actualMinutes,
     };
@@ -318,6 +547,8 @@ class TodosRepository {
       final resp = await _client.post('/todos/$id/complete', body: body);
       final map = resp as Map<String, dynamic>;
       final triggeredList = (map['triggered_todos'] as List?) ?? const [];
+      final nextRecurringJson =
+          map['next_recurring_todo'] as Map<String, dynamic>?;
       final todo = _normalizeSubtask(
         Todo.fromJson(map['todo'] as Map<String, dynamic>),
       );
@@ -326,13 +557,35 @@ class TodosRepository {
             (e) => _normalizeSubtask(Todo.fromJson(e as Map<String, dynamic>)),
           )
           .toList();
+      final nextRecurringTodo = nextRecurringJson == null
+          ? null
+          : _normalizeSubtask(Todo.fromJson(nextRecurringJson));
       // Write to Drift cache (no enqueue — server already has it).
-      await _cacheTodos([todo, ...triggeredTodos]);
+      await _cacheTodos([
+        todo,
+        ...triggeredTodos,
+        if (nextRecurringTodo != null) nextRecurringTodo,
+      ]);
+      if (celebrateFrog) {
+        _celebrateFrogCompletionIfNeeded(todo, wasDone: wasDone);
+      }
+      _notifyTodoLocalChanged();
       ConnectivitySync.instance.scheduleWriteSync();
-      return (todo: todo, triggeredTodos: triggeredTodos);
+      if (nextRecurringTodo != null) {
+        unawaited(SyncWorker.instance.pullChanges());
+      }
+      return (
+        todo: todo,
+        triggeredTodos: triggeredTodos,
+        nextRecurringTodo: nextRecurringTodo,
+      );
     } on ApiException catch (e) {
       if (e.code == 'no_connection') {
-        return _completeOffline(id, actualMinutes: actualMinutes);
+        return _completeOffline(
+          id,
+          actualMinutes: actualMinutes,
+          celebrateFrog: celebrateFrog,
+        );
       }
       rethrow;
     }
@@ -348,13 +601,16 @@ class TodosRepository {
       ),
     );
     await _db.todosDao.upsertTodo(todoToCompanion(todo, _userId));
+    _notifyTodoLocalChanged();
     ConnectivitySync.instance.scheduleWriteSync();
     return todo;
   }
 
-  Future<({Todo todo, List<Todo> triggeredTodos})> completeLocalFirst(
+  Future<({Todo todo, List<Todo> triggeredTodos, Todo? nextRecurringTodo})>
+  completeLocalFirst(
     Todo current, {
     int? actualMinutes,
+    bool celebrateFrog = true,
   }) async {
     final now = DateTime.now().toUtc();
     final body = <String, dynamic>{
@@ -365,9 +621,21 @@ class TodosRepository {
     final completed = _normalizeSubtask(_patchTodo(current, body, now));
     await _db.todosDao.upsertTodo(todoToCompanion(completed, _userId));
     await _enqueueTodoUpdate(completed.id);
+    await _applyHabitProjectionAfterComplete(completed);
+    if (celebrateFrog) {
+      _celebrateFrogCompletionIfNeeded(completed, wasDone: current.isDone);
+    }
+    final nextRecurringTodo = current.isDone
+        ? null
+        : await _materializeNextRecurringOccurrence(completed);
+    _notifyTodoLocalChanged();
     ConnectivitySync.instance.scheduleWriteSync();
     final triggeredTodos = await _localTriggeredTodos(completed.id);
-    return (todo: completed, triggeredTodos: triggeredTodos);
+    return (
+      todo: completed,
+      triggeredTodos: triggeredTodos,
+      nextRecurringTodo: nextRecurringTodo,
+    );
   }
 
   Future<Todo> uncompleteLocalFirst(Todo current) async {
@@ -380,37 +648,73 @@ class TodosRepository {
     );
     await _db.todosDao.upsertTodo(todoToCompanion(reopened, _userId));
     await _enqueueTodoUpdate(reopened.id);
+    _notifyTodoLocalChanged();
     ConnectivitySync.instance.scheduleWriteSync();
     return reopened;
+  }
+
+  Future<({List<Todo> updatedTodos, List<Todo> triggeredTodos})>
+  reconcileSubtaskAncestorsLocalFirst(Todo changed) async {
+    final updatedTodos = <Todo>[];
+    final triggeredTodos = <Todo>[];
+    var parentId = changed.parentId;
+
+    while (parentId != null) {
+      final parentRow = await _db.todosDao.getTodoById(parentId);
+      if (parentRow == null || !_belongsToCurrentUser(parentRow.userId)) break;
+      final parent = _todoRowToModel(parentRow);
+      if (parent.parentId == null) break;
+
+      final childRows = await _db.todosDao.getSubtasks(parent.id);
+      if (childRows.isEmpty) {
+        parentId = parent.parentId;
+        continue;
+      }
+
+      final allChildrenDone = childRows.every(
+        (row) => row.status == TodoStatus.done.backendValue,
+      );
+      if (allChildrenDone && !parent.isDone) {
+        final result = await completeLocalFirst(parent, celebrateFrog: false);
+        updatedTodos.add(result.todo);
+        triggeredTodos.addAll(result.triggeredTodos);
+      } else if (!allChildrenDone && parent.isDone) {
+        updatedTodos.add(await uncompleteLocalFirst(parent));
+      }
+
+      parentId = parent.parentId;
+    }
+
+    return (updatedTodos: updatedTodos, triggeredTodos: triggeredTodos);
   }
 
   // ─── F-T9 Mark frog ───────────────────────────────────────────
 
   Future<Todo> markFrog(String id, DateTime date) async {
-    final resp = await _client.post(
-      '/todos/$id/frog',
-      body: {'date': formatDateOnly(date)},
-    );
-    final todo = _normalizeSubtask(
-      Todo.fromJson(
-        (resp as Map<String, dynamic>)['todo'] as Map<String, dynamic>,
-      ),
-    );
-    await _db.todosDao.upsertTodo(todoToCompanion(todo, _userId));
-    return todo;
+    final cached = await _db.todosDao.getTodoById(id);
+    if (cached != null && _belongsToCurrentUser(cached.userId)) {
+      return setTodoFrogLocalFirst(
+        _todoRowToModel(cached),
+        enabled: true,
+        date: date,
+      );
+    }
+    return update(id, {
+      'is_frog': true,
+      'frog_date': formatDateOnly(date),
+      'is_important': true,
+      'is_urgent': true,
+    });
   }
 
   // ─── F-T10 Unmark frog ────────────────────────────────────────
 
   Future<Todo> unmarkFrog(String id) async {
-    final resp = await _client.delete('/todos/$id/frog');
-    final todo = _normalizeSubtask(
-      Todo.fromJson(
-        (resp as Map<String, dynamic>)['todo'] as Map<String, dynamic>,
-      ),
-    );
-    await _db.todosDao.upsertTodo(todoToCompanion(todo, _userId));
-    return todo;
+    final cached = await _db.todosDao.getTodoById(id);
+    if (cached != null && _belongsToCurrentUser(cached.userId)) {
+      return setTodoFrogLocalFirst(_todoRowToModel(cached), enabled: false);
+    }
+    return update(id, const {'is_frog': false, 'frog_date': null});
   }
 
   // ─── F-T11 Classify Eisenhower ────────────────────────────────
@@ -426,6 +730,7 @@ class TodosRepository {
       ),
     );
     await _db.todosDao.upsertTodo(todoToCompanion(todo, _userId));
+    _notifyTodoLocalChanged();
     ConnectivitySync.instance.scheduleWriteSync();
     return todo;
   }
@@ -443,6 +748,7 @@ class TodosRepository {
       ),
     );
     await _db.todosDao.upsertTodo(todoToCompanion(todo, _userId));
+    _notifyTodoLocalChanged();
     ConnectivitySync.instance.scheduleWriteSync();
     return todo;
   }
@@ -479,6 +785,7 @@ class TodosRepository {
       final existing = await _db.todosDao.getTagsForTodo(todoId);
       final tagIds = {...existing.map((row) => row.id), tag.id}.toList();
       await _db.todosDao.setTodoTags(todoId, tagIds);
+      _notifyTodoLocalChanged();
       return tag;
     } on ApiException catch (e) {
       if (e.code != 'no_connection') rethrow;
@@ -511,6 +818,7 @@ class TodosRepository {
         todoId,
         existing.map((row) => row.id).where((id) => id != tagId).toList(),
       );
+      _notifyTodoLocalChanged();
     } on ApiException catch (e) {
       if (e.code != 'no_connection') rethrow;
       final existing = await _db.todosDao.getTagsForTodo(todoId);
@@ -542,6 +850,7 @@ class TodosRepository {
           .map((e) => Tag.fromJson(e as Map<String, dynamic>))
           .toList();
       await _cacheTagsForTodo(todoId, resultTags);
+      _notifyTodoLocalChanged();
       return resultTags;
     } on ApiException catch (e) {
       if (e.code != 'no_connection') rethrow;
@@ -560,15 +869,73 @@ class TodosRepository {
   Future<List<Tag>> replaceTagsLocalFirst(String todoId, List<Tag> tags) async {
     final deduped = _dedupeTags(tags);
     await _cacheTagsForTodo(todoId, deduped, enqueueUpdate: true);
+    _notifyTodoLocalChanged();
     ConnectivitySync.instance.scheduleWriteSync();
     return deduped;
   }
 
+  Future<List<Todo>> listByHabitLocal(String habitId) async {
+    final rows = await _db.todosDao.getTodosForHabit(habitId);
+    final result = <Todo>[];
+    for (final row in rows) {
+      if (!_belongsToCurrentUser(row.userId)) continue;
+      if (row.status == TodoStatus.archived.backendValue) continue;
+      final base = _todoRowToModel(row);
+      if (_isLegacyRecurrenceProjection(base)) continue;
+      final tagRows = await _db.todosDao.getTagsForTodo(base.id);
+      result.add(
+        base.copyWith(
+          tags: tagRows.map(_tagRowToModel).toList(),
+          tagIds: tagRows.map((tag) => tag.id).toList(),
+          tagsLoaded: true,
+        ),
+      );
+    }
+    return result;
+  }
+
+  Future<List<Todo>> listLocal({
+    String? habitId,
+    bool includeDone = true,
+    bool includeArchived = false,
+  }) async {
+    final rows = await _db.todosDao.getAllNonDeletedTodos();
+    final result = <Todo>[];
+    for (final row in rows) {
+      if (!_belongsToCurrentUser(row.userId)) continue;
+      if (row.parentId != null) continue;
+      if (habitId != null && row.habitId != habitId) continue;
+      final todo = _todoRowToModel(row);
+      if (!includeArchived && todo.status == TodoStatus.archived) continue;
+      if (!includeDone && todo.isDone) continue;
+      if (_isLegacyRecurrenceProjection(todo)) continue;
+      final tagRows = await _db.todosDao.getTagsForTodo(todo.id);
+      result.add(
+        todo.copyWith(
+          tags: tagRows.map(_tagRowToModel).toList(),
+          tagIds: tagRows.map((tag) => tag.id).toList(),
+          tagsLoaded: true,
+        ),
+      );
+    }
+    result.sort((a, b) {
+      final aDate = a.scheduledDate;
+      final bDate = b.scheduledDate;
+      if (aDate != null && bDate != null) return aDate.compareTo(bDate);
+      if (aDate != null) return -1;
+      if (bDate != null) return 1;
+      return b.updatedAt.compareTo(a.updatedAt);
+    });
+    return result;
+  }
+
   // ─── Drift helpers ────────────────────────────────────────────
 
-  Future<({Todo todo, List<Todo> triggeredTodos})> _completeOffline(
+  Future<({Todo todo, List<Todo> triggeredTodos, Todo? nextRecurringTodo})>
+  _completeOffline(
     String id, {
     int? actualMinutes,
+    bool celebrateFrog = true,
   }) async {
     final row = await _db.todosDao.getTodoById(id);
     if (row == null) {
@@ -594,7 +961,9 @@ class TodosRepository {
         startAt: current.startAt,
         dueAt: current.dueAt,
         scheduledDate: current.scheduledDate,
+        time: current.time,
         triggerAfterTodoId: current.triggerAfterTodoId,
+        habitId: current.habitId,
         tagIds: current.tagIds,
         completedAt: now,
         createdAt: current.createdAt,
@@ -608,14 +977,27 @@ class TodosRepository {
     );
     await _db.todosDao.upsertTodo(todoToCompanion(completed, _userId));
     await _enqueueTodoUpdate(completed.id);
+    await _applyHabitProjectionAfterComplete(completed);
+    if (celebrateFrog) {
+      _celebrateFrogCompletionIfNeeded(completed, wasDone: current.isDone);
+    }
+    final nextRecurringTodo = current.isDone
+        ? null
+        : await _materializeNextRecurringOccurrence(completed);
+    _notifyTodoLocalChanged();
     ConnectivitySync.instance.scheduleWriteSync();
     final triggeredTodos = await _localTriggeredTodos(completed.id);
-    return (todo: completed, triggeredTodos: triggeredTodos);
+    return (
+      todo: completed,
+      triggeredTodos: triggeredTodos,
+      nextRecurringTodo: nextRecurringTodo,
+    );
   }
 
   Future<List<Todo>> _localTriggeredTodos(String completedTodoId) async {
     final rows = await _db.todosDao.getAllNonDeletedTodos();
     final todos = rows
+        .where((row) => _belongsToCurrentUser(row.userId))
         .map(_todoRowToModel)
         .where(
           (todo) =>
@@ -626,6 +1008,225 @@ class TodosRepository {
         .toList();
     todos.sort((a, b) => a.createdAt.compareTo(b.createdAt));
     return todos;
+  }
+
+  void _celebrateFrogCompletionIfNeeded(Todo todo, {required bool wasDone}) {
+    if (wasDone || !todo.isFrog || !todo.isDone) return;
+    FrogCompletionCelebrations.instance.celebrate(todo);
+  }
+
+  Future<Todo?> _materializeNextRecurringOccurrence(
+    Todo completed, {
+    DateTime? minimumDate,
+    bool syncCreate = true,
+  }) async {
+    if (completed.parentId != null) return null;
+    final recurrenceSource = await _recurrenceSourceForCompleted(completed);
+    final templateId =
+        recurrenceSource.recurrenceTemplateId ?? recurrenceSource.id;
+    final seriesRows = await _db.todosDao.getSeriesRows(
+      templateId,
+      userId: _userId.isEmpty ? null : _userId,
+    );
+    final exceptionDates = seriesRows
+        .where((row) => row.deletedAt != null && row.scheduledDate != null)
+        .map((row) => row.scheduledDate!)
+        .toSet();
+    final nextDate = RecurrenceHelper.nextDateSkippingExceptions(
+      todo: recurrenceSource,
+      minimumDate: minimumDate,
+      exceptionDates: exceptionDates,
+    );
+    if (nextDate == null) return null;
+
+    final existing = await _db.todosDao.getOccurrenceForSeriesDate(
+      templateId,
+      formatDateOnly(nextDate),
+    );
+
+    final tagRows = await _db.todosDao.getTagsForTodo(completed.id);
+    final tagModels = tagRows.isEmpty && completed.tagsLoaded
+        ? completed.tags
+        : tagRows.map(_tagRowToModel).toList();
+    final tagIds = tagRows.isEmpty
+        ? await _tagIdsForTodo(completed)
+        : tagRows.map((row) => row.id).toList();
+
+    final existingIsCanonical =
+        existing != null && existing.recurrenceType != null;
+    var occurrence = existingIsCanonical
+        ? _todoRowToModel(existing)
+        : RecurrenceHelper.buildNextAfterCompletion(
+            source: recurrenceSource,
+            scheduledDate: nextDate,
+            templateId: templateId,
+            overrideId: existing?.id,
+            tags: tagModels,
+            tagIds: tagIds,
+          );
+
+    final sourceSubtree = await _db.todosDao.getActiveSubtree(
+      completed.id,
+      userId: _userId,
+    );
+    final hasTargetChildren = existingIsCanonical
+        ? await _db.todosDao.hasDirectActiveSubtasks(
+            occurrence.id,
+            userId: _userId,
+          )
+        : false;
+    final sourceTags = <String, List<String>>{};
+    for (final row in sourceSubtree) {
+      sourceTags[row.id] = (await _db.todosDao.getTagsForTodo(
+        row.id,
+      )).map((tag) => tag.id).toList();
+    }
+
+    final idMap = <String, String>{completed.id: occurrence.id};
+    if (!hasTargetChildren) {
+      for (final row in sourceSubtree) {
+        idMap[row.id] = newId();
+      }
+    }
+    final mappedParentTrigger = occurrence.triggerAfterTodoId == null
+        ? null
+        : idMap[occurrence.triggerAfterTodoId!] ??
+              occurrence.triggerAfterTodoId;
+    occurrence = occurrence.copyWith(
+      triggerAfterTodoId: mappedParentTrigger,
+      tags: tagModels,
+      tagIds: tagIds,
+      tagsLoaded: true,
+    );
+
+    await _db.transaction(() async {
+      if (!existingIsCanonical) {
+        await _db.todosDao.upsertTodo(todoToCompanion(occurrence, _userId));
+        await _db.todosDao.setTodoTags(occurrence.id, tagIds);
+        if (syncCreate) {
+          await _enqueueStoredTodoCreate(occurrence.id, tagIds);
+        }
+      }
+
+      if (!hasTargetChildren) {
+        for (final sourceRow in sourceSubtree) {
+          final cloned = _cloneRecurringSubtask(
+            source: _todoRowToModel(sourceRow),
+            newIdValue: idMap[sourceRow.id]!,
+            newParentId: idMap[sourceRow.parentId]!,
+            remappedTriggerId: sourceRow.triggerAfterTodoId == null
+                ? null
+                : idMap[sourceRow.triggerAfterTodoId!] ??
+                      sourceRow.triggerAfterTodoId,
+          );
+          final clonedTagIds = sourceTags[sourceRow.id] ?? const <String>[];
+          await _db.todosDao.upsertTodo(todoToCompanion(cloned, _userId));
+          await _db.todosDao.setTodoTags(cloned.id, clonedTagIds);
+          if (syncCreate) {
+            await _enqueueStoredTodoCreate(cloned.id, clonedTagIds);
+          }
+        }
+      }
+    });
+
+    return occurrence.copyWith(
+      tags: tagModels,
+      tagIds: tagIds,
+      tagsLoaded: true,
+    );
+  }
+
+  Todo _cloneRecurringSubtask({
+    required Todo source,
+    required String newIdValue,
+    required String newParentId,
+    required String? remappedTriggerId,
+  }) {
+    final now = DateTime.now().toUtc();
+    return Todo(
+      id: newIdValue,
+      parentId: newParentId,
+      title: source.title,
+      description: source.description,
+      status: TodoStatus.open,
+      position: source.position,
+      isFrog: source.isFrog,
+      frogDate: source.frogDate,
+      isImportant: source.isImportant,
+      isUrgent: source.isUrgent,
+      estimatedMinutes: source.estimatedMinutes,
+      actualMinutes: null,
+      startAt: source.startAt,
+      dueAt: source.dueAt,
+      scheduledDate: null,
+      time: null,
+      triggerAfterTodoId: remappedTriggerId,
+      habitId: source.habitId,
+      completedAt: null,
+      createdAt: now,
+      updatedAt: now,
+      recurrenceType: null,
+      recurrenceInterval: 1,
+      recurrenceDaysOfWeek: null,
+      recurrenceEndDate: null,
+      recurrenceTemplateId: null,
+    );
+  }
+
+  Future<void> _enqueueStoredTodoCreate(
+    String todoId,
+    List<String> tagIds,
+  ) async {
+    final row = await _db.todosDao.getTodoById(todoId);
+    if (row == null) return;
+    await _db.syncDao.enqueueSyncOp(
+      userId: _userId,
+      entityType: 'todo',
+      entityId: todoId,
+      operation: 'create',
+      payload: SyncPayload.encode(SyncPayload.fromTodo(row, tagIds)),
+    );
+  }
+
+  Future<Todo> _recurrenceSourceForCompleted(Todo completed) async {
+    if (completed.recurrenceType != null) return completed;
+    final templateId = completed.recurrenceTemplateId;
+    if (templateId == null) return completed;
+    final templateRow = await _db.todosDao.getTodoById(templateId);
+    if (templateRow == null) return completed;
+    final template = _todoRowToModel(templateRow);
+    if (template.recurrenceType == null) return completed;
+    return Todo(
+      id: completed.id,
+      parentId: completed.parentId,
+      title: completed.title,
+      description: completed.description,
+      status: completed.status,
+      position: completed.position,
+      isFrog: completed.isFrog,
+      frogDate: completed.frogDate,
+      isImportant: completed.isImportant,
+      isUrgent: completed.isUrgent,
+      estimatedMinutes: completed.estimatedMinutes,
+      actualMinutes: completed.actualMinutes,
+      startAt: completed.startAt,
+      dueAt: completed.dueAt,
+      scheduledDate: completed.scheduledDate,
+      time: completed.time,
+      triggerAfterTodoId: completed.triggerAfterTodoId,
+      habitId: completed.habitId,
+      tags: completed.tags,
+      tagIds: completed.tagIds,
+      tagsLoaded: completed.tagsLoaded,
+      completedAt: completed.completedAt,
+      createdAt: completed.createdAt,
+      updatedAt: completed.updatedAt,
+      recurrenceType: template.recurrenceType,
+      recurrenceInterval: template.recurrenceInterval,
+      recurrenceDaysOfWeek: template.recurrenceDaysOfWeek,
+      recurrenceEndDate: template.recurrenceEndDate,
+      recurrenceTemplateId: templateId,
+    );
   }
 
   Tag _tagRowToModel(TagRow row) {
@@ -641,20 +1242,62 @@ class TodosRepository {
   }
 
   Todo _normalizeSubtask(Todo todo) {
-    if (todo.parentId == null) return todo;
-    return Todo(
-      id: todo.id,
-      parentId: todo.parentId,
-      title: todo.title,
-      status: todo.status,
-      position: todo.position,
-      tags: const [],
-      tagIds: const [],
-      tagsLoaded: true,
-      completedAt: todo.completedAt,
-      createdAt: todo.createdAt,
-      updatedAt: todo.updatedAt,
+    if (todo.parentId == null) return _normalizeFrogState(todo);
+    return _normalizeFrogState(
+      Todo(
+        id: todo.id,
+        parentId: todo.parentId,
+        title: todo.title,
+        description: todo.description,
+        status: todo.status,
+        position: todo.position,
+        isFrog: false,
+        frogDate: null,
+        isImportant: todo.isImportant,
+        isUrgent: todo.isUrgent,
+        estimatedMinutes: todo.estimatedMinutes,
+        actualMinutes: todo.actualMinutes,
+        startAt: todo.startAt,
+        dueAt: todo.dueAt,
+        scheduledDate: null,
+        time: null,
+        triggerAfterTodoId: todo.triggerAfterTodoId,
+        habitId: todo.habitId,
+        tags: todo.tags,
+        tagIds: todo.tagIds,
+        tagsLoaded: todo.tagsLoaded,
+        completedAt: todo.completedAt,
+        createdAt: todo.createdAt,
+        updatedAt: todo.updatedAt,
+        recurrenceType: null,
+        recurrenceInterval: 1,
+        recurrenceDaysOfWeek: null,
+        recurrenceEndDate: null,
+        recurrenceTemplateId: null,
+      ),
     );
+  }
+
+  Todo _normalizeFrogState(Todo todo) {
+    if (!todo.isFrog) {
+      return todo.frogDate == null ? todo : todo.copyWith(frogDate: null);
+    }
+    final scheduledDate = todo.scheduledDate;
+    if (scheduledDate == null) {
+      return todo.copyWith(isFrog: false, frogDate: null);
+    }
+    return todo.copyWith(
+      isFrog: true,
+      frogDate: todo.frogDate ?? scheduledDate,
+      isImportant: true,
+      isUrgent: true,
+    );
+  }
+
+  bool _isLegacyRecurrenceProjection(Todo todo) {
+    return todo.recurrenceTemplateId != null &&
+        todo.recurrenceType == null &&
+        !todo.isDone;
   }
 
   Future<void> _cacheTodos(List<Todo> todos) async {
@@ -670,12 +1313,40 @@ class TodosRepository {
         tags.map((tag) => tagToCompanion(tag, userId)).toList(),
       );
     }
+    for (final todo in normalized) {
+      await _adoptServerRecurringOccurrence(todo);
+    }
     await _db.todosDao.upsertTodos(
       normalized.map((t) => todoToCompanion(t, userId)).toList(),
     );
     for (final todo in normalized) {
-      if (todo.parentId != null || !todo.tagsLoaded) continue;
+      await _clearOtherLocalFrogsForTodo(
+        todo,
+        updatedAtIso: todo.updatedAt.toUtc().toIso8601String(),
+      );
+    }
+    for (final todo in normalized) {
+      if (!todo.tagsLoaded) continue;
       await _db.todosDao.setTodoTags(todo.id, todo.tagIds);
+    }
+  }
+
+  Future<void> _adoptServerRecurringOccurrence(Todo todo) async {
+    final templateId = todo.recurrenceTemplateId;
+    final scheduledDate = todo.scheduledDate;
+    if (templateId == null || scheduledDate == null) return;
+    final existing = await _db.todosDao.getOccurrenceForSeriesDate(
+      templateId,
+      formatDateOnly(scheduledDate),
+    );
+    if (existing == null || existing.id == todo.id) return;
+
+    final removedIds = await _db.todosDao.purgeTodoSubtree(
+      existing.id,
+      userId: _userId,
+    );
+    for (final id in removedIds) {
+      await _db.syncDao.removeOpsForEntity('todo', id, userId: _userId);
     }
   }
 
@@ -695,9 +1366,11 @@ class TodosRepository {
       );
     }
     await _db.todosDao.upsertTodo(todoToCompanion(normalized, _userId));
-    final tagIds = todo.parentId == null
-        ? tags.map((t) => t.id).toList()
-        : const <String>[];
+    await _clearOtherLocalFrogsForTodo(
+      normalized,
+      updatedAtIso: normalized.updatedAt.toUtc().toIso8601String(),
+    );
+    final tagIds = tags.map((t) => t.id).toList();
     await _db.todosDao.setTodoTags(todo.id, tagIds);
   }
 
@@ -789,8 +1462,9 @@ class TodosRepository {
   Future<void> _upsertTodoWithSync(
     Todo todo,
     List<Tag> tags,
-    String operation,
-  ) async {
+    String operation, {
+    List<String>? tagIdsOverride,
+  }) async {
     final userId = _userId;
     if (tags.isNotEmpty) {
       await _db.todosDao.upsertTags(
@@ -798,21 +1472,169 @@ class TodosRepository {
       );
     }
     await _db.todosDao.upsertTodo(todoToCompanion(todo, userId));
-    final tagIds = tags.map((t) => t.id).toList();
+    final clearedFrogIds = await _clearOtherLocalFrogsForTodo(
+      todo,
+      updatedAtIso: todo.updatedAt.toUtc().toIso8601String(),
+    );
+    final tagIds = tagIdsOverride ?? tags.map((t) => t.id).toList();
     await _db.todosDao.setTodoTags(todo.id, tagIds);
+    for (final id in clearedFrogIds) {
+      await _enqueueTodoUpdate(id);
+    }
     // Build sync payload
-    final noteLinkIds = <String>[];
     final payload = SyncPayload.fromTodo(
       (await _db.todosDao.getTodoById(todo.id))!,
       tagIds,
-      noteLinkIds,
     );
     await _db.syncDao.enqueueSyncOp(
+      userId: userId,
       entityType: 'todo',
       entityId: todo.id,
       operation: operation,
       payload: SyncPayload.encode(payload),
     );
+  }
+
+  Map<String, dynamic> _normalizeTodoWriteBody(
+    Map<String, dynamic> body, {
+    Todo? current,
+    bool requireScheduledForTime = false,
+  }) {
+    final normalized = Map<String, dynamic>.from(body);
+    final parentId = normalized.containsKey('parent_id')
+        ? normalized['parent_id'] as String?
+        : current?.parentId;
+    var scheduledDate = normalized.containsKey('scheduled_date')
+        ? _dateOnlyStringFromBody(normalized['scheduled_date'])
+        : current?.scheduledDate == null
+        ? null
+        : formatDateOnly(current!.scheduledDate!);
+    if (normalized.containsKey('scheduled_date')) {
+      normalized['scheduled_date'] = scheduledDate;
+    }
+
+    if (normalized.containsKey('time')) {
+      normalized['time'] = _normalizeTodoTime(normalized['time']);
+    }
+
+    if (parentId != null) {
+      if (normalized['time'] == null) {
+        normalized.remove('time');
+      } else {
+        normalized['time'] = null;
+      }
+    }
+
+    if (normalized.containsKey('scheduled_date') &&
+        normalized['scheduled_date'] == null) {
+      normalized['time'] = null;
+      scheduledDate = null;
+    }
+
+    if (requireScheduledForTime &&
+        scheduledDate == null &&
+        normalized['time'] != null) {
+      throw const ApiException(400, 'bad_input', 'bad_input');
+    }
+    _normalizeFrogWriteFields(
+      normalized,
+      current: current,
+      parentId: parentId,
+      scheduledDate: scheduledDate,
+    );
+    return normalized;
+  }
+
+  void _normalizeFrogWriteFields(
+    Map<String, dynamic> normalized, {
+    Todo? current,
+    required String? parentId,
+    required String? scheduledDate,
+  }) {
+    final explicitFrog = normalized.containsKey('is_frog')
+        ? normalized['is_frog'] == true
+        : null;
+    if (parentId != null) {
+      if (explicitFrog == true) {
+        throw const ApiException(400, 'bad_input', 'bad_input');
+      }
+      normalized['is_frog'] = false;
+      normalized['frog_date'] = null;
+      return;
+    }
+
+    final clearsSchedule =
+        normalized.containsKey('scheduled_date') &&
+        normalized['scheduled_date'] == null;
+    if (clearsSchedule && (current?.isFrog == true || explicitFrog == true)) {
+      normalized['is_frog'] = false;
+      normalized['frog_date'] = null;
+      return;
+    }
+
+    if (explicitFrog == false) {
+      normalized['frog_date'] = null;
+      return;
+    }
+
+    if (current?.isFrog == true && scheduledDate == null) {
+      normalized['is_frog'] = false;
+      normalized['frog_date'] = null;
+      return;
+    }
+
+    final shouldBeFrog =
+        explicitFrog == true ||
+        (current?.isFrog == true &&
+            (normalized.containsKey('scheduled_date') ||
+                normalized.containsKey('frog_date') ||
+                !normalized.containsKey('is_frog')));
+    if (!shouldBeFrog) {
+      if (normalized.containsKey('is_frog') && normalized['is_frog'] != true) {
+        normalized['frog_date'] = null;
+      }
+      return;
+    }
+
+    final frogDate =
+        _dateOnlyStringFromBody(normalized['frog_date']) ?? scheduledDate;
+    if (frogDate == null) {
+      throw const ApiException(400, 'bad_input', 'bad_input');
+    }
+    normalized['is_frog'] = true;
+    normalized['frog_date'] = frogDate;
+    normalized['is_important'] = true;
+    normalized['is_urgent'] = true;
+  }
+
+  String? _dateOnlyStringFromBody(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return formatDateOnly(value);
+    if (value is String && value.isNotEmpty) return value;
+    return null;
+  }
+
+  Future<List<String>> _clearOtherLocalFrogsForTodo(
+    Todo todo, {
+    required String updatedAtIso,
+  }) async {
+    if (!todo.isFrog || todo.frogDate == null) return const [];
+    final rows = await _db.todosDao.clearOtherFrogsForDate(
+      userId: _userId,
+      dateOnly: formatDateOnly(todo.frogDate!),
+      updatedAtIso: updatedAtIso,
+      exceptId: todo.id,
+    );
+    return rows.map((row) => row.id).toList(growable: false);
+  }
+
+  String? _normalizeTodoTime(dynamic value) {
+    if (value == null) return null;
+    if (value is! String ||
+        !RegExp(r'^([01]\d|2[0-3]):[0-5]\d$').hasMatch(value)) {
+      throw const ApiException(400, 'bad_input', 'bad_input');
+    }
+    return value;
   }
 
   Future<void> _enqueueOfflineUpdate(
@@ -821,14 +1643,25 @@ class TodosRepository {
   ) async {
     final existing = await _db.todosDao.getTodoById(todoId);
     if (existing == null) return;
+    final current = _todoRowToModel(existing);
+    final writePatch = _normalizeTodoWriteBody(
+      patch,
+      current: current,
+      requireScheduledForTime: true,
+    );
+    final safePatch = _ensureDonePatchHasCompletedAt(
+      writePatch,
+      DateTime.now().toUtc(),
+    );
     final tagIds = existing.parentId == null
         ? (await _db.todosDao.getTagsForTodo(
             todoId,
           )).map((tag) => tag.id).toList()
         : const <String>[];
-    final payload = SyncPayload.fromTodo(existing, tagIds, const []);
-    final merged = {...payload, ...patch};
+    final payload = SyncPayload.fromTodo(existing, tagIds);
+    final merged = {...payload, ...safePatch};
     await _db.syncDao.enqueueSyncOp(
+      userId: _userId,
       entityType: 'todo',
       entityId: todoId,
       operation: 'update',
@@ -836,12 +1669,39 @@ class TodosRepository {
     );
   }
 
+  Map<String, dynamic> _ensureDonePatchHasCompletedAt(
+    Map<String, dynamic> body,
+    DateTime nowUtc,
+  ) {
+    final status = body['status'];
+    final setsDone =
+        status == TodoStatus.done.backendValue || status == TodoStatus.done;
+    if (!setsDone) return body;
+    DateTime? completedAt;
+    try {
+      completedAt = _dateTimeFromJson(body['completed_at']);
+    } catch (_) {
+      completedAt = null;
+    }
+    if (completedAt != null) return body;
+    return {...body, 'completed_at': nowUtc.toIso8601String()};
+  }
+
   Todo _patchTodo(Todo current, Map<String, dynamic> body, DateTime updatedAt) {
+    final parentId = body.containsKey('parent_id')
+        ? body['parent_id'] as String?
+        : current.parentId;
+    final scheduledDate = body.containsKey('scheduled_date')
+        ? _dateOnlyFromJson(body['scheduled_date'])
+        : current.scheduledDate;
+    final time = parentId != null || scheduledDate == null
+        ? null
+        : body.containsKey('time')
+        ? body['time'] as String?
+        : current.time;
     return Todo(
       id: current.id,
-      parentId: body.containsKey('parent_id')
-          ? body['parent_id'] as String?
-          : current.parentId,
+      parentId: parentId,
       title: body.containsKey('title')
           ? body['title'] as String
           : current.title,
@@ -878,12 +1738,14 @@ class TodosRepository {
       dueAt: body.containsKey('due_at')
           ? _dateTimeFromJson(body['due_at'])
           : current.dueAt,
-      scheduledDate: body.containsKey('scheduled_date')
-          ? _dateOnlyFromJson(body['scheduled_date'])
-          : current.scheduledDate,
+      scheduledDate: scheduledDate,
+      time: time,
       triggerAfterTodoId: body.containsKey('trigger_after_todo_id')
           ? body['trigger_after_todo_id'] as String?
           : current.triggerAfterTodoId,
+      habitId: body.containsKey('habit_id')
+          ? body['habit_id'] as String?
+          : current.habitId,
       tags: current.tags,
       tagIds: current.tagIds,
       tagsLoaded: current.tagsLoaded,
@@ -939,8 +1801,9 @@ class TodosRepository {
             todoId,
           )).map((tag) => tag.id).toList()
         : const <String>[];
-    final payload = SyncPayload.fromTodo(row, tagIds, const []);
+    final payload = SyncPayload.fromTodo(row, tagIds);
     await _db.syncDao.enqueueSyncOp(
+      userId: _userId,
       entityType: 'todo',
       entityId: todoId,
       operation: 'update',
@@ -951,33 +1814,20 @@ class TodosRepository {
   Future<void> _softDeleteFutureInstancesForLocalEdit(
     String templateId,
     String fromDateInclusive,
-    String deletedAtIso,
   ) async {
     final instances = await _db.todosDao.getInstancesForTemplate(templateId);
     final rowsToDelete = instances.where((row) {
       final scheduledDate = row.scheduledDate;
       if (scheduledDate == null) return false;
       if (scheduledDate.compareTo(fromDateInclusive) < 0) return false;
-      return row.status != TodoStatus.done.backendValue;
+      return row.recurrenceType == null &&
+          row.status != TodoStatus.done.backendValue;
     }).toList();
 
     if (rowsToDelete.isEmpty) return;
-    await _db.todosDao.softDeleteFutureInstances(
-      templateId,
-      fromDateInclusive,
-      deletedAtIso,
-    );
     for (final row in rowsToDelete) {
-      await _db.syncDao.enqueueSyncOp(
-        entityType: 'todo',
-        entityId: row.id,
-        operation: 'delete',
-        payload: jsonEncode({
-          'id': row.id,
-          'deleted_at': deletedAtIso,
-          'updated_at': deletedAtIso,
-        }),
-      );
+      await _db.todosDao.purgeLocalRecurrenceProjection(row.id);
+      await _db.syncDao.removeOpsForEntity('todo', row.id, userId: _userId);
     }
   }
 
@@ -1007,7 +1857,11 @@ class TodosRepository {
         scheduledDate: row.scheduledDate != null
             ? DateTime.tryParse(row.scheduledDate!)
             : null,
+        time: row.parentId == null && row.scheduledDate != null
+            ? row.time
+            : null,
         triggerAfterTodoId: row.triggerAfterTodoId,
+        habitId: row.habitId,
         tagIds: const [],
         completedAt: row.completedAt != null
             ? DateTime.tryParse(row.completedAt!)
@@ -1023,108 +1877,120 @@ class TodosRepository {
     );
   }
 
-  /// Generates (idempotently) recurrence instances for [template] from
-  /// today up to [horizon] (defaults to today + 30 days).
+  /// Keeps a recurrence series at exactly one actionable occurrence.
   ///
-  /// Each instance is written to Drift + enqueued in sync_queue so the
-  /// SyncWorker can push it to the server when online.
-  Future<void> _ensureInstancesExist(Todo template, {DateTime? horizon}) async {
-    if (!template.isRecurrenceTemplate) return;
-    final now = DateTime.now();
-    final today = DateTime.utc(now.year, now.month, now.day);
-    final end = horizon ?? today.add(const Duration(days: 30));
-
-    final dates = RecurrenceHelper.occurrenceDates(
-      template: template,
-      startDate: today,
-      horizon: end.add(const Duration(days: 1)), // make inclusive
-    );
-
-    for (final date in dates) {
-      final dateStr = formatDateOnly(date);
-      final exists = await _db.todosDao.instanceExistsForDate(
-        template.id,
-        dateStr,
-      );
-      if (exists) continue;
-
-      final instance = RecurrenceHelper.buildInstance(
-        template: template,
-        date: date,
-      );
-      await _db.todosDao.upsertTodo(todoToCompanion(instance, _userId));
-      // Build sync payload and enqueue
-      final payload = SyncPayload.fromTodo(
-        (await _db.todosDao.getTodoById(instance.id))!,
-        const [],
-        const [],
-      );
-      await _db.syncDao.enqueueSyncOp(
-        entityType: 'todo',
-        entityId: instance.id,
-        operation: 'create',
-        payload: SyncPayload.encode(payload),
-      );
-    }
-    if (dates.isNotEmpty) {
-      ConnectivitySync.instance.scheduleWriteSync();
-    }
-  }
-
-  /// Public: called from [SyncWorker]'s post-pull hook to regenerate
-  /// instances for ALL templates in the local DB after a full pull.
-  Future<void> ensureAllRecurrenceInstances() async {
-    final templates = await _db.todosDao.getRecurrenceTemplates();
-    for (final row in templates) {
-      final template = _todoRowToModel(row);
-      await _ensureInstancesExist(template);
-    }
-  }
-
-  // ─── Recurrence delete scopes ──────────────────────────────────────
-
-  /// Delete "this + future" scope: soft-delete this instance, all future
-  /// non-done instances, and the template itself.
-  Future<void> deleteFutureAndThis(String instanceId, String templateId) async {
-    final instanceRow = await _db.todosDao.getTodoById(instanceId);
-    final now = nowIso();
-    final fromDate =
-        instanceRow?.scheduledDate ?? formatDateOnly(DateTime.now());
-
-    // Soft-delete locally
-    await _db.todosDao.softDeleteFutureInstances(templateId, fromDate, now);
-    await _db.todosDao.softDeleteTodo(templateId, now);
-
-    // Enqueue deletes
-    final deletedIds = [instanceId, templateId];
-    for (final id in deletedIds) {
-      await _db.syncDao.enqueueSyncOp(
-        entityType: 'todo',
-        entityId: id,
-        operation: 'delete',
-        payload: jsonEncode({'id': id, 'deleted_at': now, 'updated_at': now}),
-      );
-    }
+  /// Older app versions expanded templates into 30 local-only projections.
+  /// Those rows are removed. If a completed legacy series has no real open
+  /// occurrence, one occurrence is created at the first valid date from today.
+  Future<void> _ensureInstancesExist(Todo template) async {
+    final changed = await _repairRecurrenceSeries(template);
+    if (!changed) return;
+    _notifyTodoLocalChanged();
     ConnectivitySync.instance.scheduleWriteSync();
   }
 
-  /// Delete "all recurrences" scope: soft-delete template + every instance.
-  Future<void> deleteAllRecurrences(String templateId) async {
-    final now = nowIso();
-    await _db.todosDao.softDeleteAllInstances(templateId, now);
-    await _db.todosDao.softDeleteTodo(templateId, now);
-
-    // Enqueue one op for the template; server cascades instances.
-    await _db.syncDao.enqueueSyncOp(
-      entityType: 'todo',
-      entityId: templateId,
-      operation: 'delete',
-      payload: jsonEncode({
-        'id': templateId,
-        'deleted_at': now,
-        'updated_at': now,
-      }),
+  Future<void> _applyHabitProjectionAfterComplete(Todo completed) async {
+    final habitId = completed.habitId;
+    final scheduledDate = completed.scheduledDate;
+    final completedAt = completed.completedAt;
+    if (habitId == null || scheduledDate == null || completedAt == null) {
+      return;
+    }
+    await HabitsRepository.instance.applyTodoCompletionProjection(
+      habitId: habitId,
+      scheduledDate: scheduledDate,
     );
+  }
+
+  Future<List<String>> _tagIdsForTodo(Todo todo) async {
+    if (todo.tagIds.isNotEmpty) return todo.tagIds;
+    final rows = await _db.todosDao.getTagsForTodo(todo.id);
+    return rows.map((row) => row.id).toList();
+  }
+
+  Future<bool> _repairRecurrenceSeries(Todo template) async {
+    if (!template.isRecurrenceTemplate) return false;
+
+    final rows = await _db.todosDao.getInstancesForTemplate(template.id);
+    final instances = rows
+        .where((row) => _belongsToCurrentUser(row.userId))
+        .map(_todoRowToModel)
+        .toList();
+    final realSeriesRows = <Todo>[
+      template,
+      ...instances.where((todo) => todo.recurrenceType != null),
+    ];
+    final hasActionableOccurrence = realSeriesRows.any(
+      (todo) =>
+          !todo.isDone &&
+          todo.status != TodoStatus.archived &&
+          todo.scheduledDate != null,
+    );
+
+    Todo? repaired;
+    if (!hasActionableOccurrence && template.status != TodoStatus.archived) {
+      final completed =
+          <Todo>[
+            if (template.isDone && template.scheduledDate != null) template,
+            ...instances.where(
+              (todo) => todo.isDone && todo.scheduledDate != null,
+            ),
+          ]..sort((a, b) {
+            final dateOrder = a.scheduledDate!.compareTo(b.scheduledDate!);
+            if (dateOrder != 0) return dateOrder;
+            return a.updatedAt.compareTo(b.updatedAt);
+          });
+
+      if (completed.isNotEmpty) {
+        final now = DateTime.now();
+        repaired = await _materializeNextRecurringOccurrence(
+          completed.last,
+          minimumDate: DateTime(now.year, now.month, now.day),
+        );
+      }
+    }
+
+    final removedProjections = await _cleanupLegacyRecurrenceProjections(
+      instances,
+      keepId: repaired?.id,
+    );
+    return repaired != null || removedProjections;
+  }
+
+  Future<bool> _cleanupLegacyRecurrenceProjections(
+    List<Todo> instances, {
+    String? keepId,
+  }) async {
+    final projections = instances
+        .where(
+          (todo) =>
+              todo.id != keepId && todo.recurrenceType == null && !todo.isDone,
+        )
+        .toList();
+    if (projections.isEmpty) return false;
+
+    for (final projection in projections) {
+      await _db.todosDao.purgeLocalRecurrenceProjection(projection.id);
+      await _db.syncDao.removeOpsForEntity(
+        'todo',
+        projection.id,
+        userId: _userId,
+      );
+    }
+    return true;
+  }
+
+  /// Public post-pull repair for legacy recurring series.
+  Future<void> ensureAllRecurrenceInstances() async {
+    final templates = await _db.todosDao.getRecurrenceTemplates();
+    var changed = false;
+    for (final row in templates) {
+      if (!_belongsToCurrentUser(row.userId)) continue;
+      final template = _todoRowToModel(row);
+      changed = await _repairRecurrenceSeries(template) || changed;
+    }
+    if (!changed) return;
+    _notifyTodoLocalChanged();
     ConnectivitySync.instance.scheduleWriteSync();
   }
 }

@@ -32,6 +32,11 @@ class HabitsRepository {
   String get _userId =>
       AuthStorage.instance.currentUserJson?['id'] as String? ?? '';
 
+  bool _belongsToCurrentUser(String rowUserId) {
+    final userId = _userId;
+    return userId.isEmpty || rowUserId == userId;
+  }
+
   // ─── F-H2 List ────────────────────────────────────────────────
 
   Future<List<Habit>> list({bool includeArchived = false}) async {
@@ -45,6 +50,30 @@ class HabitsRepository {
         .toList();
     await _cacheHabits(habits);
     return _applyArchiveVisibility(habits, includeArchived: includeArchived);
+  }
+
+  Future<List<Habit>> listLocal({bool includeArchived = false}) async {
+    final rows = includeArchived
+        ? await _db.habitsDao.getAllHabits()
+        : await _db.habitsDao.getActiveHabits();
+    final habits = rows
+        .where((row) => _belongsToCurrentUser(row.userId))
+        .map(_habitRowToModel)
+        .toList();
+    habits.sort((a, b) {
+      final archivedOrder = (a.isArchived ? 1 : 0).compareTo(
+        b.isArchived ? 1 : 0,
+      );
+      if (archivedOrder != 0) return archivedOrder;
+      return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+    });
+    return habits;
+  }
+
+  Future<Habit?> getLocalHabit(String id) async {
+    final row = await _db.habitsDao.getHabitById(id);
+    if (row != null && !_belongsToCurrentUser(row.userId)) return null;
+    return row == null ? null : _habitRowToModel(row);
   }
 
   // ─── F-H3 Detail with recent logs ─────────────────────────────
@@ -124,6 +153,49 @@ class HabitsRepository {
     }
   }
 
+  Future<Habit> updateLocalFirst(
+    Habit current,
+    Map<String, dynamic> body,
+  ) async {
+    final existing = await _db.habitsDao.getHabitById(current.id);
+    final now = nowIso();
+    final updated = _patchHabit(current, body);
+    await _db.habitsDao.upsertHabit(
+      HabitsTableCompanion(
+        id: Value(updated.id),
+        userId: Value(existing?.userId ?? _userId),
+        title: Value(updated.title),
+        description: Value(updated.description),
+        iconName: Value(updated.iconName),
+        color: Value(formatColorHex(updated.color)),
+        frequencyType: Value(updated.frequencyType.backendValue),
+        targetPerPeriod: Value(updated.targetPerPeriod),
+        activeWeekdays: Value(updated.activeWeekdays?.join(',') ?? ''),
+        startDate: Value(formatDateOnly(updated.startDate)),
+        endDate: Value(
+          updated.endDate == null ? null : formatDateOnly(updated.endDate!),
+        ),
+        currentStreak: Value(updated.currentStreak),
+        longestStreak: Value(updated.longestStreak),
+        isArchived: Value(updated.isArchived),
+        createdAt: Value(existing?.createdAt ?? now),
+        updatedAt: Value(now),
+        deletedAt: const Value(null),
+      ),
+    );
+    final row = await _db.habitsDao.getHabitById(current.id);
+    if (row != null) {
+      await _db.syncDao.enqueueSyncOp(
+        entityType: 'habit',
+        entityId: current.id,
+        operation: 'update',
+        payload: SyncPayload.encode(SyncPayload.fromHabit(row)),
+      );
+    }
+    ConnectivitySync.instance.scheduleWriteSync();
+    return updated;
+  }
+
   // ─── F-H5 Delete ──────────────────────────────────────────────
 
   Future<void> delete(String id) async {
@@ -192,6 +264,68 @@ class HabitsRepository {
     );
   }
 
+  Future<void> applyTodoCompletionProjection({
+    required String habitId,
+    required DateTime scheduledDate,
+  }) async {
+    final logDateStr = formatDateOnly(scheduledDate);
+    final todos = await _db.todosDao.getLiveTodosForHabitOnDate(
+      habitId,
+      logDateStr,
+    );
+    if (todos.isEmpty) return;
+
+    final scheduledDay = jsonDateOnly(logDateStr);
+    final completed = todos.every((todo) {
+      if (todo.status != 'done' || todo.completedAt == null) return false;
+      final completedAt = DateTime.tryParse(todo.completedAt!);
+      if (completedAt == null) return false;
+      final localCompletedAt = completedAt.toLocal();
+      final completedDay = DateTime(
+        localCompletedAt.year,
+        localCompletedAt.month,
+        localCompletedAt.day,
+      );
+      return !completedDay.isAfter(scheduledDay);
+    });
+
+    final now = nowIso();
+    final existingRows = await _db.habitsDao.getActiveHabitLogsByHabitAndDate(
+      habitId,
+      logDateStr,
+    );
+    final existing = existingRows.isEmpty ? null : existingRows.first;
+    final tombstone = await _db.habitsDao.findSoftDeletedHabitLog(
+      habitId,
+      logDateStr,
+    );
+    final id = existing?.id ?? tombstone?.id ?? newId();
+    final createdAt = existing?.createdAt ?? tombstone?.createdAt ?? now;
+
+    await _db.habitsDao.upsertHabitLog(
+      HabitLogsTableCompanion(
+        id: Value(id),
+        habitId: Value(habitId),
+        userId: Value(_userId),
+        logDate: Value(logDateStr),
+        completed: Value(completed),
+        note: Value(existing?.note ?? tombstone?.note),
+        createdAt: Value(createdAt),
+        updatedAt: Value(now),
+        deletedAt: const Value(null),
+      ),
+    );
+
+    await _softDeleteDuplicateLogsForDate(
+      habitId,
+      logDateStr,
+      keepId: id,
+      deletedAtIso: now,
+      enqueueDeletes: false,
+    );
+    await _adoptEstimatedStreak(habitId);
+  }
+
   Future<HabitLog> _upsertHabitLogLocalFirst({
     required String habitId,
     required DateTime logDate,
@@ -201,10 +335,11 @@ class HabitsRepository {
   }) async {
     final logDateStr = formatDateOnly(logDate);
     final now = nowIso();
-    final existing = await _db.habitsDao.getHabitLogByHabitAndDate(
+    final existingRows = await _db.habitsDao.getActiveHabitLogsByHabitAndDate(
       habitId,
       logDateStr,
     );
+    final existing = existingRows.isEmpty ? null : existingRows.first;
 
     // Resurrect-local-first: reuse a tombstoned log for the same (habitId, logDate)
     final tombstone = await _db.habitsDao.findSoftDeletedHabitLog(
@@ -229,6 +364,14 @@ class HabitsRepository {
         updatedAt: Value(now),
         deletedAt: const Value(null), // clear tombstone when resurrecting
       ),
+    );
+
+    await _softDeleteDuplicateLogsForDate(
+      habitId,
+      logDateStr,
+      keepId: id,
+      deletedAtIso: now,
+      enqueueDeletes: true,
     );
 
     final row = await _db.habitsDao.getHabitLogById(id);
@@ -277,24 +420,25 @@ class HabitsRepository {
     DateTime logDate,
   ) async {
     final now = nowIso();
-    final existing = await _db.habitsDao.getHabitLogByHabitAndDate(
-      id,
-      formatDateOnly(logDate),
-    );
-    if (existing != null) {
-      await _db.habitsDao.softDeleteHabitLog(existing.id, now);
+    final deletedRows = await _db.habitsDao
+        .softDeleteActiveHabitLogsByHabitAndDate(
+          id,
+          formatDateOnly(logDate),
+          now,
+        );
+    for (final row in deletedRows) {
       await _db.syncDao.enqueueSyncOp(
         entityType: 'habit_log',
-        entityId: existing.id,
+        entityId: row.id,
         operation: 'delete',
         payload: jsonEncode({
-          'id': existing.id,
+          'id': row.id,
           'deleted_at': now,
           'updated_at': now,
         }),
       );
-      ConnectivitySync.instance.scheduleWriteSync();
     }
+    if (deletedRows.isNotEmpty) ConnectivitySync.instance.scheduleWriteSync();
 
     final streaks = await _adoptEstimatedStreak(id);
     return (currentStreak: streaks.current, longestStreak: streaks.longest);
@@ -363,6 +507,13 @@ class HabitsRepository {
     }
   }
 
+  Future<Map<DateTime, Map<String, bool>>> getCalendarLocal({
+    required DateTime from,
+    required DateTime to,
+  }) {
+    return _getLocalCalendar(from: from, to: to);
+  }
+
   // ─── Drift helpers ────────────────────────────────────────────
 
   Future<void> _cacheHabits(List<Habit> habits) async {
@@ -376,8 +527,31 @@ class HabitsRepository {
   Future<void> _cacheLogs(List<HabitLog> logs) async {
     if (logs.isEmpty) return;
     final userId = _userId;
+    final touchedDates =
+        <String, ({String habitId, String logDate, String keepId})>{};
     for (final log in logs) {
       await _db.habitsDao.upsertHabitLog(habitLogToCompanion(log, userId));
+      final logDate = formatDateOnly(log.logDate);
+      touchedDates['${log.habitId}|$logDate'] = (
+        habitId: log.habitId,
+        logDate: logDate,
+        keepId: log.id,
+      );
+    }
+    final now = nowIso();
+    for (final entry in touchedDates.values) {
+      final activeRows = await _db.habitsDao.getActiveHabitLogsByHabitAndDate(
+        entry.habitId,
+        entry.logDate,
+      );
+      if (activeRows.isEmpty) continue;
+      await _softDeleteDuplicateLogsForDate(
+        entry.habitId,
+        entry.logDate,
+        keepId: entry.keepId,
+        deletedAtIso: now,
+        enqueueDeletes: false,
+      );
     }
   }
 
@@ -391,7 +565,9 @@ class HabitsRepository {
       formatDateOnly(from),
       formatDateOnly(to),
     );
-    final logs = rows.map(_habitLogRowToModel).toList();
+    final logs = _dedupeLogRowsByDate(
+      rows.where((row) => _belongsToCurrentUser(row.userId)).toList(),
+    ).map(_habitLogRowToModel).toList();
     logs.sort((a, b) => a.logDate.compareTo(b.logDate));
     return logs;
   }
@@ -406,11 +582,49 @@ class HabitsRepository {
     );
     final result = <DateTime, Map<String, bool>>{};
     for (final row in rows) {
+      if (!_belongsToCurrentUser(row.userId)) continue;
       final date = jsonDateOnly(row.logDate);
-      result.putIfAbsent(date, () => <String, bool>{})[row.habitId] =
-          row.completed;
+      result
+          .putIfAbsent(date, () => <String, bool>{})
+          .putIfAbsent(row.habitId, () => row.completed);
     }
     return result;
+  }
+
+  List<HabitLogRow> _dedupeLogRowsByDate(List<HabitLogRow> rows) {
+    final byDate = <String, HabitLogRow>{};
+    for (final row in rows) {
+      byDate.putIfAbsent(row.logDate, () => row);
+    }
+    return byDate.values.toList();
+  }
+
+  Future<void> _softDeleteDuplicateLogsForDate(
+    String habitId,
+    String logDate, {
+    required String keepId,
+    required String deletedAtIso,
+    required bool enqueueDeletes,
+  }) async {
+    final rows = await _db.habitsDao.getActiveHabitLogsByHabitAndDate(
+      habitId,
+      logDate,
+    );
+    for (final row in rows) {
+      if (row.id == keepId) continue;
+      await _db.habitsDao.softDeleteHabitLog(row.id, deletedAtIso);
+      if (!enqueueDeletes) continue;
+      await _db.syncDao.enqueueSyncOp(
+        entityType: 'habit_log',
+        entityId: row.id,
+        operation: 'delete',
+        payload: jsonEncode({
+          'id': row.id,
+          'deleted_at': deletedAtIso,
+          'updated_at': deletedAtIso,
+        }),
+      );
+    }
   }
 
   HabitLog _habitLogRowToModel(HabitLogRow row) {
@@ -469,6 +683,7 @@ class HabitsRepository {
     final byId = {for (final habit in habits) habit.id: habit};
     final cached = await _db.habitsDao.getAllHabits();
     for (final row in cached) {
+      if (!_belongsToCurrentUser(row.userId)) continue;
       if (!row.isArchived || byId.containsKey(row.id)) continue;
       byId[row.id] = _habitRowToModel(row);
     }
@@ -491,6 +706,51 @@ class HabitsRepository {
       currentStreak: row.currentStreak,
       longestStreak: row.longestStreak,
       isArchived: row.isArchived,
+    );
+  }
+
+  Habit _patchHabit(Habit current, Map<String, dynamic> body) {
+    final frequency = body.containsKey('frequency_type')
+        ? FrequencyType.parse(body['frequency_type'] as String? ?? 'daily')
+        : current.frequencyType;
+    final activeWeekdays = body.containsKey('active_weekdays')
+        ? _parseWeekdays(body['active_weekdays'] as String?)
+        : current.activeWeekdays;
+    final startDate = body.containsKey('start_date')
+        ? jsonDateOnly(body['start_date'] as String)
+        : current.startDate;
+    final endDate = body.containsKey('end_date')
+        ? jsonDateOnlyNullable(body['end_date'] as String?)
+        : current.endDate;
+
+    return Habit(
+      id: current.id,
+      title: body.containsKey('title')
+          ? body['title'] as String
+          : current.title,
+      description: body.containsKey('description')
+          ? body['description'] as String?
+          : current.description,
+      iconName: body.containsKey('icon')
+          ? body['icon'] as String?
+          : current.iconName,
+      icon: Habit.iconFor(
+        body.containsKey('icon') ? body['icon'] as String? : current.iconName,
+      ),
+      color: body.containsKey('color')
+          ? jsonColor(body['color'] as String? ?? '#4CAF50')
+          : current.color,
+      frequencyType: frequency,
+      targetPerPeriod: body.containsKey('target_per_period')
+          ? (body['target_per_period'] as num?)?.toInt() ??
+                current.targetPerPeriod
+          : current.targetPerPeriod,
+      activeWeekdays: activeWeekdays,
+      startDate: startDate,
+      endDate: endDate,
+      currentStreak: current.currentStreak,
+      longestStreak: current.longestStreak,
+      isArchived: current.isArchived,
     );
   }
 

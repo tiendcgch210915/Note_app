@@ -7,6 +7,7 @@ import '../../models/run.dart';
 import '../../models/run_item.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/primary_button.dart';
+import '../../widgets/section_header.dart';
 
 /// RunDetailScreen — fetch run + items, update items, complete/abandon.
 /// EXP 8: Thêm note cho RunItem qua Dialog TextField.
@@ -22,6 +23,7 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
   Run? _run;
   List<RunItem> _items = [];
   bool _loading = false;
+  bool _doneItemsExpanded = false;
   Timer? _timer;
   Duration _elapsed = Duration.zero;
 
@@ -277,6 +279,12 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
         : (done / _items.length).clamp(0.0, 1.0);
     final canComplete =
         requiredPending == 0 && _run!.status == RunStatus.inProgress;
+    final activeItems = _items
+        .where((item) => item.status != RunItemStatus.done)
+        .toList();
+    final doneItems = _items
+        .where((item) => item.status == RunItemStatus.done)
+        .toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -326,11 +334,28 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
           Expanded(
             child: RefreshIndicator(
               onRefresh: _load,
-              child: ListView.separated(
+              child: ListView(
                 padding: const EdgeInsets.only(bottom: 96),
-                itemCount: _items.length,
-                separatorBuilder: (_, __) => Divider(height: 1, color: divider),
-                itemBuilder: (ctx, i) => _itemRow(_items[i], secondary),
+                children: [
+                  ..._itemRows(activeItems, secondary, divider),
+                  if (doneItems.isNotEmpty) ...[
+                    SectionHeader(
+                      label: '✅ Đã xong (${doneItems.length})',
+                      trailing: IconButton(
+                        icon: Icon(
+                          _doneItemsExpanded
+                              ? Icons.expand_less
+                              : Icons.expand_more,
+                        ),
+                        onPressed: () => setState(
+                          () => _doneItemsExpanded = !_doneItemsExpanded,
+                        ),
+                      ),
+                    ),
+                    if (_doneItemsExpanded)
+                      ..._itemRows(doneItems, secondary, divider),
+                  ],
+                ],
               ),
             ),
           ),
@@ -362,6 +387,15 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
             )
           : null,
     );
+  }
+
+  List<Widget> _itemRows(List<RunItem> items, Color secondary, Color divider) {
+    final widgets = <Widget>[];
+    for (var i = 0; i < items.length; i++) {
+      if (i > 0) widgets.add(Divider(height: 1, color: divider));
+      widgets.add(_itemRow(items[i], secondary));
+    }
+    return widgets;
   }
 
   Widget _itemRow(RunItem it, Color secondary) {

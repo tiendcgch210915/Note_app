@@ -1,229 +1,430 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_quill/flutter_quill.dart';
 
 import '../../data/api_exception.dart';
 import '../../data/notes_repository.dart';
 import '../../models/note.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/date_utils.dart';
+import '../../utils/note_delta_utils.dart';
+import '../../widgets/cornell_note_layout.dart';
+import '../../widgets/note_quill_editor.dart';
 import 'note_editor_screen.dart';
 
 class NoteDetailScreen extends StatefulWidget {
-  final String noteId;
+  const NoteDetailScreen({super.key, required this.noteId, this.repository});
 
-  const NoteDetailScreen({super.key, required this.noteId});
+  final String noteId;
+  final NotesRepository? repository;
 
   @override
   State<NoteDetailScreen> createState() => _NoteDetailScreenState();
 }
 
 class _NoteDetailScreenState extends State<NoteDetailScreen> {
-  Note? _note;
+  final _bodyFocus = FocusNode();
+  final _cueFocus = FocusNode();
+  final _summaryFocus = FocusNode();
+  late final QuillController _body;
+  late final QuillController _cue;
+  late final QuillController _summary;
+
+  NoteWithRelations? _detail;
   bool _loading = false;
+  bool _hydrating = false;
+  bool _dirty = false;
+  bool _saving = false;
+  bool _saveQueued = false;
+  bool _canPop = false;
+  int _revision = 0;
+  String _contentSignature = '';
+  Timer? _saveTimer;
+
+  NotesRepository get _repository =>
+      widget.repository ?? NotesRepository.instance;
 
   @override
   void initState() {
     super.initState();
+    _body = createNoteQuillController();
+    _cue = createNoteQuillController();
+    _summary = createNoteQuillController();
+    _contentSignature = _currentContentSignature();
+    for (final controller in [_body, _cue, _summary]) {
+      controller.addListener(_handleDocumentChanged);
+    }
+    for (final focus in [_bodyFocus, _cueFocus, _summaryFocus]) {
+      focus.addListener(_handleFocusChanged);
+    }
     _load();
   }
 
+  @override
+  void dispose() {
+    _saveTimer?.cancel();
+    for (final controller in [_body, _cue, _summary]) {
+      controller
+        ..removeListener(_handleDocumentChanged)
+        ..dispose();
+    }
+    for (final focus in [_bodyFocus, _cueFocus, _summaryFocus]) {
+      focus
+        ..removeListener(_handleFocusChanged)
+        ..dispose();
+    }
+    super.dispose();
+  }
+
   Future<void> _load() async {
-    setState(() => _loading = true);
+    setState(() => _loading = _detail == null);
     try {
-      final detail = await NotesRepository.instance.getDetail(widget.noteId);
+      final detail = await _repository.getDetail(widget.noteId);
       if (!mounted) return;
-      setState(() => _note = detail.note);
-    } on ApiException catch (e) {
-      if (mounted) _showError(e.vnMessage);
+      _applyDetail(detail);
+      unawaited(_refreshInBackground());
+    } on ApiException catch (error) {
+      if (mounted) _showError(error.vnMessage);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  Future<void> _openEdit() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => NoteEditorScreen(noteId: widget.noteId),
-      ),
-    );
-    if (mounted) _load();
+  Future<void> _refreshInBackground() async {
+    if (_dirty || _saving) return;
+    try {
+      final detail = await _repository.refreshDetail(widget.noteId);
+      if (!mounted || _dirty || _saving || _activeController != null) return;
+      _applyDetail(detail);
+    } on ApiException {
+      // Cached detail remains available while offline.
+    }
   }
 
-  void _showError(String msg) {
+  Future<void> _refreshFromPull() async {
+    if (!await _flushSave() || !mounted) return;
+    try {
+      final detail = await _repository.refreshDetail(widget.noteId);
+      if (mounted) _applyDetail(detail);
+    } on ApiException catch (error) {
+      if (mounted) _showError(error.vnMessage);
+    }
+  }
+
+  void _applyDetail(NoteWithRelations detail) {
+    _hydrating = true;
+    _body.document = noteDocumentFrom(
+      delta: detail.note.bodyDelta,
+      plainText: detail.note.body,
+    );
+    _cue.document = noteDocumentFrom(
+      delta: detail.note.cornellCueDelta,
+      plainText: detail.note.cornellCue,
+    );
+    _summary.document = noteDocumentFrom(
+      delta: detail.note.cornellSummaryDelta,
+      plainText: detail.note.cornellSummary,
+    );
+    _contentSignature = _currentContentSignature();
+    setState(() {
+      _detail = detail;
+      _dirty = false;
+    });
+    _hydrating = false;
+  }
+
+  void _handleDocumentChanged() {
+    if (_hydrating) return;
+    final signature = _currentContentSignature();
+    if (signature == _contentSignature) return;
+    _contentSignature = signature;
+    _revision++;
+    _dirty = true;
+    _saveTimer?.cancel();
+    _saveTimer = Timer(const Duration(milliseconds: 900), _save);
+    if (mounted) setState(() {});
+  }
+
+  void _handleFocusChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<bool> _save() async {
+    _saveTimer?.cancel();
+    final detail = _detail;
+    if (!_dirty || detail == null) return true;
+    if (_saving) {
+      _saveQueued = true;
+      return true;
+    }
+
+    final note = detail.note;
+    final bodyPlain = notePlainTextFromDocument(_body.document);
+    final cuePlain = notePlainTextFromDocument(_cue.document);
+    final summaryPlain = notePlainTextFromDocument(_summary.document);
+    final saveRevision = _revision;
+
+    _saving = true;
+    if (mounted) setState(() {});
+
+    try {
+      await _repository.update(
+        note.id,
+        body: bodyPlain,
+        clearBody: bodyPlain.isEmpty,
+        bodyDelta: noteDeltaFromDocument(_body.document),
+        cornellCue: note.type == NoteType.cornell ? cuePlain : null,
+        clearCornellCue: note.type == NoteType.cornell && cuePlain.isEmpty,
+        cornellCueDelta: note.type == NoteType.cornell && cuePlain.isNotEmpty
+            ? noteDeltaFromDocument(_cue.document)
+            : null,
+        clearCornellCueDelta: note.type == NoteType.cornell && cuePlain.isEmpty,
+        cornellSummary: note.type == NoteType.cornell ? summaryPlain : null,
+        clearCornellSummary:
+            note.type == NoteType.cornell && summaryPlain.isEmpty,
+        cornellSummaryDelta:
+            note.type == NoteType.cornell && summaryPlain.isNotEmpty
+            ? noteDeltaFromDocument(_summary.document)
+            : null,
+        clearCornellSummaryDelta:
+            note.type == NoteType.cornell && summaryPlain.isEmpty,
+        contentFormat: noteContentFormatQuill,
+      );
+      final local = await _repository.getLocalDetail(note.id);
+      if (local != null) _detail = local;
+      if (saveRevision == _revision) {
+        _dirty = false;
+        _contentSignature = _currentContentSignature();
+      }
+      if (mounted) setState(() {});
+      return true;
+    } on ApiException catch (error) {
+      _dirty = true;
+      if (mounted) _showError(error.vnMessage);
+      return false;
+    } catch (error) {
+      _dirty = true;
+      if (mounted) _showError('Không thể lưu note: $error');
+      return false;
+    } finally {
+      _saving = false;
+      if (_saveQueued || (_dirty && saveRevision != _revision)) {
+        _saveQueued = false;
+        _saveTimer = Timer(const Duration(milliseconds: 150), _save);
+      }
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<bool> _flushSave() async {
+    _saveTimer?.cancel();
+    while (_saving) {
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+    }
+    return _dirty ? _save() : true;
+  }
+
+  Future<void> _handleBack(Object? result) async {
+    if (!await _flushSave() || !mounted) return;
+    setState(() => _canPop = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).pop(result);
+    });
+  }
+
+  Future<void> _openEditor() async {
+    if (!await _flushSave() || !mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => NoteEditorScreen(
+          noteId: widget.noteId,
+          repository: widget.repository,
+        ),
+      ),
+    );
+    if (mounted) await _load();
+  }
+
+  QuillController? get _activeController {
+    if (_bodyFocus.hasFocus) return _body;
+    if (_cueFocus.hasFocus) return _cue;
+    if (_summaryFocus.hasFocus) return _summary;
+    return null;
+  }
+
+  FocusNode? get _activeFocusNode {
+    if (_bodyFocus.hasFocus) return _bodyFocus;
+    if (_cueFocus.hasFocus) return _cueFocus;
+    if (_summaryFocus.hasFocus) return _summaryFocus;
+    return null;
+  }
+
+  String _currentContentSignature() => jsonEncode([
+    _body.document.toDelta().toJson(),
+    _cue.document.toDelta().toJson(),
+    _summary.document.toDelta().toJson(),
+  ]);
+
+  void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: AppColors.danger),
+      SnackBar(content: Text(message), backgroundColor: AppColors.danger),
     );
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bg = isDark ? AppColors.noteBackgroundDark : AppColors.noteBackground;
+    final background = isDark
+        ? AppColors.noteBackgroundDark
+        : AppColors.noteBackground;
+    final detail = _detail;
+    final activeController = _activeController;
+    final bottomPadding = noteKeyboardAwareBottomPadding(
+      viewportSize: MediaQuery.sizeOf(context),
+      keyboardInset: MediaQuery.viewInsetsOf(context).bottom,
+      editorFocused: activeController != null,
+      restingPadding: activeController == null ? 48 : 112,
+    );
 
-    if (_loading && _note == null) {
+    if (_loading && detail == null) {
       return Scaffold(
-        backgroundColor: bg,
-        appBar: AppBar(backgroundColor: bg),
+        backgroundColor: background,
+        appBar: AppBar(backgroundColor: background),
         body: const Center(child: CircularProgressIndicator()),
       );
     }
-
-    final note = _note;
-    if (note == null) {
+    if (detail == null) {
       return Scaffold(
-        backgroundColor: bg,
-        appBar: AppBar(backgroundColor: bg),
+        backgroundColor: background,
+        appBar: AppBar(backgroundColor: background),
         body: const Center(child: Text('Không tìm thấy note')),
       );
     }
 
-    return Scaffold(
-      backgroundColor: bg,
-      appBar: AppBar(
-        backgroundColor: bg,
-        title: Text(note.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.edit_outlined),
-            tooltip: 'Chỉnh sửa',
-            onPressed: _openEdit,
+    final note = detail.note;
+    return PopScope<Object?>(
+      canPop: _canPop,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) unawaited(_handleBack(result));
+      },
+      child: Scaffold(
+        resizeToAvoidBottomInset: true,
+        backgroundColor: background,
+        appBar: AppBar(
+          backgroundColor: background,
+          leading: IconButton(
+            tooltip: 'Quay lại',
+            onPressed: () => _handleBack(null),
+            icon: const Icon(Icons.arrow_back),
           ),
-        ],
-      ),
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
-          children: [
-            Row(
-              children: [
-                if (note.isPinned) ...[
-                  const Icon(Icons.push_pin, size: 16),
-                  const SizedBox(width: 6),
-                ],
-                Text(
-                  AppDateUtils.formatRelative(note.updatedAt),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: isDark
-                        ? AppColors.textSecondaryDark
-                        : AppColors.textSecondary,
-                  ),
+          title: Text(note.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+          actions: [
+            if (_saving)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12),
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
                 ),
-              ],
+              ),
+            if (activeController != null)
+              NoteQuillAppBarActions(
+                controller: activeController,
+                focusNode: _activeFocusNode,
+              ),
+            IconButton(
+              tooltip: 'Chỉnh sửa thông tin',
+              onPressed: _openEditor,
+              icon: const Icon(Icons.edit_outlined),
             ),
-            const SizedBox(height: 14),
-            Text(
-              note.title,
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.w700,
-                height: 1.15,
-                color: isDark
-                    ? AppColors.textPrimaryDark
-                    : AppColors.textPrimary,
+          ],
+        ),
+        body: Stack(
+          children: [
+            RefreshIndicator(
+              onRefresh: _refreshFromPull,
+              child: ListView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: EdgeInsets.fromLTRB(20, 8, 20, bottomPadding),
+                children: [
+                  Row(
+                    children: [
+                      if (note.isPinned) ...[
+                        const Icon(Icons.push_pin, size: 16),
+                        const SizedBox(width: 6),
+                      ],
+                      Text(
+                        AppDateUtils.formatRelative(note.updatedAt),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark
+                              ? AppColors.textSecondaryDark
+                              : AppColors.textSecondary,
+                        ),
+                      ),
+                      const Spacer(),
+                      if (note.type == NoteType.cornell)
+                        const Chip(
+                          visualDensity: VisualDensity.compact,
+                          label: Text('Cornell'),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    note.title,
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w700,
+                      height: 1.15,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  if (note.type == NoteType.free)
+                    NoteQuillEditor(
+                      controller: _body,
+                      focusNode: _bodyFocus,
+                      placeholder: 'Không có nội dung',
+                      minHeight: 360,
+                    )
+                  else
+                    CornellNoteLayout(
+                      notes: NoteQuillEditor(
+                        controller: _body,
+                        focusNode: _bodyFocus,
+                        placeholder: 'Không có nội dung',
+                        minHeight: 240,
+                      ),
+                      cues: NoteQuillEditor(
+                        controller: _cue,
+                        focusNode: _cueFocus,
+                        placeholder: 'Chưa có Cues',
+                        minHeight: 160,
+                      ),
+                      summary: NoteQuillEditor(
+                        controller: _summary,
+                        focusNode: _summaryFocus,
+                        placeholder: 'Chưa có Summary',
+                        minHeight: 140,
+                      ),
+                    ),
+                ],
               ),
             ),
-            const SizedBox(height: 18),
-            if (note.type == NoteType.cornell)
-              _ReadOnlyCornell(note: note)
-            else
-              _ReadOnlyBody(text: note.body),
+            if (activeController != null)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: NoteQuillToolbar(controller: activeController),
+              ),
           ],
         ),
       ),
-    );
-  }
-}
-
-class _ReadOnlyBody extends StatelessWidget {
-  final String? text;
-
-  const _ReadOnlyBody({required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final content = text?.trim();
-    return Text(
-      content == null || content.isEmpty ? 'Chưa có nội dung' : content,
-      style: TextStyle(
-        fontSize: 16,
-        height: 1.55,
-        color: content == null || content.isEmpty
-            ? (isDark ? AppColors.textSecondaryDark : AppColors.textSecondary)
-            : (isDark ? AppColors.textPrimaryDark : AppColors.textPrimary),
-      ),
-    );
-  }
-}
-
-class _ReadOnlyCornell extends StatelessWidget {
-  final Note note;
-
-  const _ReadOnlyCornell({required this.note});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final divider = isDark ? AppColors.dividerDark : AppColors.divider;
-    final secondary = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _CornellReadSection(label: 'Gợi ý', text: note.cornellCue),
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          child: Divider(height: 1, color: divider),
-        ),
-        _CornellReadSection(label: 'Ghi chú', text: note.body),
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          child: Divider(height: 1, color: divider),
-        ),
-        Text(
-          'Tóm tắt',
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: secondary,
-          ),
-        ),
-        const SizedBox(height: 8),
-        _ReadOnlyBody(text: note.cornellSummary),
-      ],
-    );
-  }
-}
-
-class _CornellReadSection extends StatelessWidget {
-  final String label;
-  final String? text;
-
-  const _CornellReadSection({required this.label, required this.text});
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final secondary = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            color: secondary,
-          ),
-        ),
-        const SizedBox(height: 8),
-        _ReadOnlyBody(text: text),
-      ],
     );
   }
 }

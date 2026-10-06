@@ -1,3 +1,4 @@
+import '../models/tag.dart';
 import '../models/todo.dart';
 import '../utils/uuid_utils.dart' show newId;
 
@@ -98,6 +99,103 @@ class RecurrenceHelper {
     return candidates.isEmpty ? null : candidates.first;
   }
 
+  /// Returns the next scheduled date after completing a recurring todo.
+  /// Mirrors the backend complete endpoint semantics.
+  static DateTime? nextDateAfterCompletedTodo(Todo todo) {
+    final type = todo.recurrenceType;
+    final scheduledDate = todo.scheduledDate;
+    if (type == null || scheduledDate == null) return null;
+
+    final current = _dateOnly(scheduledDate);
+    final interval = todo.recurrenceInterval < 1 ? 1 : todo.recurrenceInterval;
+    final DateTime next;
+
+    switch (type) {
+      case 'daily':
+      case 'custom':
+        next = current.add(Duration(days: interval));
+        break;
+      case 'weekly':
+        next = _nextWeeklyDate(
+          current: current,
+          interval: interval,
+          activeDays: todo.activeDaysOfWeek,
+        );
+        break;
+      default:
+        return null;
+    }
+
+    final endDate = todo.recurrenceEndDate == null
+        ? null
+        : _parseDateOnly(todo.recurrenceEndDate!);
+    if (endDate != null && next.isAfter(endDate)) return null;
+    return next;
+  }
+
+  /// Returns the first recurrence strictly after [todo.scheduledDate] that is
+  /// on or after [minimumDate].
+  ///
+  /// This is used to repair legacy recurring series that were completed before
+  /// the app could create their next occurrence. Missed historical dates are
+  /// skipped so the repaired todo becomes actionable now or in the future.
+  static DateTime? nextDateOnOrAfter({
+    required Todo todo,
+    required DateTime minimumDate,
+  }) {
+    if (todo.recurrenceType == null || todo.scheduledDate == null) return null;
+
+    final minimum = _dateOnly(minimumDate);
+    var cursor = todo;
+    while (true) {
+      final currentDate = _dateOnly(cursor.scheduledDate!);
+      final next = nextDateAfterCompletedTodo(cursor);
+      if (next == null || !next.isAfter(currentDate)) return null;
+      if (!next.isBefore(minimum)) return next;
+      cursor = cursor.copyWith(scheduledDate: next);
+    }
+  }
+
+  static DateTime? nextDateSkippingExceptions({
+    required Todo todo,
+    DateTime? minimumDate,
+    Set<String> exceptionDates = const {},
+  }) {
+    var cursor = todo;
+    var next = minimumDate == null
+        ? nextDateAfterCompletedTodo(cursor)
+        : nextDateOnOrAfter(todo: cursor, minimumDate: minimumDate);
+    for (var attempt = 0; attempt < 366 && next != null; attempt++) {
+      if (!exceptionDates.contains(_dateKey(next))) return next;
+      cursor = cursor.copyWith(scheduledDate: next);
+      next = nextDateAfterCompletedTodo(cursor);
+    }
+    return null;
+  }
+
+  static DateTime _nextWeeklyDate({
+    required DateTime current,
+    required int interval,
+    required List<int> activeDays,
+  }) {
+    final days =
+        activeDays
+            .where((day) => day >= DateTime.monday && day <= DateTime.sunday)
+            .toSet()
+            .toList()
+          ..sort();
+    if (days.isEmpty) return current.add(Duration(days: 7 * interval));
+
+    for (final day in days) {
+      if (day > current.weekday) {
+        return current.add(Duration(days: day - current.weekday));
+      }
+    }
+
+    final weekStart = current.subtract(Duration(days: current.weekday - 1));
+    return weekStart.add(Duration(days: 7 * interval + days.first - 1));
+  }
+
   // ─── Build instance ───────────────────────────────────────────────
 
   /// Creates a new Todo instance for [template] on [date].
@@ -114,6 +212,7 @@ class RecurrenceHelper {
       description: template.description,
       parentId: null, // instances are always top-level
       scheduledDate: date,
+      time: template.time,
       status: TodoStatus.open,
       position: 0,
       isFrog: false,
@@ -123,9 +222,12 @@ class RecurrenceHelper {
       estimatedMinutes: template.estimatedMinutes,
       actualMinutes: null,
       startAt: null,
-      dueAt: null,
+      dueAt: DateTime.utc(date.year, date.month, date.day, 23, 59),
       triggerAfterTodoId: null,
-      tagIds: const [],
+      habitId: template.habitId,
+      tags: template.tags,
+      tagIds: template.tagIds,
+      tagsLoaded: template.tagsLoaded,
       completedAt: null,
       // Recurrence: instance has no type, just points back to template
       recurrenceType: null,
@@ -138,7 +240,55 @@ class RecurrenceHelper {
     );
   }
 
+  /// Builds the real next occurrence created after a completed recurring todo.
+  /// Unlike [buildInstance], this keeps recurrence fields because this row is
+  /// the next actionable occurrence, not a display-only projection.
+  static Todo buildNextAfterCompletion({
+    required Todo source,
+    required DateTime scheduledDate,
+    required String templateId,
+    String? overrideId,
+    List<Tag> tags = const [],
+    List<String> tagIds = const [],
+  }) {
+    final now = DateTime.now().toUtc();
+    return Todo(
+      id: overrideId ?? newId(),
+      parentId: source.parentId,
+      title: source.title,
+      description: source.description,
+      scheduledDate: scheduledDate,
+      time: source.parentId == null ? source.time : null,
+      status: TodoStatus.open,
+      position: source.position,
+      isFrog: source.isFrog,
+      frogDate: source.frogDate,
+      isImportant: source.isImportant,
+      isUrgent: source.isUrgent,
+      estimatedMinutes: source.estimatedMinutes,
+      actualMinutes: null,
+      startAt: source.startAt,
+      dueAt: source.dueAt == null ? null : _endOfDayUtc(scheduledDate),
+      triggerAfterTodoId: source.triggerAfterTodoId,
+      habitId: source.habitId,
+      tags: tags,
+      tagIds: tagIds,
+      tagsLoaded: tags.isNotEmpty || tagIds.isNotEmpty,
+      completedAt: null,
+      recurrenceType: source.recurrenceType,
+      recurrenceInterval: source.recurrenceInterval,
+      recurrenceDaysOfWeek: source.recurrenceDaysOfWeek,
+      recurrenceEndDate: source.recurrenceEndDate,
+      recurrenceTemplateId: templateId,
+      createdAt: now,
+      updatedAt: now,
+    );
+  }
+
   // ─── Helpers ──────────────────────────────────────────────────────
+
+  static DateTime _endOfDayUtc(DateTime date) =>
+      DateTime.utc(date.year, date.month, date.day, 23, 59);
 
   /// Walk every [interval] days starting from [start] up to [horizon].
   static void _walkDays({
@@ -195,6 +345,13 @@ class RecurrenceHelper {
 
   static DateTime _dateOnly(DateTime dt) =>
       DateTime.utc(dt.year, dt.month, dt.day);
+
+  static String _dateKey(DateTime date) {
+    final value = _dateOnly(date);
+    return '${value.year.toString().padLeft(4, '0')}-'
+        '${value.month.toString().padLeft(2, '0')}-'
+        '${value.day.toString().padLeft(2, '0')}';
+  }
 
   static DateTime? _parseDateOnly(String s) {
     try {
