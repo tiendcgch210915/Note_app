@@ -240,7 +240,11 @@ Không giả định toàn app đã offline-first đồng đều.
 
 - `TodosRepository`: reads chủ yếu REST; một số helper/detail có local fallback. REST-success cache vào Drift, không enqueue lại. Offline/local-first writes ghi Drift + enqueue `sync_queue`.
 - `HabitsRepository`: metadata reads REST-first/cache Drift; habit create/update/delete có offline path một phần. Habit log writes là local-first, enqueue sync, rồi sync nền.
-- `ChecklistsRepository`: categories/templates và một số runs có local cache/fallback; system category/template là read-only với update/delete.
+- `ChecklistsRepository`: categories/templates/runs có hàm đọc Drift thuần
+  (`listCategoriesLocal`, `listTemplatesLocal`, `listRunsLocal`,
+  `getTemplateLocal`) để màn hình hiện ngay, rồi `listX`/`getTemplate`/
+  `refreshRun` hỏi server và ghi cache; lỗi tạm thời (`isRetryable`) trả về
+  cache. System category/template là read-only với update/delete.
 - `NotesRepository`: reads dùng Drift trước và REST refresh sau; mọi CRUD,
   tag/link/todo relation write ghi Drift, enqueue full `note` payload với
   relation snapshot thật rồi schedule sync.
@@ -248,6 +252,27 @@ Không giả định toàn app đã offline-first đồng đều.
 - `SyncWorker` pull có tombstone handling, LWW skip, self-heal junction rows và remap references khi server đổi id.
 - Habit streak được derive local từ logs cho UI nhanh/offline, rồi cache bằng `adoptStreak`; không enqueue habit update chỉ để đổi streak.
 - Habit log offline có cơ chế resurrect-local-first cho tombstone cùng `(habitId, logDate)`.
+
+### Đọc cache trước, hỏi server sau (Todos, Notes, Checklists)
+
+Các màn danh sách/chi tiết của 3 module này phải vẽ từ Drift ngay khi mở, rồi
+mới gọi REST và vẽ lại khi có kết quả (`TodosListScreen`, `NotesListScreen`,
+`ChecklistsScreen`, `RunsHistoryScreen`, `TemplateDetailScreen`, `RunDetailScreen`).
+Quy ước khi thêm/sửa màn hình kiểu này:
+
+- Không `await` mạng trước khi có gì đó để hiện. Spinner toàn màn hình chỉ dành
+  cho lúc cache rỗng; có cache thì dùng `LinearProgressIndicator` mỏng.
+- Lỗi `ApiException.isRetryable` (mất mạng, timeout, 5xx) khi đã có dữ liệu để
+  xem thì không báo snackbar. Lỗi khác (ví dụ 4xx) và cache rỗng vẫn phải báo.
+- Hàm cache kết quả REST (`_cacheTodos`, `_cache*` của Checklists) bỏ qua
+  entity đang có op chưa đồng bộ trong `sync_queue`, để bản cũ trên server không
+  ghi đè thay đổi offline của người dùng. Hàm cache mới phải giữ quy ước này.
+- REST delete xong phải xóa mềm bản trong Drift (như `deleteRun`/`deleteTemplate`),
+  nếu không màn hình đọc cache sẽ hiện lại mục đã xóa.
+- Sau khi sync pull áp dữ liệu, `SyncWorker` gọi `TodoLocalEvents`,
+  `NoteLocalEvents`, `ChecklistLocalEvents`; màn đang mở lắng nghe để đọc lại
+  Drift.
+- Chưa áp dụng cho Dashboard/Lịch/Habits (vẫn REST-first).
 
 Sau local write offline hoặc local-first, gọi `ConnectivitySync.instance.scheduleWriteSync()` nếu cần queue được đẩy sớm.
 
@@ -289,6 +314,34 @@ reconcile các junction relations, xử lý tombstone và dọn relation mồ c�
 transaction. Autosave content luôn đọc relation thật từ Drift trước khi
 enqueue nên không gửi các relation arrays rỗng ngoài ý muốn. Create rồi delete
 trước lần push đầu sẽ loại operation khỏi outbox.
+
+### Focus session (đồng hồ tập trung)
+
+- State của phiên nằm ở singleton `FocusSessionController`
+  (`lib/utils/focus_session_controller.dart`), không nằm trong
+  `TodoFocusScreen`. Đồng hồ tính theo wall-clock (`endsAt`) nên không lệch khi
+  app ở nền. Chỉ lưu in-memory: không ghi Drift, không sync; tắt hẳn app thì
+  phiên mất. Phiên bị hủy khi logout hoặc nhận 401.
+- `TodoFocusScreen` có nút Home (về tab "Hôm nay"), nút Lịch (tab Lịch + vào
+  thẳng `CalendarDayDetailScreen` của hôm nay, vốn đọc Drift trước) và nút X.
+  Home/Lịch/back hệ thống chỉ rời màn hình, phiên vẫn chạy. Nút X luôn hiện
+  hộp thoại xác nhận: "Trở lại" (như nút Home, đồng hồ chạy tiếp) hoặc "Hủy bấm
+  giờ" (dừng phiên, về trang chi tiết của todo). Chạm ra ngoài hộp thoại là ở
+  lại màn Focus. Nếu hủy sau khi quay lại từ banner và trang chi tiết của todo
+  không nằm ngay bên dưới (`TodoDetailRouteTracker`), `resumeFocusSession()` sẽ
+  mở lại trang chi tiết.
+- Khi phiên chạy ngầm, `FocusSessionBannerHost` (trong `MaterialApp.builder`)
+  hiện thanh dưới cùng chiếm chỗ thật trong layout (không phải overlay nổi để
+  khỏi che bottom nav/FAB). Thanh ẩn khi màn Focus hoặc bàn phím đang mở; chạm
+  để quay lại, nút dừng để kết thúc.
+- Controller đọc lại todo từ Drift mỗi khi `TodoLocalEvents` đổi (gồm cả sync
+  pull): todo bị xóa/hoàn thành ở nơi khác thì phiên ngầm tự kết thúc; tránh
+  `completeLocalFirst` trên snapshot cũ (sẽ sinh occurrence recurrence thừa).
+- Mở màn hình bằng `openTodoFocusScreen()` / `resumeFocusSession()` (đặt cờ
+  `focusScreenOpen`), không `Navigator.push` trực tiếp. Bắt đầu việc khác khi
+  đang có phiên phải xin xác nhận trước khi gọi `start()` (thay thế phiên cũ).
+- Test: `test/focus_session_controller_test.dart`,
+  `test/focus_session_ui_test.dart`.
 
 ### Recurrence todos
 

@@ -3,6 +3,7 @@ import '../../app.dart';
 import '../../data/auth_repository.dart';
 import '../../models/user.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/focus_session_controller.dart';
 import '../auth/login_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -33,6 +34,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _logout() async {
+    FocusSessionController.instance.cancel();
     await AuthRepository.instance.logout();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(

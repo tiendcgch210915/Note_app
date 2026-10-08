@@ -50,10 +50,28 @@ class _RunDetailScreenState extends State<RunDetailScreen> {
         _elapsed = _elapsedForRun(res.run);
       });
       _startTimerIfNeeded(res.run);
+      unawaited(_revalidate());
     } on ApiException catch (e) {
       if (mounted) _showError(e.vnMessage);
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  /// Bản đang hiện lấy từ Drift; hỏi server xem có thay đổi mới (từ thiết bị
+  /// khác) không và vẽ lại ngay nếu có. Lỗi thì giữ nguyên bản cache.
+  Future<void> _revalidate() async {
+    try {
+      final res = await ChecklistsRepository.instance.refreshRun(widget.runId);
+      if (!mounted) return;
+      setState(() {
+        _run = res.run;
+        _items = res.items;
+        _elapsed = _elapsedForRun(res.run);
+      });
+      _startTimerIfNeeded(res.run);
+    } on ApiException {
+      // Giữ bản cache đang hiển thị.
     }
   }
 

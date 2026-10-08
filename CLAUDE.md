@@ -4,32 +4,99 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Flutter app (Dart SDK `^3.8.1`), package name `todonote`. As of this writing, `lib/main.dart` still contains the **default Flutter counter scaffold** — no todo/note domain code exists yet. Do not assume any architecture beyond what's actually in the files.
+`todonote` is a Flutter productivity app (Dart SDK `^3.8.1`) combining todos (Eisenhower matrix, frog task, subtasks, recurrence, habit-stacking), local-first notes (Quill rich text, Cornell layout, tags/links), habits, checklists (categories/templates/runs), a dashboard, and a calendar — all behind JWT auth, backed by a REST API with an offline-capable local SQLite store and a sync engine. This is not a scaffold; it's a substantial multi-module app.
+
+Package: `todonote`. Platforms in this checkout: **Android only** (`android/`, Gradle Kotlin DSL). No `ios/`, `web/`, `windows/`, `macos/`, or `linux/` folders — run `flutter create --platforms=<name> .` to add one.
+
+Two other docs in the repo root go deeper than this file:
+- [AGENTS.md](AGENTS.md) — the authoritative, actively-maintained architecture reference (Vietnamese). When this file and AGENTS.md disagree, or either disagrees with the source, trust the source code first, then AGENTS.md.
+- [MOBILE_SYNC_LOCAL_FIRST_AUDIT.md](MOBILE_SYNC_LOCAL_FIRST_AUDIT.md) — a dated (2026-06-24) historical audit of the sync engine. Useful for the *why* behind sync design decisions, but some details (e.g. the backend URL it lists) are stale — prefer [lib/data/api_config.dart](lib/data/api_config.dart) for current config.
+
+[README.md](README.md) is still the default `flutter create` boilerplate and has no project-specific info.
 
 ## Commands
 
 | Purpose | Command |
 |---|---|
 | Install deps | `flutter pub get` |
+| Regenerate Drift code (after editing tables/DAOs/database.dart) | `dart run build_runner build --delete-conflicting-outputs` |
 | Run app (dev, hot reload) | `flutter run` |
 | Run on a specific device | `flutter run -d <device_id>` (list with `flutter devices`) |
 | Run all tests | `flutter test` |
-| Run a single test file | `flutter test test/widget_test.dart` |
-| Run a single test by name | `flutter test --plain-name "Counter increments smoke test"` |
+| Run a single test file | `flutter test test/sync_payload_test.dart` |
+| Run a single test by name | `flutter test --plain-name "<test description>"` |
 | Static analysis / lint | `flutter analyze` |
 | Format Dart sources | `dart format .` |
 | Clean build artifacts | `flutter clean` |
 | Build release APK | `flutter build apk` |
 
-No Makefile or custom scripts — everything runs through the Flutter CLI.
+No Makefile or custom scripts — everything runs through the Flutter/Dart CLI. Before handing off a change: `dart format .`, `flutter analyze`, `flutter test`.
 
-## Architecture (current state)
+## Architecture
 
-- **Entry point**: [lib/main.dart](lib/main.dart) — single file, `MyApp` (root `MaterialApp`) → `MyHomePage` (StatefulWidget with a counter).
-- **State management**: plain `setState` only. No Provider, Riverpod, Bloc, GetX, etc. wired up — if a feature needs cross-widget state, the choice is still open.
-- **Tests**: [test/widget_test.dart](test/widget_test.dart) — single widget smoke test for the counter.
-- **Platforms**: `android/` is checked in (Gradle Kotlin DSL). No `ios/` folder in this checkout — run `flutter create --platforms=ios .` to add iOS support.
+### Bootstrap
+
+[lib/main.dart](lib/main.dart) just calls `runApp(const MyApp())`. All startup logic lives in [lib/app.dart](lib/app.dart)'s `_MyAppState._bootstrap()`:
+
+1. Hydrate the auth token/user cache (`AuthStorage.instance.init()`).
+2. Open the Drift DB singleton (`AppDatabase.instance`).
+3. Best-effort health check against the backend.
+4. Decide `LoginScreen` vs `HomeShell` based on `AuthRepository.instance.isAuthenticated()`.
+5. Start `ConnectivitySync` (syncs on reconnect) and register a post-pull repair hook for recurrence.
+6. Listen for a global 401 signal (`needsReLoginNotifier`) that forces back to `LoginScreen`.
+7. Kick off an initial `SyncWorker.instance.sync()` if already authenticated; also re-syncs on app resume.
+
+### State management
+
+Plain `StatefulWidget` + `setState`, repository singletons, and `ValueNotifier` for small global signals (theme via `AppThemeController`/`AppThemeScope`, `sync_status_notifier.dart`, `needsReLoginNotifier`). No Provider/Riverpod/Bloc/GetX is wired up — that's a deliberate convention, not an oversight; don't introduce a state management package without a clear, large-scope reason.
+
+### Directory layout (`lib/`)
+
+- `data/` — repositories (one per domain, e.g. `todos_repository.dart`, `notes_repository.dart`), the two HTTP clients, and `local/` (Drift database, tables, DAOs, model converters).
+- `models/` — domain models with `fromJson`/`toJson`, mapping backend snake_case to Dart camelCase.
+- `screens/` — UI grouped by feature (`auth/`, `todos/`, `notes/`, `habits/`, `checklists/`, `calendar/`, `dashboard/`, `settings/`, `shell/`).
+- `sync/` — `sync_worker.dart`, `sync_payload.dart`, `connectivity_sync.dart`, `sync_status_notifier.dart`.
+- `theme/`, `utils/`, `widgets/` — shared styling, helpers (date/json/uuid/recurrence), and reusable widgets. Prefer existing helpers in `utils/json_utils.dart`, `utils/date_utils.dart`, `utils/uuid_utils.dart` over ad hoc parsing/ID generation.
+
+### Networking
+
+Two HTTP clients share config from [lib/data/api_config.dart](lib/data/api_config.dart):
+
+- [lib/data/api_client.dart](lib/data/api_client.dart) — `package:http`, used by the primary domain repositories.
+- [lib/data/remote/api_client_dio.dart](lib/data/remote/api_client_dio.dart) — Dio, used by `SyncWorker` and an auxiliary auth path; its interceptor is what raises the global 401 signal.
+
+Default backend is `https://todosnotes.onrender.com/api/v1` (health at `/health`). Override via `--dart-define=TODO_NOTE_API_BASE_URL=<absolute-api-v1-url>` rather than hard-coding a URL in either client.
+
+### Local database & codegen
+
+Drift/SQLite lives in `lib/data/local/`: `tables.dart` (schema), `database.dart` (table/DAO registration + migrations, currently `schemaVersion = 12`), `dao/` (per-domain CRUD + sync-queue ops), `model_converters.dart` (domain model ↔ Drift companion). `database.g.dart` and `dao/*_dao.g.dart` are **generated — never hand-edit them**; change the source file and run `dart run build_runner build --delete-conflicting-outputs`. Any schema change must bump `schemaVersion` and add a corresponding migration step.
+
+### Sync engine (outbox pattern)
+
+Local writes go to Drift and enqueue an operation in `sync_queue`. `SyncWorker` pushes the authenticated user's queued ops (capped per batch) and then pulls server deltas, applying everything in one Drift transaction before advancing the per-user cursor (`last_synced_at:<userId>`). Sync is triggered by a 2s debounce after a local write, connectivity reconnect, app resume/boot, or a manual sync action.
+
+**Cache-first reads (Todos, Notes, Checklists).** Their screens paint from Drift first (`listLocal` / `list*Local`), then revalidate against REST and re-render when it returns. Keep these rules when touching them: don't `await` the network before there is something to show; stay silent on `ApiException.isRetryable` errors when cached data is on screen; REST-result cache helpers (`_cacheTodos`, `_cache*` in `ChecklistsRepository`) must skip entities that have a pending `sync_queue` op so the server never overwrites unsynced edits; after a REST delete, soft-delete the Drift row too or the cache-first screen shows it again; sync pull notifies `Todo/Note/ChecklistLocalEvents` so open screens re-read Drift. Dashboard, Calendar and Habits are still REST-first.
+
+The app is **not** uniformly offline-first — each repository has its own read/write strategy (REST-first with cache vs. local-first with background push). Don't assume one repository's behavior applies to another; check AGENTS.md's "Offline behavior" section or the repository source before changing sync-sensitive code. If you change an API contract, update in lockstep: the model's `fromJson`, the repository's request body, the Drift converter/DAO, and `sync_payload.dart` — pay particular attention to the exact snake_case field names the backend expects (e.g. `recurrence_*`, `trigger_after_todo_id`, `category_id`, `completed_at`, `content_format`, `body_delta`, `cornell_cue_delta`, `cornell_summary_delta`).
+
+### Notable domain models
+
+- **Notes** — `free` or `cornell` type; rich text stored as Quill Delta (`content_format: plain|quill_delta_v1`) with plain-text mirror fields for legacy/preview; tags, outgoing links, backlinks, and linked todos.
+- **Todos** — Eisenhower quadrant, frog task, subtasks, habit-stacking trigger, and recurrence (`recurrence_type`/`recurrence_template_id` define templates vs. instances; completing a recurring todo materializes exactly one next occurrence, cloning its active subtree).
+- **Focus session** — the countdown behind a todo's "Bắt đầu" button lives in the app-level singleton [lib/utils/focus_session_controller.dart](lib/utils/focus_session_controller.dart), not in the screen, so it keeps running after the user leaves `TodoFocusScreen` via the Home/Calendar buttons (or system back). The X button never ends the session directly: it asks "Trở lại" (go home, keep running) vs "Hủy bấm giờ" (stop and return to the todo detail page). It is in-memory only (no Drift, no sync) and is cleared on logout/401. While it runs in the background, [lib/widgets/focus_session_banner.dart](lib/widgets/focus_session_banner.dart) renders a bar in `MaterialApp.builder` that takes real layout space (don't turn it into an overlay — it would cover bottom nav/FABs). The controller re-reads the todo from Drift on every `TodoLocalEvents` change (including sync pulls), so don't call `completeLocalFirst` with a todo snapshot taken before the session started. Open the screen through `openTodoFocusScreen()`, never a bare `Navigator.push`.
+- **Habits** — logs, locally-derived streaks, archive.
+- **Checklists** — categories → templates → template items, and runs → run items.
+
+## Testing
+
+Tests live in `test/` and cover models, utils, widgets, and the sync contract (`sync_payload_test.dart`, `sync_pull_contract_test.dart`, `sync_push_contract_test.dart`, `sync_resilience_test.dart`, `sync_user_scope_test.dart`). Sync/DB tests build an in-memory Drift instance per test (`AppDatabase.forTesting(NativeDatabase.memory())`), so there's no shared fixture state to worry about between test files.
 
 ## Lint baseline
 
 `analysis_options.yaml` extends `package:flutter_lints/flutter.yaml` with no custom rules or overrides. Run `flutter analyze` before declaring work complete.
+
+## Other gotchas
+
+- `pubspec.lock` is managed by `flutter pub get` — don't hand-edit it.
+- `android/app/build.gradle.kts` still uses `applicationId = "com.example.todonote"` and signs release builds with the debug config — needs fixing before a real release.
+- UI copy is Vietnamese by existing convention; match that tone/language for new user-facing strings.

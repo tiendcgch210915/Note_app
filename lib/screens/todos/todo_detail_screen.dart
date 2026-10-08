@@ -6,6 +6,9 @@ import '../../data/api_exception.dart';
 import '../../data/todos_repository.dart';
 import '../../models/todo.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/app_navigator.dart';
+import '../../utils/date_utils.dart';
+import '../../utils/focus_session_controller.dart';
 import '../../utils/frog_completion_events.dart';
 import '../../utils/habit_stacking_dialog.dart';
 import '../../utils/todo_delete_dialog.dart';
@@ -15,6 +18,9 @@ import '../../widgets/habit_link_chip.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/section_header.dart';
 import '../../widgets/tag_chip.dart';
+import '../../widgets/todo_detail_route_tracker.dart';
+import '../calendar/calendar_day_detail_screen.dart';
+import '../shell/home_shell_controller.dart';
 import 'todo_edit_screen.dart';
 
 /// TodoDetailScreen — màn hình "xem" đơn giản:
@@ -232,21 +238,21 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
   Future<void> _startFocus() async {
     final detail = _detail;
     if (detail == null || detail.todo.isDone) return;
-    var focusMinutes = detail.todo.estimatedMinutes;
-    if (focusMinutes == null || focusMinutes <= 0) {
-      focusMinutes = await _pickFocusDuration();
-      if (focusMinutes == null || focusMinutes <= 0) return;
+    final focusController = FocusSessionController.instance;
+    if (!focusController.isActiveFor(detail.todo.id)) {
+      final running = focusController.session.value;
+      if (running != null) {
+        final replace = await _confirmReplaceFocus(running.todo);
+        if (replace != true || !mounted) return;
+      }
+      var focusMinutes = detail.todo.estimatedMinutes;
+      if (focusMinutes == null || focusMinutes <= 0) {
+        focusMinutes = await _pickFocusDuration();
+        if (focusMinutes == null || focusMinutes <= 0 || !mounted) return;
+      }
+      focusController.start(detail, Duration(minutes: focusMinutes));
     }
-    if (!mounted) return;
-    final result = await Navigator.of(context).push<_TodoFocusResult>(
-      MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => _TodoFocusScreen(
-          detail: detail,
-          focusDuration: Duration(minutes: focusMinutes!),
-        ),
-      ),
-    );
+    final result = await openTodoFocusScreen(Navigator.of(context));
     if (result == null || !mounted) return;
     setState(() {
       _detail = _detailWith(todo: result.todo, subtasks: result.subtasks);
@@ -263,6 +269,29 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
         );
       });
     }
+  }
+
+  Future<bool?> _confirmReplaceFocus(Todo running) {
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Đang có phiên tập trung'),
+        content: Text(
+          'Bạn đang tập trung vào "${running.title}". '
+          'Bắt đầu việc này sẽ kết thúc phiên hiện tại.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Hủy'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Bắt đầu việc mới'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<int?> _pickFocusDuration() {
@@ -553,6 +582,13 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    return TodoDetailRouteTracker(
+      todoId: widget.todoId,
+      child: _buildContent(context),
+    );
+  }
+
+  Widget _buildContent(BuildContext context) {
     if (_loading && _detail == null) {
       return Scaffold(
         appBar: AppBar(),
@@ -700,10 +736,22 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: PrimaryButton(
-            label: todo.isDone ? 'Đã hoàn thành' : 'Bắt đầu',
-            icon: todo.isDone ? Icons.check_circle : Icons.play_arrow_rounded,
-            onPressed: todo.isDone ? null : _startFocus,
+          child: ValueListenableBuilder<FocusSession?>(
+            valueListenable: FocusSessionController.instance.session,
+            builder: (context, session, _) {
+              final resuming = session?.todo.id == todo.id;
+              return PrimaryButton(
+                label: todo.isDone
+                    ? 'Đã hoàn thành'
+                    : (resuming ? 'Tiếp tục tập trung' : 'Bắt đầu'),
+                icon: todo.isDone
+                    ? Icons.check_circle
+                    : (resuming
+                          ? Icons.timer_outlined
+                          : Icons.play_arrow_rounded),
+                onPressed: todo.isDone ? null : _startFocus,
+              );
+            },
           ),
         ),
       ),
@@ -717,67 +765,133 @@ int _compareSubtaskOrder(Todo a, Todo b) {
   return a.createdAt.compareTo(b.createdAt);
 }
 
-class _TodoFocusResult {
-  final Todo todo;
-  final List<Todo> subtasks;
-  final List<Todo> triggeredTodos;
-  final bool completedAll;
+/// Mở màn hình Focus cho phiên đang chạy. Trả về kết quả khi người dùng kết
+/// thúc/hoàn thành; rời bằng Home/Lịch/back trả về null và phiên vẫn chạy ngầm.
+Future<FocusSessionResult?> openTodoFocusScreen(
+  NavigatorState navigator,
+) async {
+  final controller = FocusSessionController.instance;
+  if (controller.session.value == null || controller.focusScreenOpen.value) {
+    return null;
+  }
+  controller.focusScreenOpen.value = true;
+  try {
+    return await navigator.push<FocusSessionResult>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => const TodoFocusScreen(),
+      ),
+    );
+  } finally {
+    controller.focusScreenOpen.value = false;
+  }
+}
 
-  const _TodoFocusResult({
-    required this.todo,
-    required this.subtasks,
-    required this.triggeredTodos,
-    required this.completedAll,
+/// Quay lại phiên đang chạy ngầm (từ banner toàn app). Không có
+/// TodoDetailScreen nào chờ kết quả nên ở đây xử lý nốt: mở lại trang chi tiết
+/// khi người dùng hủy bấm giờ, và gợi ý habit-stacking sau khi hoàn thành.
+///
+/// [detailBuilder] chỉ dùng trong test để không chạm repository thật.
+Future<void> resumeFocusSession({
+  Widget Function(String todoId)? detailBuilder,
+}) async {
+  final navigator = rootNavigatorKey.currentState;
+  final session = FocusSessionController.instance.session.value;
+  if (navigator == null || session == null) return;
+  Widget buildDetail(String todoId) =>
+      detailBuilder?.call(todoId) ?? TodoDetailScreen(todoId: todoId);
+
+  final detailBeneath = TodoDetailRouteTracker.currentTodoId == session.todo.id;
+  final result = await openTodoFocusScreen(navigator);
+  if (result == null) return;
+  if (!result.completedAll && !detailBeneath) {
+    navigator.push(
+      MaterialPageRoute(builder: (_) => buildDetail(result.todo.id)),
+    );
+  }
+  if (result.triggeredTodos.isNotEmpty) {
+    await Future<void>.delayed(const Duration(milliseconds: 650));
+  } else if (!result.completedAll) {
+    return;
+  }
+  final context = rootNavigatorKey.currentContext;
+  if (context == null || !context.mounted) return;
+  await showHabitStackingDialog(context, result.triggeredTodos, (todo) {
+    rootNavigatorKey.currentState?.push(
+      MaterialPageRoute(builder: (_) => buildDetail(todo.id)),
+    );
   });
 }
 
-class _TodoFocusScreen extends StatefulWidget {
-  final TodoWithRelations detail;
-  final Duration focusDuration;
+/// Màn hình "tập trung" cho 1 todo. State thực của phiên (đồng hồ, task hiện
+/// tại, triggeredTodos) sống trong [FocusSessionController] ở cấp app — màn
+/// hình này chỉ là view. Nhờ vậy khi người dùng bấm Home/Lịch để rời màn
+/// hình, đồng hồ vẫn tiếp tục chạy ngầm và có thể resume lại đúng tiến độ.
+///
+/// Nút back hệ thống chỉ thu nhỏ phiên xuống banner. Nút X luôn hỏi lại trước:
+/// "Trở lại" (về trang chủ, đồng hồ chạy tiếp) hoặc "Hủy bấm giờ" (dừng phiên).
+class TodoFocusScreen extends StatefulWidget {
+  /// Chỉ dùng trong test: thay màn hình lịch ngày để không chạm repository.
+  @visibleForTesting
+  final Widget Function(DateTime today)? todayCalendarBuilder;
 
-  const _TodoFocusScreen({required this.detail, required this.focusDuration});
+  const TodoFocusScreen({super.key, this.todayCalendarBuilder});
 
   @override
-  State<_TodoFocusScreen> createState() => _TodoFocusScreenState();
+  State<TodoFocusScreen> createState() => _TodoFocusScreenState();
 }
 
-class _TodoFocusScreenState extends State<_TodoFocusScreen> {
-  late Todo _todo = widget.detail.todo;
-  late List<Todo> _subtasks = [...widget.detail.subtasks];
-  late Duration _remaining = widget.focusDuration;
-  final List<Todo> _triggeredTodos = [];
-  Timer? _timer;
+enum _FocusLeaveChoice { back, cancelTimer }
+
+class _TodoFocusScreenState extends State<TodoFocusScreen> {
   bool _completing = false;
   bool _closed = false;
+  bool _leaveDialogOpen = false;
+  late FocusSession? _lastSession = _controller.session.value;
+
+  FocusSessionController get _controller => FocusSessionController.instance;
 
   @override
   void initState() {
     super.initState();
-    _timer = Timer.periodic(const Duration(seconds: 1), _tick);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && _currentTask == null) {
-        _completeParentAndExit();
-      }
-    });
+    _controller.session.addListener(_onSessionChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onSessionChanged());
   }
 
   @override
   void dispose() {
-    _timer?.cancel();
+    _controller.session.removeListener(_onSessionChanged);
     super.dispose();
   }
 
-  List<Todo> _childrenOf(String parentId) {
+  void _onSessionChanged() {
+    if (!mounted || _closed) return;
+    final session = _controller.session.value;
+    if (session == null) {
+      // Phiên bị hủy từ bên ngoài (todo bị xóa, đăng xuất...).
+      _closed = true;
+      _dismissLeaveDialog();
+      final route = ModalRoute.of(context);
+      if (route != null) Navigator.of(context).removeRoute(route);
+      return;
+    }
+    setState(() => _lastSession = session);
+    if (!_completing && _currentTaskOf(session) == null) {
+      unawaited(_completeParentAndExit());
+    }
+  }
+
+  List<Todo> _childrenOf(List<Todo> subtasks, String parentId) {
     final children =
-        _subtasks.where((subtask) => subtask.parentId == parentId).toList()
+        subtasks.where((subtask) => subtask.parentId == parentId).toList()
           ..sort(_compareSubtaskOrder);
     return children;
   }
 
-  List<Todo> _orderedLeafSubtasks(String parentId) {
+  List<Todo> _orderedLeafSubtasks(List<Todo> subtasks, String parentId) {
     final result = <Todo>[];
-    for (final child in _childrenOf(parentId)) {
-      final nested = _orderedLeafSubtasks(child.id);
+    for (final child in _childrenOf(subtasks, parentId)) {
+      final nested = _orderedLeafSubtasks(subtasks, child.id);
       if (nested.isEmpty) {
         result.add(child);
       } else {
@@ -787,20 +901,22 @@ class _TodoFocusScreenState extends State<_TodoFocusScreen> {
     return result;
   }
 
-  Todo? get _currentTask {
-    if (_subtasks.isEmpty) return _todo.isDone ? null : _todo;
-    for (final subtask in _orderedLeafSubtasks(_todo.id)) {
+  Todo? _currentTaskOf(FocusSession session) {
+    if (session.subtasks.isEmpty) {
+      return session.todo.isDone ? null : session.todo;
+    }
+    final leaves = _orderedLeafSubtasks(session.subtasks, session.todo.id);
+    for (final subtask in leaves) {
       if (!subtask.isDone) return subtask;
     }
-    return _todo.isDone ? null : _todo;
+    return session.todo.isDone ? null : session.todo;
   }
 
-  List<Todo> get _pendingSubtasks => _orderedLeafSubtasks(
-    _todo.id,
-  ).where((subtask) => !subtask.isDone).toList();
-
-  List<Todo> _nextSubtasksAfter(Todo current) {
-    final pending = _pendingSubtasks;
+  List<Todo> _nextSubtasksAfter(FocusSession session, Todo current) {
+    final pending = _orderedLeafSubtasks(
+      session.subtasks,
+      session.todo.id,
+    ).where((subtask) => !subtask.isDone).toList();
     final currentIndex = pending.indexWhere(
       (subtask) => subtask.id == current.id,
     );
@@ -808,18 +924,12 @@ class _TodoFocusScreenState extends State<_TodoFocusScreen> {
     return pending.skip(currentIndex + 1).toList();
   }
 
-  Todo? _subtaskById(String id) {
-    for (final subtask in _subtasks) {
-      if (subtask.id == id) return subtask;
-    }
-    return null;
-  }
-
-  List<Todo> _parentChainFor(Todo current) {
+  List<Todo> _parentChainFor(FocusSession session, Todo current) {
+    final byId = {for (final subtask in session.subtasks) subtask.id: subtask};
     final chain = <Todo>[];
     var parentId = current.parentId;
-    while (parentId != null && parentId != _todo.id) {
-      final parent = _subtaskById(parentId);
+    while (parentId != null && parentId != session.todo.id) {
+      final parent = byId[parentId];
       if (parent == null) break;
       chain.add(parent);
       parentId = parent.parentId;
@@ -827,119 +937,192 @@ class _TodoFocusScreenState extends State<_TodoFocusScreen> {
     return chain.reversed.toList(growable: false);
   }
 
-  void _tick(Timer timer) {
-    if (_remaining <= Duration.zero) {
-      timer.cancel();
-      return;
-    }
-    setState(() {
-      _remaining = _remaining - const Duration(seconds: 1);
-      if (_remaining < Duration.zero) _remaining = Duration.zero;
-    });
-  }
-
   Future<void> _completeCurrentTask() async {
-    if (_completing) return;
-    final current = _currentTask;
+    final session = _controller.session.value;
+    if (_completing || _closed || session == null) return;
+    final current = _currentTaskOf(session);
     if (current == null) {
       await _completeParentAndExit();
       return;
     }
     setState(() => _completing = true);
     try {
-      if (current.id == _todo.id) {
+      if (current.id == session.todo.id) {
         await _completeParentAndExit();
         return;
       }
       final res = await TodosRepository.instance.completeLocalFirst(current);
-      _addTriggered(res.triggeredTodos);
+      _controller.addTriggered(res.triggeredTodos);
       final reconciled = await TodosRepository.instance
           .reconcileSubtaskAncestorsLocalFirst(res.todo);
-      _addTriggered(reconciled.triggeredTodos);
-      if (!mounted) return;
-      setState(() {
-        _replaceFocusSubtasks([res.todo, ...reconciled.updatedTodos]);
-      });
-      if (_currentTask == null) {
+      _controller.addTriggered(reconciled.triggeredTodos);
+      _controller.updateSubtasks([res.todo, ...reconciled.updatedTodos]);
+      if (!mounted || _closed) return;
+      final updated = _controller.session.value;
+      if (updated == null || _currentTaskOf(updated) == null) {
         await _completeParentAndExit();
-      } else if (mounted) {
+      } else {
         setState(() => _completing = false);
       }
     } on ApiException catch (e) {
-      if (mounted) {
-        setState(() => _completing = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.vnMessage),
-            backgroundColor: AppColors.danger,
-          ),
-        );
-      }
+      _showFocusError(e);
     }
   }
 
   Future<void> _completeParentAndExit() async {
     if (_closed) return;
-    setState(() => _completing = true);
+    if (!_completing) setState(() => _completing = true);
     try {
-      if (!_todo.isDone) {
-        final res = await TodosRepository.instance.completeLocalFirst(_todo);
-        _todo = res.todo;
-        _addTriggered(res.triggeredTodos);
+      final todo = _controller.session.value?.todo;
+      if (todo != null && !todo.isDone) {
+        final res = await TodosRepository.instance.completeLocalFirst(todo);
+        _controller.updateSubtasks([res.todo]);
+        _controller.addTriggered(res.triggeredTodos);
       }
       _close(completedAll: true);
     } on ApiException catch (e) {
-      if (mounted) {
-        setState(() => _completing = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.vnMessage),
-            backgroundColor: AppColors.danger,
-          ),
-        );
-      }
+      _showFocusError(e);
     }
   }
 
-  void _addTriggered(List<Todo> todos) {
-    final existingIds = _triggeredTodos.map((todo) => todo.id).toSet();
-    for (final todo in todos) {
-      if (existingIds.add(todo.id)) _triggeredTodos.add(todo);
-    }
+  void _showFocusError(ApiException e) {
+    if (!mounted) return;
+    setState(() => _completing = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(e.vnMessage), backgroundColor: AppColors.danger),
+    );
   }
 
-  void _replaceFocusSubtasks(List<Todo> updatedTodos) {
-    final byId = {for (final todo in updatedTodos) todo.id: todo};
-    _subtasks = [for (final subtask in _subtasks) byId[subtask.id] ?? subtask];
-  }
-
+  /// Kết thúc phiên. Vẫn dọn controller dù màn hình đã bị đóng giữa chừng
+  /// (ví dụ người dùng bấm Home khi đang lưu) để không để lại banner mồ côi.
   void _close({required bool completedAll}) {
-    if (_closed || !mounted) return;
+    if (_closed) return;
     _closed = true;
-    Navigator.of(context).pop(
-      _TodoFocusResult(
-        todo: _todo,
-        subtasks: _subtasks,
-        triggeredTodos: _triggeredTodos,
-        completedAll: completedAll,
+    final result = _controller.finish(completedAll: completedAll);
+    if (!mounted) return;
+    _dismissLeaveDialog();
+    Navigator.of(context).pop(result);
+  }
+
+  /// Hỏi lại trước khi thoát để bấm nhầm X không làm mất phiên đang chạy.
+  /// Chạm ra ngoài hộp thoại (hoặc back) là ở lại màn hình Focus.
+  Future<void> _confirmLeave() async {
+    if (_closed || _completing || _leaveDialogOpen) return;
+    _leaveDialogOpen = true;
+    const bold = TextStyle(fontWeight: FontWeight.w700);
+    final choice = await showDialog<_FocusLeaveChoice>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Thoát bấm giờ?'),
+        content: const Text.rich(
+          TextSpan(
+            children: [
+              TextSpan(text: 'Trở lại', style: bold),
+              TextSpan(text: ': về trang chủ, đồng hồ vẫn tiếp tục chạy.\n\n'),
+              TextSpan(text: 'Hủy bấm giờ', style: bold),
+              TextSpan(
+                text: ': dừng đồng hồ và quay về trang chi tiết của việc này.',
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            key: const ValueKey('focus-leave-cancel'),
+            style: TextButton.styleFrom(foregroundColor: AppColors.danger),
+            onPressed: () =>
+                Navigator.of(ctx).pop(_FocusLeaveChoice.cancelTimer),
+            child: const Text('Hủy bấm giờ'),
+          ),
+          FilledButton(
+            key: const ValueKey('focus-leave-back'),
+            onPressed: () => Navigator.of(ctx).pop(_FocusLeaveChoice.back),
+            child: const Text('Trở lại'),
+          ),
+        ],
+      ),
+    );
+    _leaveDialogOpen = false;
+    if (!mounted || _closed) return;
+    switch (choice) {
+      case _FocusLeaveChoice.back:
+        _goHome();
+      case _FocusLeaveChoice.cancelTimer:
+        _close(completedAll: false);
+      case null:
+        break;
+    }
+  }
+
+  /// Đóng hộp thoại xác nhận nếu đang mở, để `pop` kế tiếp đóng đúng màn Focus
+  /// chứ không đóng nhầm hộp thoại. Bỏ qua nếu hộp thoại đã đang được đóng
+  /// (lúc đó màn Focus đã là route trên cùng).
+  void _dismissLeaveDialog() {
+    if (!_leaveDialogOpen) return;
+    _leaveDialogOpen = false;
+    if (ModalRoute.of(context)?.isCurrent == false) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  /// Về tab "Hôm nay". Không kết thúc phiên — đồng hồ chạy tiếp ở banner.
+  void _goHome() {
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    HomeShellController.instance.showToday();
+  }
+
+  /// Vào thẳng chi tiết lịch hôm nay (qua tab Lịch). Không kết thúc phiên.
+  void _goToTodayCalendar() {
+    final navigator = Navigator.of(context);
+    final today = AppDateUtils.dateOnly(DateTime.now());
+    final calendarBuilder = widget.todayCalendarBuilder;
+    navigator.popUntil((route) => route.isFirst);
+    HomeShellController.instance.setTab(4);
+    navigator.push(
+      MaterialPageRoute(
+        builder: (_) =>
+            calendarBuilder?.call(today) ??
+            CalendarDayDetailScreen(initialDate: today),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    final current = _currentTask;
+    final session = _lastSession;
+    if (session == null) return const Scaffold(body: SizedBox.shrink());
+    final current = _currentTaskOf(session);
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final secondary = isDark
         ? AppColors.textSecondaryDark
         : AppColors.textSecondary;
     return Scaffold(
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.close_rounded),
-          tooltip: 'Đóng',
-          onPressed: () => _close(completedAll: false),
+        leadingWidth: 96,
+        leading: Row(
+          children: [
+            IconButton(
+              key: const ValueKey('focus-home'),
+              icon: const Icon(Icons.home_rounded),
+              tooltip: 'Về trang chủ',
+              onPressed: _goHome,
+            ),
+            IconButton(
+              key: const ValueKey('focus-calendar'),
+              icon: const Icon(Icons.calendar_month_rounded),
+              tooltip: 'Lịch hôm nay',
+              onPressed: _goToTodayCalendar,
+            ),
+          ],
         ),
+        actions: [
+          IconButton(
+            key: const ValueKey('focus-close'),
+            icon: const Icon(Icons.close_rounded),
+            tooltip: 'Thoát bấm giờ',
+            onPressed: _completing ? null : _confirmLeave,
+          ),
+        ],
       ),
       body: SafeArea(
         child: GestureDetector(
@@ -956,10 +1139,10 @@ class _TodoFocusScreenState extends State<_TodoFocusScreen> {
                 : _FocusSessionPane(
                     key: ValueKey(current.id),
                     current: current,
-                    parentChain: _parentChainFor(current),
-                    nextSubtasks: _nextSubtasksAfter(current),
-                    remaining: _remaining,
-                    total: widget.focusDuration,
+                    parentChain: _parentChainFor(session, current),
+                    nextSubtasks: _nextSubtasksAfter(session, current),
+                    remaining: session.remaining,
+                    total: session.total,
                     secondary: secondary,
                     completing: _completing,
                   ),
@@ -1043,7 +1226,7 @@ class _FocusSessionPane extends StatelessWidget {
                               ),
                             ),
                             Text(
-                              _formatDuration(remaining),
+                              formatFocusDuration(remaining),
                               style: TextStyle(
                                 fontSize: 34,
                                 fontWeight: FontWeight.w800,
@@ -1428,17 +1611,6 @@ class _FireworksPainter extends CustomPainter {
   bool shouldRepaint(covariant _FireworksPainter oldDelegate) {
     return oldDelegate.progress != progress || oldDelegate.seed != seed;
   }
-}
-
-String _formatDuration(Duration duration) {
-  final safe = duration.isNegative ? Duration.zero : duration;
-  final hours = safe.inHours;
-  final minutes = safe.inMinutes.remainder(60);
-  final seconds = safe.inSeconds.remainder(60);
-  if (hours > 0) {
-    return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
-  }
-  return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
 }
 
 /// Hàng tiêu đề ở đầu màn hình — checkbox tròn + TextField inline editable.

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../data/api_exception.dart';
 import '../../data/checklists_repository.dart';
@@ -5,6 +7,7 @@ import '../../models/checklist_category.dart';
 import '../../models/run.dart';
 import '../../models/template.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/checklist_local_events.dart';
 import '../../utils/date_utils.dart';
 import '../../widgets/empty_state.dart';
 import 'run_detail_screen.dart';
@@ -26,42 +29,97 @@ class _ChecklistsScreenState extends State<ChecklistsScreen>
   List<Run> _runs = [];
   String? _selectedCategoryId;
   bool _showUncategorized = false;
-  bool _loading = false;
+
+  /// Đã đọc xong cache Drift ít nhất một lần (kể cả khi cache rỗng).
+  bool _localLoaded = false;
+
+  /// Số lượt làm mới từ server đang chạy.
+  int _inFlight = 0;
+
+  bool get _refreshing => _inFlight > 0;
+  bool get _hasData =>
+      _templates.isNotEmpty || _runs.isNotEmpty || _categories.isNotEmpty;
 
   @override
   void initState() {
     super.initState();
+    ChecklistLocalEvents.instance.addListener(_onLocalChanged);
     _refresh();
   }
 
   @override
   void dispose() {
+    ChecklistLocalEvents.instance.removeListener(_onLocalChanged);
     _tab.dispose();
     super.dispose();
   }
 
+  void _onLocalChanged() => unawaited(_loadLocal());
+
+  /// Hiện ngay dữ liệu đã lưu trong SQLite, sau đó mới hỏi server.
   Future<void> _refresh() async {
-    setState(() => _loading = true);
+    await _loadLocal();
+    await _revalidate();
+  }
+
+  Future<void> _loadLocal() async {
+    final repo = ChecklistsRepository.instance;
+    final categoryId = _selectedCategoryId;
+    final uncategorized = _showUncategorized;
+    final categories = await repo.listCategoriesLocal();
+    final templates = await repo.listTemplatesLocal(
+      categoryId: categoryId,
+      uncategorized: uncategorized,
+    );
+    final runs = await repo.listRunsLocal(limit: 20);
+    // Người dùng đã đổi bộ lọc trong lúc chờ → kết quả này không còn đúng.
+    if (!mounted ||
+        categoryId != _selectedCategoryId ||
+        uncategorized != _showUncategorized) {
+      return;
+    }
+    setState(() {
+      _categories = categories;
+      _templates = templates;
+      _runs = runs.items;
+      _localLoaded = true;
+    });
+  }
+
+  /// Lấy dữ liệu mới nhất từ server (repository tự ghi vào Drift), rồi vẽ lại
+  /// ngay khi có kết quả. Lỗi tạm thời không báo nếu đã có dữ liệu để xem.
+  Future<void> _revalidate() async {
+    if (!mounted) return;
+    final categoryId = _selectedCategoryId;
+    final uncategorized = _showUncategorized;
+    setState(() => _inFlight++);
     try {
-      final catFut = ChecklistsRepository.instance.listCategories(scope: 'all');
-      final tplFut = ChecklistsRepository.instance.listTemplates(
-        scope: 'all',
-        categoryId: _selectedCategoryId,
-        uncategorized: _showUncategorized,
-      );
-      final runsFut = ChecklistsRepository.instance.listRuns(limit: 20);
-      final results = await Future.wait([catFut, tplFut, runsFut]);
-      if (!mounted) return;
+      final repo = ChecklistsRepository.instance;
+      final results = await Future.wait([
+        repo.listCategories(scope: 'all'),
+        repo.listTemplates(
+          scope: 'all',
+          categoryId: categoryId,
+          uncategorized: uncategorized,
+        ),
+        repo.listRuns(limit: 20),
+      ]);
+      if (!mounted ||
+          categoryId != _selectedCategoryId ||
+          uncategorized != _showUncategorized) {
+        return;
+      }
       final runsRes = results[2] as ({List<Run> items, String? nextCursor});
       setState(() {
         _categories = results[0] as List<ChecklistCategory>;
         _templates = results[1] as List<Template>;
         _runs = runsRes.items;
+        _localLoaded = true;
       });
     } on ApiException catch (e) {
-      if (mounted) _showError(e.vnMessage);
+      if (mounted && (!_hasData || !e.isRetryable)) _showError(e.vnMessage);
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => _inFlight--);
     }
   }
 
@@ -187,24 +245,31 @@ class _ChecklistsScreenState extends State<ChecklistsScreen>
               )
             : const SizedBox.shrink(),
       ),
-      body: _loading && _templates.isEmpty && _runs.isEmpty
+      body: !_localLoaded || (_refreshing && !_hasData)
           ? const Center(child: CircularProgressIndicator())
-          : TabBarView(
-              controller: _tab,
+          : Column(
               children: [
-                _TemplatesTab(
-                  templates: _templates,
-                  categories: _categories,
-                  selectedCategoryId: _selectedCategoryId,
-                  showUncategorized: _showUncategorized,
-                  onFilterChanged: _selectCategoryFilter,
-                  onReorder: _reorderTemplates,
-                  onChanged: _refresh,
-                ),
-                _RunsTab(
-                  runs: _runs,
-                  onDelete: _deleteRun,
-                  onChanged: _refresh,
+                if (_refreshing) const LinearProgressIndicator(minHeight: 2),
+                Expanded(
+                  child: TabBarView(
+                    controller: _tab,
+                    children: [
+                      _TemplatesTab(
+                        templates: _templates,
+                        categories: _categories,
+                        selectedCategoryId: _selectedCategoryId,
+                        showUncategorized: _showUncategorized,
+                        onFilterChanged: _selectCategoryFilter,
+                        onReorder: _reorderTemplates,
+                        onChanged: _refresh,
+                      ),
+                      _RunsTab(
+                        runs: _runs,
+                        onDelete: _deleteRun,
+                        onChanged: _refresh,
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),

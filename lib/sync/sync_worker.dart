@@ -8,6 +8,7 @@ import '../data/api_exception.dart';
 import '../data/auth_storage.dart';
 import '../data/local/database.dart';
 import '../data/remote/api_client_dio.dart';
+import '../utils/checklist_local_events.dart';
 import '../utils/dashboard_local_events.dart';
 import '../utils/note_delta_utils.dart';
 import '../utils/note_local_events.dart';
@@ -1339,6 +1340,7 @@ class SyncWorker {
     TodoLocalEvents.instance.notifyChanged();
     DashboardLocalEvents.instance.notifyChanged();
     NoteLocalEvents.instance.notifyChanged();
+    ChecklistLocalEvents.instance.notifyChanged();
   }
 
   Future<void> _reconcileNoteRelations(

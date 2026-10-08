@@ -1,8 +1,12 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import '../../data/api_exception.dart';
 import '../../data/checklists_repository.dart';
 import '../../models/run.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/checklist_local_events.dart';
 import '../../utils/date_utils.dart';
 import '../../widgets/empty_state.dart';
 import 'run_detail_screen.dart';
@@ -16,33 +20,71 @@ class RunsHistoryScreen extends StatefulWidget {
 }
 
 class _RunsHistoryScreenState extends State<RunsHistoryScreen> {
+  static const _pageSize = 20;
+
   List<Run> _runs = [];
   String? _cursor;
-  bool _loading = false;
+
+  /// Đã đọc xong cache Drift ít nhất một lần (kể cả khi cache rỗng).
+  bool _localLoaded = false;
+  int _inFlight = 0;
+
+  bool get _refreshing => _inFlight > 0;
 
   @override
   void initState() {
     super.initState();
+    ChecklistLocalEvents.instance.addListener(_onLocalChanged);
     _refresh();
   }
 
+  @override
+  void dispose() {
+    ChecklistLocalEvents.instance.removeListener(_onLocalChanged);
+    super.dispose();
+  }
+
+  void _onLocalChanged() => unawaited(_loadLocal());
+
+  /// Hiện ngay lịch sử đã lưu trong SQLite, sau đó mới hỏi server.
   Future<void> _refresh() async {
-    setState(() => _loading = true);
+    await _loadLocal();
+    await _revalidate();
+  }
+
+  Future<void> _loadLocal() async {
+    // Giữ nguyên số dòng đã cuộn tới để cập nhật nền không làm danh sách ngắn lại.
+    final res = await ChecklistsRepository.instance.listRunsLocal(
+      limit: math.max(_pageSize, _runs.length),
+    );
+    if (!mounted) return;
+    setState(() {
+      _runs = res.items;
+      _localLoaded = true;
+    });
+  }
+
+  Future<void> _revalidate() async {
+    if (!mounted) return;
+    setState(() => _inFlight++);
     try {
-      final res = await ChecklistsRepository.instance.listRuns(limit: 20);
+      final res = await ChecklistsRepository.instance.listRuns(
+        limit: _pageSize,
+      );
       if (!mounted) return;
       setState(() {
         _runs = res.items;
         _cursor = res.nextCursor;
+        _localLoaded = true;
       });
     } on ApiException catch (e) {
-      if (mounted) {
+      if (mounted && (_runs.isEmpty || !e.isRetryable)) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text(e.vnMessage)));
       }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() => _inFlight--);
     }
   }
 
@@ -90,7 +132,7 @@ class _RunsHistoryScreenState extends State<RunsHistoryScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Lịch sử run')),
-      body: _loading && _runs.isEmpty
+      body: !_localLoaded || (_refreshing && _runs.isEmpty)
           ? const Center(child: CircularProgressIndicator())
           : _runs.isEmpty
           ? const EmptyState(icon: Icons.history, title: 'Chưa có run nào')

@@ -5,6 +5,7 @@ import '../../sync/connectivity_sync.dart';
 import '../../sync/sync_status_notifier.dart';
 import '../../sync/sync_worker.dart';
 import '../../theme/app_colors.dart';
+import '../../utils/focus_session_controller.dart';
 import '../auth/login_screen.dart';
 import '../calendar/calendar_screen.dart';
 import '../checklists/checklists_screen.dart';
@@ -296,6 +297,7 @@ class _AppDrawer extends StatelessWidget {
   const _AppDrawer();
 
   Future<void> _logout(BuildContext context) async {
+    FocusSessionController.instance.cancel();
     await AuthRepository.instance.logout();
     ConnectivitySync.instance.cancelPending();
     if (!context.mounted) return;

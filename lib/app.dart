@@ -12,6 +12,9 @@ import 'data/remote/api_client_dio.dart';
 import 'sync/connectivity_sync.dart';
 import 'sync/sync_worker.dart';
 import 'theme/app_theme.dart';
+import 'utils/app_navigator.dart';
+import 'utils/focus_session_controller.dart';
+import 'widgets/focus_session_banner.dart';
 import 'widgets/frog_completion_celebration.dart';
 
 /// Controller cho ThemeMode — expose qua AppThemeScope (InheritedWidget).
@@ -98,6 +101,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
     // 6. Listen for 401 → force back to login
     needsReLoginNotifier.stream.listen((_) {
+      FocusSessionController.instance.cancel();
       if (mounted) {
         setState(() {
           _isAuthenticated = false;
@@ -130,6 +134,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         builder: (ctx, mode, _) {
           return MaterialApp(
             title: 'Productivity',
+            navigatorKey: rootNavigatorKey,
             debugShowCheckedModeBanner: false,
             localizationsDelegates: const [
               GlobalMaterialLocalizations.delegate,
@@ -142,7 +147,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             darkTheme: AppTheme.dark(),
             themeMode: mode,
             builder: (context, child) => FrogCompletionCelebrationHost(
-              child: child ?? const SizedBox.shrink(),
+              child: FocusSessionBannerHost(
+                child: child ?? const SizedBox.shrink(),
+              ),
             ),
             home: _isReady
                 ? (_isAuthenticated ? const HomeShell() : const LoginScreen())

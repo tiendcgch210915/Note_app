@@ -84,48 +84,55 @@ class _RegisterScreenState extends State<RegisterScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 24),
           child: Center(
             child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const SizedBox(height: 24),
-                  const Icon(
-                    Icons.task_alt,
-                    size: 56,
-                    color: AppColors.primary,
-                  ),
-                  const SizedBox(height: 24),
-                  TextField(
-                    controller: _name,
-                    decoration: const InputDecoration(
-                      hintText: 'Tên hiển thị',
-                      prefixIcon: Icon(Icons.person_outline),
+              child: AutofillGroup(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const SizedBox(height: 24),
+                    const Icon(
+                      Icons.task_alt,
+                      size: 56,
+                      color: AppColors.primary,
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _email,
-                    keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(
-                      hintText: 'Email',
-                      prefixIcon: Icon(Icons.alternate_email),
+                    const SizedBox(height: 24),
+                    TextField(
+                      controller: _name,
+                      decoration: const InputDecoration(
+                        hintText: 'Tên hiển thị',
+                        prefixIcon: Icon(Icons.person_outline),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _password,
-                    obscureText: true,
-                    decoration: const InputDecoration(
-                      hintText: 'Mật khẩu (≥ 8 ký tự)',
-                      prefixIcon: Icon(Icons.lock_outline),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _email,
+                      keyboardType: TextInputType.emailAddress,
+                      autofillHints: const [AutofillHints.email],
+                      decoration: const InputDecoration(
+                        hintText: 'Email',
+                        prefixIcon: Icon(Icons.alternate_email),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 20),
-                  PrimaryButton(
-                    label: 'Tạo tài khoản',
-                    loading: _loading,
-                    onPressed: _submit,
-                  ),
-                ],
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _password,
+                      obscureText: true,
+                      autofillHints: const [
+                        AutofillHints.newPassword,
+                        AutofillHints.password,
+                      ],
+                      decoration: const InputDecoration(
+                        hintText: 'Mật khẩu (≥ 8 ký tự)',
+                        prefixIcon: Icon(Icons.lock_outline),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    PrimaryButton(
+                      label: 'Tạo tài khoản',
+                      loading: _loading,
+                      onPressed: _submit,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

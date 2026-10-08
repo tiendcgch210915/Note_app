@@ -53,38 +53,38 @@ void main() {
     expect(_richTextContaining('[18:00]'), findsOneWidget);
   });
 
-  testWidgets('occupied hours show half-hour marks and position details', (
+  testWidgets('half-hour mark shows only when both halves have todos', (
     tester,
   ) async {
+    CalendarDayTodo todo(String id, int minute) {
+      final hour = (minute ~/ 60).toString().padLeft(2, '0');
+      final min = (minute % 60).toString().padLeft(2, '0');
+      return CalendarDayTodo(
+        id: id,
+        title: 'Todo $id',
+        status: 'open',
+        position: minute,
+        scheduledDate: null,
+        time: '$hour:$min',
+        minutesSinceMidnight: minute,
+        isFrog: false,
+        isImportant: false,
+        isUrgent: false,
+        hasSubtasks: false,
+      );
+    }
+
     final detail = _detail(
       currentVisible: false,
-      timedTodos: const [
-        CalendarDayTodo(
-          id: '4h15',
-          title: 'Todo lúc 4:15',
-          status: 'open',
-          position: 1,
-          scheduledDate: null,
-          time: '04:15',
-          minutesSinceMidnight: 255,
-          isFrog: false,
-          isImportant: false,
-          isUrgent: false,
-          hasSubtasks: false,
-        ),
-        CalendarDayTodo(
-          id: '6h30',
-          title: 'Todo lúc 6:30',
-          status: 'open',
-          position: 2,
-          scheduledDate: null,
-          time: '06:30',
-          minutesSinceMidnight: 390,
-          isFrog: false,
-          isImportant: false,
-          isUrgent: false,
-          hasSubtasks: false,
-        ),
+      timedTodos: [
+        todo('4h15', 255),
+        todo('4h45', 285),
+        todo('6h30', 390),
+        todo('8h10', 490),
+        todo('8h20', 500),
+        todo('10h40', 640),
+        todo('10h50', 650),
+        todo('10h55', 655),
       ],
     );
 
@@ -94,14 +94,13 @@ void main() {
       find.byKey(const ValueKey('calendar-half-hour-label-270')),
       findsOneWidget,
     );
-    expect(
-      find.byKey(const ValueKey('calendar-half-hour-label-330')),
-      findsNothing,
-    );
-    expect(
-      find.byKey(const ValueKey('calendar-half-hour-label-390')),
-      findsOneWidget,
-    );
+    for (final minute in [330, 390, 510, 630]) {
+      expect(
+        find.byKey(ValueKey('calendar-half-hour-label-$minute')),
+        findsNothing,
+        reason: 'no :30 mark expected at minute $minute',
+      );
+    }
 
     final fourTop = tester
         .getTopLeft(find.byKey(const ValueKey('calendar-hour-label-240')))
@@ -112,16 +111,13 @@ void main() {
     final todo415Top = tester
         .getTopLeft(find.byKey(const ValueKey('calendar-todo-4h15')))
         .dy;
-    final sixThirtyTop = tester
-        .getTopLeft(find.byKey(const ValueKey('calendar-half-hour-label-390')))
-        .dy;
-    final todo630Top = tester
-        .getTopLeft(find.byKey(const ValueKey('calendar-todo-6h30')))
+    final todo445Top = tester
+        .getTopLeft(find.byKey(const ValueKey('calendar-todo-4h45')))
         .dy;
 
     expect(todo415Top, greaterThan(fourTop));
     expect(todo415Top, lessThan(fourThirtyTop));
-    expect(todo630Top, closeTo(sixThirtyTop, 1));
+    expect(todo445Top, greaterThan(fourThirtyTop));
   });
 
   testWidgets('same-hour todos expand the hour instead of spilling into next', (
@@ -215,11 +211,13 @@ void main() {
 
     await _pumpTimeline(tester, detail);
 
+    expect(
+      find.byKey(const ValueKey('calendar-half-hour-label-930')),
+      findsNothing,
+    );
+
     final fifteenTop = tester
         .getTopLeft(find.byKey(const ValueKey('calendar-hour-label-900')))
-        .dy;
-    final fifteenThirtyTop = tester
-        .getTopLeft(find.byKey(const ValueKey('calendar-half-hour-label-930')))
         .dy;
     final sixteenTop = tester
         .getTopLeft(find.byKey(const ValueKey('calendar-hour-label-960')))
@@ -237,9 +235,8 @@ void main() {
         .getBottomLeft(find.byKey(const ValueKey('calendar-todo-15h45')))
         .dy;
 
-    expect(fifteenThirtyTop - fifteenTop, lessThan(40));
-    expect(sixteenTop - fifteenThirtyTop, greaterThan(120));
-    expect(firstTodoTop, closeTo(fifteenThirtyTop, 1));
+    expect(firstTodoTop - fifteenTop, lessThan(40));
+    expect(sixteenTop - firstTodoTop, greaterThan(120));
     expect(secondTodoTop, greaterThanOrEqualTo(firstTodoBottom));
     expect(secondTodoBottom, lessThanOrEqualTo(sixteenTop));
   });
@@ -369,57 +366,56 @@ void main() {
     expect(sixTodoBottom, closeTo((sevenTop + eightTop) / 2, 1));
   });
 
-  testWidgets(
-    'duration continuation hours do not create unnecessary half-hour marks',
-    (tester) async {
-      final detail = _detail(
-        currentVisible: false,
-        timedTodos: const [
-          CalendarDayTodo(
-            id: '19h',
-            title: 'Phiên tập trung dài',
-            status: 'open',
-            position: 1,
-            scheduledDate: null,
-            time: '19:00',
-            minutesSinceMidnight: 1140,
-            estimatedMinutes: 150,
-            isFrog: false,
-            isImportant: false,
-            isUrgent: false,
-            hasSubtasks: false,
-          ),
-        ],
-      );
+  testWidgets('single todo with a long duration shows no half-hour marks', (
+    tester,
+  ) async {
+    final detail = _detail(
+      currentVisible: false,
+      timedTodos: const [
+        CalendarDayTodo(
+          id: '19h',
+          title: 'Phiên tập trung dài',
+          status: 'open',
+          position: 1,
+          scheduledDate: null,
+          time: '19:00',
+          minutesSinceMidnight: 1140,
+          estimatedMinutes: 150,
+          isFrog: false,
+          isImportant: false,
+          isUrgent: false,
+          hasSubtasks: false,
+        ),
+      ],
+    );
 
-      await _pumpTimeline(tester, detail);
+    await _pumpTimeline(tester, detail);
 
-      expect(
-        find.byKey(const ValueKey('calendar-half-hour-label-1170')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey('calendar-half-hour-label-1230')),
-        findsNothing,
-      );
-      expect(
-        find.byKey(const ValueKey('calendar-half-hour-label-1290')),
-        findsNothing,
-      );
+    expect(
+      find.byKey(const ValueKey('calendar-half-hour-label-1170')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('calendar-half-hour-label-1230')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('calendar-half-hour-label-1290')),
+      findsNothing,
+    );
 
-      final twentyOneTop = tester
-          .getTopLeft(find.byKey(const ValueKey('calendar-hour-label-1260')))
-          .dy;
-      final twentyTwoTop = tester
-          .getTopLeft(find.byKey(const ValueKey('calendar-hour-label-1320')))
-          .dy;
-      final todoBottom = tester
-          .getBottomLeft(find.byKey(const ValueKey('calendar-todo-19h')))
-          .dy;
+    final twentyOneTop = tester
+        .getTopLeft(find.byKey(const ValueKey('calendar-hour-label-1260')))
+        .dy;
+    final twentyTwoTop = tester
+        .getTopLeft(find.byKey(const ValueKey('calendar-hour-label-1320')))
+        .dy;
+    final todoBottom = tester
+        .getBottomLeft(find.byKey(const ValueKey('calendar-todo-19h')))
+        .dy;
 
-      expect(todoBottom, closeTo((twentyOneTop + twentyTwoTop) / 2, 1));
-    },
-  );
+    expect(todoBottom, closeTo((twentyOneTop + twentyTwoTop) / 2, 1));
+  });
 
   testWidgets('done timed todos render muted and compact', (tester) async {
     final detail = _detail(
@@ -508,8 +504,8 @@ void main() {
 
     await _pumpTimeline(tester, detail);
 
-    final fifteenThirtyTop = tester
-        .getTopLeft(find.byKey(const ValueKey('calendar-half-hour-label-930')))
+    final firstTop = tester
+        .getTopLeft(find.byKey(const ValueKey('calendar-todo-done-1530')))
         .dy;
     final sixteenTop = tester
         .getTopLeft(find.byKey(const ValueKey('calendar-hour-label-960')))
@@ -524,7 +520,7 @@ void main() {
         .getBottomLeft(find.byKey(const ValueKey('calendar-todo-done-1545')))
         .dy;
 
-    expect(sixteenTop - fifteenThirtyTop, lessThan(96));
+    expect(sixteenTop - firstTop, lessThan(96));
     expect(secondTop, greaterThanOrEqualTo(firstBottom));
     expect(secondBottom, lessThanOrEqualTo(sixteenTop));
   });
@@ -681,6 +677,19 @@ void main() {
           isUrgent: false,
           hasSubtasks: false,
         ),
+        CalendarDayTodo(
+          id: '4h45',
+          title: 'Todo lúc 4:45',
+          status: 'open',
+          position: 2,
+          scheduledDate: null,
+          time: '04:45',
+          minutesSinceMidnight: 285,
+          isFrog: false,
+          isImportant: false,
+          isUrgent: false,
+          hasSubtasks: false,
+        ),
       ],
     );
 
@@ -697,6 +706,70 @@ void main() {
       find.byKey(const ValueKey('calendar-half-hour-label-270')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('current time is not nudged by a half-hour mark that is hidden', (
+    tester,
+  ) async {
+    CalendarDayTodo todo(String id, int minute) {
+      final hour = (minute ~/ 60).toString().padLeft(2, '0');
+      final min = (minute % 60).toString().padLeft(2, '0');
+      return CalendarDayTodo(
+        id: id,
+        title: 'Todo $id',
+        status: 'open',
+        position: minute,
+        scheduledDate: null,
+        time: '$hour:$min',
+        minutesSinceMidnight: minute,
+        isFrog: false,
+        isImportant: false,
+        isUrgent: false,
+        hasSubtasks: false,
+      );
+    }
+
+    final now = DateTime(2026, 6, 26, 4, 29);
+
+    await _pumpTimeline(
+      tester,
+      _detail(currentVisible: true, timedTodos: [todo('a', 255)]),
+      now: now,
+    );
+    final fourTop = tester
+        .getTopLeft(find.byKey(const ValueKey('calendar-hour-mark-240')))
+        .dy;
+    final withoutMark =
+        tester
+            .getTopLeft(
+              find.byKey(const ValueKey('calendar-current-time-line')),
+            )
+            .dy -
+        fourTop;
+
+    await _pumpTimeline(
+      tester,
+      _detail(
+        currentVisible: true,
+        timedTodos: [todo('a', 255), todo('b', 285)],
+      ),
+      now: now,
+    );
+    final withMark =
+        tester
+            .getTopLeft(
+              find.byKey(const ValueKey('calendar-current-time-line')),
+            )
+            .dy -
+        tester
+            .getTopLeft(find.byKey(const ValueKey('calendar-hour-mark-240')))
+            .dy;
+
+    expect(
+      find.byKey(const ValueKey('calendar-half-hour-label-270')),
+      findsNothing,
+    );
+    expect(withoutMark, greaterThan(withMark));
   });
 
   testWidgets('current time stays before hidden future hour mark', (
@@ -741,10 +814,23 @@ void main() {
         currentVisible: false,
         timedTodos: const [
           CalendarDayTodo(
+            id: '710',
+            title: 'Todo đầu giờ',
+            status: 'open',
+            position: 1,
+            scheduledDate: null,
+            time: '07:10',
+            minutesSinceMidnight: 430,
+            isFrog: false,
+            isImportant: false,
+            isUrgent: false,
+            hasSubtasks: false,
+          ),
+          CalendarDayTodo(
             id: '740',
             title: 'WordyGo application',
             status: 'open',
-            position: 1,
+            position: 2,
             scheduledDate: null,
             time: '07:40',
             minutesSinceMidnight: 460,
@@ -771,9 +857,7 @@ void main() {
     },
   );
 
-  testWidgets('exact half-hour slot height fits the number of todos', (
-    tester,
-  ) async {
+  testWidgets('occupied hour height fits the number of todos', (tester) async {
     final oneTodoDetail = _detail(
       currentVisible: false,
       timedTodos: const [
@@ -798,15 +882,19 @@ void main() {
     final thirteenTop = tester
         .getTopLeft(find.byKey(const ValueKey('calendar-hour-label-780')))
         .dy;
-    final thirteenThirtyTop = tester
-        .getTopLeft(find.byKey(const ValueKey('calendar-half-hour-label-810')))
+    final fourteenTop = tester
+        .getTopLeft(find.byKey(const ValueKey('calendar-hour-label-840')))
         .dy;
     final todoBottom = tester
         .getBottomLeft(find.byKey(const ValueKey('calendar-todo-gym')))
         .dy;
 
-    expect(thirteenThirtyTop - thirteenTop, lessThan(90));
-    expect(thirteenThirtyTop - todoBottom, inInclusiveRange(6, 18));
+    expect(
+      find.byKey(const ValueKey('calendar-half-hour-label-810')),
+      findsNothing,
+    );
+    expect(fourteenTop - thirteenTop, lessThan(100));
+    expect(fourteenTop - todoBottom, inInclusiveRange(6, 40));
 
     final twoTodosDetail = _detail(
       currentVisible: false,
@@ -842,19 +930,17 @@ void main() {
 
     await _pumpTimeline(tester, twoTodosDetail);
 
-    final oneSlotHeight = thirteenThirtyTop - thirteenTop;
-    final twoSlotHeight =
+    final oneHourHeight = fourteenTop - thirteenTop;
+    final twoHourHeight =
         tester
-            .getTopLeft(
-              find.byKey(const ValueKey('calendar-half-hour-label-810')),
-            )
+            .getTopLeft(find.byKey(const ValueKey('calendar-hour-label-840')))
             .dy -
         tester
             .getTopLeft(find.byKey(const ValueKey('calendar-hour-label-780')))
             .dy;
 
-    expect(twoSlotHeight, greaterThan(oneSlotHeight));
-    expect(twoSlotHeight, lessThan(150));
+    expect(twoHourHeight, greaterThan(oneHourHeight));
+    expect(twoHourHeight, lessThan(170));
   });
 
   testWidgets(
@@ -942,6 +1028,245 @@ void main() {
       );
     },
   );
+
+  group('centering the current time line', () {
+    final todo = const CalendarDayTodo(
+      id: 'noon',
+      title: 'Việc buổi trưa',
+      status: 'open',
+      position: 1,
+      scheduledDate: null,
+      time: '12:00',
+      minutesSinceMidnight: 720,
+      isFrog: false,
+      isImportant: false,
+      isUrgent: false,
+      hasSubtasks: false,
+    );
+
+    Future<void> pump(
+      WidgetTester tester, {
+      required CalendarDayDetail detail,
+      required bool center,
+      DateTime? now,
+    }) async {
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListView(
+              children: [
+                CalendarDayTimeline(
+                  key: const ValueKey('timeline'),
+                  detail: detail,
+                  now: now ?? DateTime(2026, 6, 26, 16, 44),
+                  centerCurrentTimeOnShow: center,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    double offset(WidgetTester tester) =>
+        tester.state<ScrollableState>(find.byType(Scrollable)).position.pixels;
+
+    testWidgets('puts the red line in the middle of the viewport', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        detail: _detail(currentVisible: true, timedTodos: [todo]),
+        center: true,
+      );
+
+      final lineCenter = tester
+          .getCenter(find.byKey(const ValueKey('calendar-current-time-line')))
+          .dy;
+      final viewportCenter = tester.getCenter(find.byType(ListView)).dy;
+
+      expect(offset(tester), greaterThan(0));
+      expect(lineCenter, closeTo(viewportCenter, 12));
+    });
+
+    testWidgets('does nothing unless requested', (tester) async {
+      await pump(
+        tester,
+        detail: _detail(currentVisible: true, timedTodos: [todo]),
+        center: false,
+      );
+
+      expect(offset(tester), 0);
+    });
+
+    testWidgets('does nothing for a day without the red line', (tester) async {
+      await pump(
+        tester,
+        detail: _detail(currentVisible: false, timedTodos: [todo]),
+        center: true,
+      );
+
+      expect(offset(tester), 0);
+    });
+
+    testWidgets('centers only once, later rebuilds keep the user position', (
+      tester,
+    ) async {
+      final detail = _detail(currentVisible: true, timedTodos: [todo]);
+      await pump(tester, detail: detail, center: true);
+      expect(offset(tester), greaterThan(0));
+
+      tester.state<ScrollableState>(find.byType(Scrollable)).position.jumpTo(0);
+      await tester.pump();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListView(
+              children: [
+                CalendarDayTimeline(
+                  key: const ValueKey('timeline'),
+                  detail: detail,
+                  now: DateTime(2026, 6, 26, 16, 45),
+                  centerCurrentTimeOnShow: true,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(offset(tester), 0);
+    });
+  });
+
+  group('two-line title with meta chips', () {
+    const longTitle =
+        'Hoàn thiện báo cáo tổng kết quý và gửi cho toàn bộ các bên liên quan';
+
+    testWidgets('card grows instead of overflowing when duration is set', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(360, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      final detail = _detail(
+        currentVisible: false,
+        timedTodos: const [
+          CalendarDayTodo(
+            id: 'long',
+            title: longTitle,
+            status: 'open',
+            position: 1,
+            scheduledDate: null,
+            time: '09:00',
+            minutesSinceMidnight: 540,
+            estimatedMinutes: 30,
+            isFrog: false,
+            isImportant: false,
+            isUrgent: false,
+            hasSubtasks: true,
+          ),
+          CalendarDayTodo(
+            id: 'next',
+            title: 'Việc kế tiếp',
+            status: 'open',
+            position: 2,
+            scheduledDate: null,
+            time: '10:00',
+            minutesSinceMidnight: 600,
+            isFrog: false,
+            isImportant: false,
+            isUrgent: false,
+            hasSubtasks: false,
+          ),
+        ],
+      );
+
+      await _pumpTimeline(tester, detail);
+
+      expect(tester.takeException(), isNull);
+
+      final longSize = tester.getSize(
+        find.byKey(const ValueKey('calendar-todo-long')),
+      );
+      final longBottom = tester
+          .getBottomLeft(find.byKey(const ValueKey('calendar-todo-long')))
+          .dy;
+      final nextTop = tester
+          .getTopLeft(find.byKey(const ValueKey('calendar-todo-next')))
+          .dy;
+
+      expect(longSize.height, greaterThan(60));
+      expect(nextTop, greaterThanOrEqualTo(longBottom));
+    });
+
+    testWidgets('same-time todos stack without overlap or overflow', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(360, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+
+      final detail = _detail(
+        currentVisible: false,
+        timedTodos: const [
+          CalendarDayTodo(
+            id: 'long',
+            title: longTitle,
+            status: 'open',
+            position: 1,
+            scheduledDate: null,
+            time: '09:00',
+            minutesSinceMidnight: 540,
+            isFrog: false,
+            isImportant: false,
+            isUrgent: false,
+            hasSubtasks: true,
+          ),
+          CalendarDayTodo(
+            id: 'short',
+            title: 'Việc ngắn',
+            status: 'open',
+            position: 2,
+            scheduledDate: null,
+            time: '09:00',
+            minutesSinceMidnight: 540,
+            isFrog: false,
+            isImportant: false,
+            isUrgent: false,
+            hasSubtasks: false,
+          ),
+        ],
+      );
+
+      await _pumpTimeline(tester, detail);
+
+      expect(tester.takeException(), isNull);
+
+      final longBottom = tester
+          .getBottomLeft(find.byKey(const ValueKey('calendar-todo-long')))
+          .dy;
+      final shortTop = tester
+          .getTopLeft(find.byKey(const ValueKey('calendar-todo-short')))
+          .dy;
+      final shortBottom = tester
+          .getBottomLeft(find.byKey(const ValueKey('calendar-todo-short')))
+          .dy;
+      final tenTop = tester
+          .getTopLeft(find.byKey(const ValueKey('calendar-hour-label-600')))
+          .dy;
+
+      expect(shortTop, greaterThanOrEqualTo(longBottom));
+      expect(shortBottom, lessThanOrEqualTo(tenTop));
+    });
+  });
 }
 
 Future<void> _pumpTimeline(

@@ -614,6 +614,8 @@ class _CalendarDayDetailScreenState extends State<CalendarDayDetailScreen> {
                     ),
                   if (detail != null)
                     CalendarDayTimeline(
+                      key: const ValueKey('calendar-day-timeline'),
+                      centerCurrentTimeOnShow: true,
                       detail: detail,
                       now: _clock,
                       onTodoTap: _openTodo,

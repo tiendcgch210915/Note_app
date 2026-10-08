@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../models/checklist_category.dart';
 import '../models/run.dart';
@@ -19,16 +20,60 @@ import 'local/model_converters.dart';
 
 /// Repository cho Group C — Checklists (Templates + Runs). 16 endpoint F-C1..F-C16.
 class ChecklistsRepository {
-  ChecklistsRepository._();
-  static final ChecklistsRepository instance = ChecklistsRepository._();
-  final ApiClient _client = ApiClient.instance;
-  final AppDatabase _db = AppDatabase.instance;
+  ChecklistsRepository._({
+    ApiClient? client,
+    AppDatabase? database,
+    String? userIdOverride,
+  }) : _client = client ?? ApiClient.instance,
+       _db = database ?? AppDatabase.instance,
+       _userIdOverride = userIdOverride;
+
+  static final ChecklistsRepository _default = ChecklistsRepository._();
+  static ChecklistsRepository? _testInstance;
+
+  static ChecklistsRepository get instance => _testInstance ?? _default;
+
+  /// Thay singleton bằng bản dùng DB in-memory/HTTP giả; `null` để khôi phục.
+  @visibleForTesting
+  static set testInstance(ChecklistsRepository? value) => _testInstance = value;
+
+  @visibleForTesting
+  factory ChecklistsRepository.forTesting(
+    AppDatabase database, {
+    required String userId,
+    required ApiClient client,
+  }) {
+    return ChecklistsRepository._(
+      client: client,
+      database: database,
+      userIdOverride: userId,
+    );
+  }
+
+  final ApiClient _client;
+  final AppDatabase _db;
+  final String? _userIdOverride;
 
   String get _userId =>
-      AuthStorage.instance.currentUserJson?['id'] as String? ?? '';
+      _userIdOverride ??
+      AuthStorage.instance.currentUserJson?['id'] as String? ??
+      '';
 
   // ─── Categories ──────────────────────────────────────────────
 
+  /// Chỉ đọc Drift, không gọi mạng — dùng để vẽ UI ngay khi mở màn hình.
+  Future<List<ChecklistCategory>> listCategoriesLocal({
+    String scope = 'all',
+  }) async {
+    final rows = await _db.checklistsDao.getCategories(
+      userId: _userId,
+      scope: scope,
+    );
+    return rows.map(_categoryRowToModel).toList();
+  }
+
+  /// REST → cache Drift → trả về bản trong Drift. Lỗi tạm thời (mất mạng,
+  /// timeout, 5xx) thì trả về cache thay vì ném lỗi.
   Future<List<ChecklistCategory>> listCategories({String scope = 'all'}) async {
     try {
       final resp = await _client.get(
@@ -40,18 +85,10 @@ class ChecklistsRepository {
           .map((e) => ChecklistCategory.fromJson(e as Map<String, dynamic>))
           .toList();
       await _cacheCategories(categories);
-      final rows = await _db.checklistsDao.getCategories(
-        userId: _userId,
-        scope: scope,
-      );
-      return rows.map(_categoryRowToModel).toList();
+      return listCategoriesLocal(scope: scope);
     } on ApiException catch (e) {
-      if (e.code != 'no_connection') rethrow;
-      final rows = await _db.checklistsDao.getCategories(
-        userId: _userId,
-        scope: scope,
-      );
-      return rows.map(_categoryRowToModel).toList();
+      if (!e.isRetryable) rethrow;
+      return listCategoriesLocal(scope: scope);
     }
   }
 
@@ -64,7 +101,7 @@ class ChecklistsRepository {
       await _cacheCategories([category]);
       return category;
     } on ApiException catch (e) {
-      if (e.code != 'no_connection') rethrow;
+      if (!e.isRetryable) rethrow;
       final row = await _db.checklistsDao.getCategoryById(id);
       if (row == null) throw const ApiException(404, 'not_found', 'not_found');
       return _categoryRowToModel(row);
@@ -138,7 +175,23 @@ class ChecklistsRepository {
 
   // ─── Templates ───────────────────────────────────────────────
 
-  /// F-C1 List Templates.
+  /// Chỉ đọc Drift, không gọi mạng — dùng để vẽ UI ngay khi mở màn hình.
+  Future<List<Template>> listTemplatesLocal({
+    String scope = 'all',
+    String? category,
+    String? categoryId,
+    bool uncategorized = false,
+  }) {
+    return _listLocalTemplates(
+      scope: scope,
+      category: category,
+      categoryId: categoryId,
+      uncategorized: uncategorized,
+    );
+  }
+
+  /// F-C1 List Templates. Lỗi tạm thời (mất mạng, timeout, 5xx) thì trả về
+  /// cache thay vì ném lỗi.
   Future<List<Template>> listTemplates({
     String scope = 'all',
     String? category,
@@ -168,21 +221,22 @@ class ChecklistsRepository {
         uncategorized: uncategorized,
       );
     } on ApiException catch (e) {
-      if (e.code != 'no_connection') rethrow;
-      final rows = await _db.checklistsDao.getTemplates(
-        userId: _userId,
-        isSystem: _scopeIsSystem(scope),
-        categoryId: categoryId,
-        uncategorized: uncategorized,
-      );
-      return _filterTemplates(
-        await _templateRowsToModels(rows),
+      if (!e.isRetryable) rethrow;
+      return _listLocalTemplates(
         scope: scope,
         category: category,
         categoryId: categoryId,
         uncategorized: uncategorized,
       );
     }
+  }
+
+  /// Chỉ đọc Drift; `null` nếu template chưa có trong cache.
+  Future<({Template template, List<TemplateItem> items})?> getTemplateLocal(
+    String id,
+  ) async {
+    if (await _db.checklistsDao.getTemplateById(id) == null) return null;
+    return _getTemplateLocal(id);
   }
 
   /// F-C2 Get template detail.
@@ -199,9 +253,11 @@ class ChecklistsRepository {
             .toList(),
       );
       await _cacheTemplate(result.template, result.items);
+      // Đang có sửa đổi chưa đồng bộ → bản server còn cũ, giữ bản trong Drift.
+      if (await _hasPendingTemplateChanges(id)) return _getTemplateLocal(id);
       return result;
     } on ApiException catch (e) {
-      if (e.code != 'no_connection') rethrow;
+      if (!e.isRetryable) rethrow;
       return _getTemplateLocal(id);
     }
   }
@@ -293,6 +349,8 @@ class ChecklistsRepository {
   /// F-C5 Delete template.
   Future<void> deleteTemplate(String id) async {
     await _client.delete('/checklists/templates/$id');
+    // Server đã xóa; phản chiếu vào cache để màn hình đọc Drift không hiện lại.
+    await _db.checklistsDao.softDeleteTemplate(id, nowIso());
   }
 
   /// F-C6 Add item.
@@ -411,7 +469,24 @@ class ChecklistsRepository {
     return _startRunLocal(templateId: templateId, name: name);
   }
 
-  /// F-C11 List runs.
+  /// Chỉ đọc Drift, không gọi mạng. Không có phân trang nên `nextCursor` luôn
+  /// null — con trỏ thật chỉ có sau khi gọi [listRuns].
+  Future<({List<Run> items, String? nextCursor})> listRunsLocal({
+    int limit = 20,
+    String? status,
+    String? templateId,
+  }) async {
+    final rows = await _db.checklistsDao.getRuns(
+      userId: _userId,
+      limit: limit,
+      status: status,
+      templateId: templateId,
+    );
+    return (items: rows.map(_runRowToModel).toList(), nextCursor: null);
+  }
+
+  /// F-C11 List runs. Lỗi tạm thời (mất mạng, timeout, 5xx) thì trả về cache
+  /// thay vì ném lỗi.
   Future<({List<Run> items, String? nextCursor})> listRuns({
     String? cursor,
     int? limit,
@@ -433,41 +508,55 @@ class ChecklistsRepository {
           .map((e) => Run.fromJson(e as Map<String, dynamic>))
           .toList();
       await _cacheRuns(items);
-      return (items: items, nextCursor: map['nextCursor'] as String?);
-    } on ApiException catch (e) {
-      if (e.code != 'no_connection') rethrow;
-      final rows = await _db.checklistsDao.getRuns(
-        userId: _userId,
+      final nextCursor = map['nextCursor'] as String?;
+      if (cursor != null) return (items: items, nextCursor: nextCursor);
+      // Trang đầu: trả bản trong Drift để run tạo offline (chưa sync) không
+      // biến mất khỏi danh sách khi server trả về.
+      final local = await listRunsLocal(
         limit: limit ?? 20,
         status: status,
         templateId: templateId,
       );
-      return (items: rows.map(_runRowToModel).toList(), nextCursor: null);
+      return (items: local.items, nextCursor: nextCursor);
+    } on ApiException catch (e) {
+      if (!e.isRetryable) rethrow;
+      return listRunsLocal(
+        limit: limit ?? 20,
+        status: status,
+        templateId: templateId,
+      );
     }
   }
 
-  /// F-C12 Get run detail.
+  /// F-C12 Get run detail. Ưu tiên bản trong Drift; chỉ gọi server khi chưa
+  /// có cache. Dùng [refreshRun] để làm mới bản đã có.
   Future<({Run run, List<RunItem> items})> getRun(String id) async {
     final local = await _getLocalRun(id);
     if (local != null) return local;
 
     try {
-      final resp = await _client.get('/checklists/runs/$id');
-      final map = resp as Map<String, dynamic>;
-      final result = (
-        run: Run.fromJson(map['run'] as Map<String, dynamic>),
-        items: ((map['items'] as List?) ?? const [])
-            .map((e) => RunItem.fromJson(e as Map<String, dynamic>))
-            .toList(),
-      );
-      await _cacheRun(result.run, result.items);
-      return result;
+      return await refreshRun(id);
     } on ApiException catch (e) {
       final fallback = await _getLocalRun(id);
       if (fallback != null) return fallback;
       if (e.code != 'no_connection') rethrow;
       throw const ApiException(404, 'not_found', 'not_found');
     }
+  }
+
+  /// Lấy run từ server, ghi vào cache (không đè phần đang có thay đổi chưa
+  /// đồng bộ) rồi trả về bản trong Drift.
+  Future<({Run run, List<RunItem> items})> refreshRun(String id) async {
+    final resp = await _client.get('/checklists/runs/$id');
+    final map = resp as Map<String, dynamic>;
+    final result = (
+      run: Run.fromJson(map['run'] as Map<String, dynamic>),
+      items: ((map['items'] as List?) ?? const [])
+          .map((e) => RunItem.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+    await _cacheRun(result.run, result.items);
+    return await _getLocalRun(id) ?? result;
   }
 
   /// F-C13 Update run item (mark progress).
@@ -517,21 +606,49 @@ class ChecklistsRepository {
   /// F-C16 Delete run (hard delete).
   Future<void> deleteRun(String id) async {
     await _client.delete('/checklists/runs/$id');
+    // Server đã xóa; phản chiếu vào cache để màn hình đọc Drift không hiện lại.
+    await _db.checklistsDao.softDeleteRun(id, nowIso());
   }
 
   // ─── Local helpers ───────────────────────────────────────────
 
+  /// Id các entity đang có thay đổi chưa đồng bộ. Khi cache kết quả đọc REST
+  /// phải bỏ qua chúng, nếu không bản cũ trên server sẽ ghi đè thay đổi người
+  /// dùng vừa làm offline (sync push rồi pull mới sửa lại được).
+  Future<Set<String>> _pendingEntityIds(String entityType) async {
+    if (_userId.isEmpty) return const {};
+    final rows = await _db.syncDao.getRowsForUser(userId: _userId);
+    return {
+      for (final row in rows)
+        if (row.entityType == entityType && !row.isDeadLetter) row.entityId,
+    };
+  }
+
+  Future<bool> _hasPendingTemplateChanges(String templateId) async {
+    if ((await _pendingEntityIds('checklist_template')).contains(templateId)) {
+      return true;
+    }
+    final pendingItems = await _pendingEntityIds('checklist_template_item');
+    if (pendingItems.isEmpty) return false;
+    final rows = await _db.checklistsDao.getItemsForTemplate(templateId);
+    return rows.any((row) => pendingItems.contains(row.id));
+  }
+
   Future<void> _cacheCategories(List<ChecklistCategory> categories) async {
-    if (categories.isEmpty) return;
+    final pending = await _pendingEntityIds('checklist_category');
+    final fresh = categories.where((c) => !pending.contains(c.id)).toList();
+    if (fresh.isEmpty) return;
     await _db.checklistsDao.upsertCategories(
-      categories.map(checklistCategoryToCompanion).toList(),
+      fresh.map(checklistCategoryToCompanion).toList(),
     );
   }
 
   Future<void> _cacheTemplates(List<Template> templates) async {
-    if (templates.isEmpty) return;
+    final pending = await _pendingEntityIds('checklist_template');
+    final fresh = templates.where((t) => !pending.contains(t.id)).toList();
+    if (fresh.isEmpty) return;
     await _db.checklistsDao.upsertTemplates(
-      templates
+      fresh
           .map(
             (template) => templateToCompanion(
               template,
@@ -546,37 +663,52 @@ class ChecklistsRepository {
     Template template,
     List<TemplateItem> items,
   ) async {
-    await _db.checklistsDao.upsertTemplate(
-      templateToCompanion(template, template.isSystem ? null : _userId),
-    );
+    final pendingTemplates = await _pendingEntityIds('checklist_template');
+    final pendingItems = await _pendingEntityIds('checklist_template_item');
+    if (!pendingTemplates.contains(template.id)) {
+      await _db.checklistsDao.upsertTemplate(
+        templateToCompanion(template, template.isSystem ? null : _userId),
+      );
+    }
     for (final item in items) {
+      if (pendingItems.contains(item.id)) continue;
       await _db.checklistsDao.upsertTemplateItem(templateItemToCompanion(item));
     }
   }
 
   Future<void> _cacheTemplateItemsFromListPayload(List<dynamic> items) async {
+    final pendingItems = await _pendingEntityIds('checklist_template_item');
     for (final item in items) {
       if (item is! Map<String, dynamic>) continue;
       final rawItems = item['items'] ?? item['template_items'];
       if (rawItems is! List) continue;
       for (final rawItem in rawItems) {
         if (rawItem is! Map<String, dynamic>) continue;
+        final templateItem = TemplateItem.fromJson(rawItem);
+        if (pendingItems.contains(templateItem.id)) continue;
         await _db.checklistsDao.upsertTemplateItem(
-          templateItemToCompanion(TemplateItem.fromJson(rawItem)),
+          templateItemToCompanion(templateItem),
         );
       }
     }
   }
 
   Future<void> _cacheRuns(List<Run> runs) async {
+    final pending = await _pendingEntityIds('checklist_run');
     for (final run in runs) {
+      if (pending.contains(run.id)) continue;
       await _db.checklistsDao.upsertRun(runToCompanion(run, _userId));
     }
   }
 
   Future<void> _cacheRun(Run run, List<RunItem> items) async {
-    await _db.checklistsDao.upsertRun(runToCompanion(run, _userId));
+    final pendingRuns = await _pendingEntityIds('checklist_run');
+    final pendingItems = await _pendingEntityIds('checklist_run_item');
+    if (!pendingRuns.contains(run.id)) {
+      await _db.checklistsDao.upsertRun(runToCompanion(run, _userId));
+    }
     for (final item in items) {
+      if (pendingItems.contains(item.id)) continue;
       await _db.checklistsDao.upsertRunItem(runItemToCompanion(item));
     }
   }

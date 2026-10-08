@@ -70,19 +70,76 @@ class TodoTimedTitle extends StatelessWidget {
     return RichText(
       maxLines: maxLines,
       overflow: overflow,
-      text: TextSpan(
-        style: baseStyle,
-        children: [
-          if (prefix.isNotEmpty) TextSpan(text: prefix),
-          TextSpan(
-            text: '[$timeLabel]',
-            style: baseStyle.copyWith(color: timeColor),
-          ),
-          const TextSpan(text: ' '),
-          TextSpan(text: title),
-        ],
+      text: _timedSpan(
+        baseStyle: baseStyle,
+        prefix: prefix,
+        timeLabel: timeLabel,
+        title: title,
+        timeColor: timeColor,
       ),
     );
+  }
+
+  static TextSpan _timedSpan({
+    required TextStyle baseStyle,
+    required String prefix,
+    required String timeLabel,
+    required String title,
+    required Color? timeColor,
+  }) {
+    return TextSpan(
+      style: baseStyle,
+      children: [
+        if (prefix.isNotEmpty) TextSpan(text: prefix),
+        TextSpan(
+          text: '[$timeLabel]',
+          style: baseStyle.copyWith(color: timeColor),
+        ),
+        const TextSpan(text: ' '),
+        TextSpan(text: title),
+      ],
+    );
+  }
+
+  /// Chiều cao mà [TodoTimedTitle] với cùng tham số sẽ chiếm khi bị giới hạn
+  /// bề rộng [maxWidth]. [baseStyle] thay cho `DefaultTextStyle` của context
+  /// khi nơi hiển thị thật nằm dưới một widget đổi style mặc định (vd. Material).
+  static double measureHeight(
+    BuildContext context, {
+    required String title,
+    required String? time,
+    required double maxWidth,
+    TextStyle? style,
+    TextStyle? baseStyle,
+    String prefix = '',
+    int? maxLines,
+    TextOverflow overflow = TextOverflow.clip,
+  }) {
+    final resolvedBase = (baseStyle ?? DefaultTextStyle.of(context).style)
+        .merge(style);
+    final timeLabel = formatTodoTime(time);
+    final painter = TextPainter(
+      text: timeLabel == null
+          ? TextSpan(text: '$prefix$title', style: resolvedBase)
+          : _timedSpan(
+              baseStyle: resolvedBase,
+              prefix: prefix,
+              timeLabel: timeLabel,
+              title: title,
+              timeColor: resolvedBase.color,
+            ),
+      textDirection: Directionality.of(context),
+      locale: Localizations.maybeLocaleOf(context),
+      // RichText không tự áp text scale của hệ thống, còn Text thì có.
+      textScaler: timeLabel == null
+          ? MediaQuery.textScalerOf(context)
+          : TextScaler.noScaling,
+      maxLines: maxLines,
+      ellipsis: overflow == TextOverflow.ellipsis ? '…' : null,
+    )..layout(maxWidth: maxWidth);
+    final height = painter.height;
+    painter.dispose();
+    return height;
   }
 }
 

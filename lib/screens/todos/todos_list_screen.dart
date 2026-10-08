@@ -36,6 +36,9 @@ class _TodosListScreenState extends State<TodosListScreen> {
   List<Todo> _done = [];
   String? _doneCursor;
   bool _loading = false;
+
+  /// Số lượt làm mới từ server đang chạy (cache đã hiện từ trước đó).
+  int _inFlight = 0;
   bool _doneExpanded = false;
   String _filter = 'all';
   List<Tag> _tagFilters = [];
@@ -98,9 +101,13 @@ class _TodosListScreenState extends State<TodosListScreen> {
     }
   }
 
+  /// Hiện ngay dữ liệu đã lưu trong SQLite, sau đó mới hỏi server và vẽ lại
+  /// khi có kết quả.
   Future<void> _refresh() async {
     if (!_hasAnyTodos) setState(() => _loading = true);
     await _refreshLocal(allowEmpty: _hasAnyTodos);
+    if (!mounted) return;
+    setState(() => _inFlight++);
     try {
       // Fetch song song. "Đã xong" chỉ lấy top-level (parent_id null).
       final selectedTagIds = _tagFilters.map((tag) => tag.id).toSet();
@@ -138,7 +145,9 @@ class _TodosListScreenState extends State<TodosListScreen> {
         await _refreshLocal(allowEmpty: true);
       }
     } on ApiException catch (e) {
-      if (mounted) {
+      // Đã có dữ liệu cache để xem thì lỗi tạm thời (mất mạng, server đang
+      // khởi động lại...) không đáng làm phiền người dùng.
+      if (mounted && (!_hasAnyTodos || !e.isRetryable)) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(e.vnMessage),
@@ -147,9 +156,16 @@ class _TodosListScreenState extends State<TodosListScreen> {
         );
       }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _inFlight--;
+          _loading = false;
+        });
+      }
     }
   }
+
+  bool get _revalidating => _inFlight > 0;
 
   bool get _hasAnyTodos =>
       _today.isNotEmpty ||
@@ -774,11 +790,9 @@ class _TodosListScreenState extends State<TodosListScreen> {
   }
 
   int _compareUpcomingTodos(Todo a, Todo b) {
-    return _compareTimeFirst(a, b, () {
-      final byDate = a.scheduledDate!.compareTo(b.scheduledDate!);
-      if (byDate != 0) return byDate;
-      return a.createdAt.compareTo(b.createdAt);
-    });
+    final byDate = a.scheduledDate!.compareTo(b.scheduledDate!);
+    if (byDate != 0) return byDate;
+    return _compareTimeFirst(a, b, () => a.createdAt.compareTo(b.createdAt));
   }
 
   int _compareOverdueTodos(Todo a, Todo b) {
@@ -905,7 +919,7 @@ class _TodosListScreenState extends State<TodosListScreen> {
       );
     }
 
-    return RefreshIndicator(
+    final list = RefreshIndicator(
       onRefresh: _refresh,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -949,6 +963,20 @@ class _TodosListScreenState extends State<TodosListScreen> {
           ],
         ],
       ),
+    );
+    if (!_revalidating) return list;
+    // Đang hiện dữ liệu cache trong lúc hỏi server: báo nhẹ, không che nội dung.
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        list,
+        const Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          child: LinearProgressIndicator(minHeight: 2),
+        ),
+      ],
     );
   }
 }

@@ -1,7 +1,30 @@
 {
   "permissions": {
     "allow": [
-      "Bash(sed -n '300,650p' /tmp/api2_full.txt)"
+      "Bash(sed -n '300,650p' /tmp/api2_full.txt)",
+      "Bash(ls -la .cursor)",
+      "Bash(ls -la .github)",
+      "Bash(cat .cursorrules)",
+      "Bash(flutter test *)",
+      "Bash(flutter analyze *)",
+      "Bash(dart format *)",
+      "Bash(git checkout *)",
+      "Bash(python3 -)",
+      "Bash(timeout 60 flutter devices)",
+      "Bash(cp lib/data/checklists_repository.dart /tmp/checklists_repository.bak)",
+      "Bash(cp lib/data/todos_repository.dart /tmp/todos_repository.bak)",
+      "Bash(sed -i \"s/    if \\(_userId.isEmpty\\) return const {};\\\\n    final rows = await _db.syncDao.getRowsForUser/XX/\" lib/data/checklists_repository.dart)",
+      "Bash(cp /tmp/checklists_repository.bak lib/data/checklists_repository.dart)",
+      "Bash(cp /tmp/todos_repository.bak lib/data/todos_repository.dart)",
+      "Bash(sed -i 's/^    if \\(_userId.isEmpty\\) return const {};$/    return const {};/' lib/data/checklists_repository.dart lib/data/todos_repository.dart)",
+      "Bash(grep -c \"^    return const {};$\" lib/data/checklists_repository.dart lib/data/todos_repository.dart)",
+      "Bash(flutter --version)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(gh --version)",
+      "Bash(gh auth *)",
+      "Read(//c/Program Files/Java/jdk-24/bin/**)",
+      "Read(//c/flutter/bin/cache/artifacts/engine/android-arm64-release//**)",
+      "WebSearch"
     ]
   }
 }

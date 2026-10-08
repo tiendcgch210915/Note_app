@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../models/dashboard.dart';
@@ -15,6 +17,7 @@ class CalendarDayTimeline extends StatelessWidget {
   final ValueChanged<CalendarDayTodo>? onTodoPickTime;
   final ValueChanged<CalendarDayTodo>? onTodoEdit;
   final double minuteHeight;
+  final bool centerCurrentTimeOnShow;
 
   const CalendarDayTimeline({
     super.key,
@@ -25,9 +28,11 @@ class CalendarDayTimeline extends StatelessWidget {
     this.onTodoPickTime,
     this.onTodoEdit,
     this.minuteHeight = 1.15,
+    this.centerCurrentTimeOnShow = false,
   });
 
   static const double _leftGutter = 64;
+  static const double _rightMargin = 16;
   static const double _topPadding = 18;
   static const double _bottomPadding = 40;
   static const double _emptyHourHeight = 52;
@@ -52,41 +57,57 @@ class CalendarDayTimeline extends StatelessWidget {
       return const _CalendarEmptyState();
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (untimed.isNotEmpty)
-          _UntimedTodosSection(
-            todos: untimed,
-            onTodoTap: onTodoTap,
-            onTodoComplete: onTodoComplete,
-            onTodoPickTime: onTodoPickTime,
-            onTodoEdit: onTodoEdit,
-          ),
-        if (timed.isNotEmpty) ...[
-          Padding(
-            padding: EdgeInsets.fromLTRB(16, untimed.isEmpty ? 4 : 18, 16, 10),
-            child: Text(
-              'Timeline 24h',
-              style: Theme.of(context).textTheme.titleMedium,
+    return _CenterOnCurrentTime(
+      enabled: centerCurrentTimeOnShow,
+      builder: (context, currentTimeKey) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (untimed.isNotEmpty)
+            _UntimedTodosSection(
+              todos: untimed,
+              onTodoTap: onTodoTap,
+              onTodoComplete: onTodoComplete,
+              onTodoPickTime: onTodoPickTime,
+              onTodoEdit: onTodoEdit,
             ),
-          ),
-          _buildTimeline(context),
+          if (timed.isNotEmpty) ...[
+            Padding(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                untimed.isEmpty ? 4 : 18,
+                16,
+                10,
+              ),
+              child: Text(
+                'Timeline 24h',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            LayoutBuilder(
+              builder: (context, constraints) =>
+                  _buildTimeline(context, constraints.maxWidth, currentTimeKey),
+            ),
+          ],
         ],
-      ],
+      ),
     );
   }
 
-  Widget _buildTimeline(BuildContext context) {
+  Widget _buildTimeline(
+    BuildContext context,
+    double width,
+    GlobalKey currentTimeKey,
+  ) {
     final timeline = detail.timeline;
     final start = timeline.startMinute;
     final end = timeline.endMinute <= start ? 1440 : timeline.endMinute;
-    final items = _timedTodoLayouts(start, end);
+    final items = _timedTodoLayouts(context, start, end, width);
     final indicator = _EffectiveIndicator.from(
       detail: detail,
       now: now ?? DateTime.now(),
       startMinute: start,
       endMinute: end,
+      halfHourMarks: _TimelineGeometry.visibleHalfHourMarks(start, end, items),
     );
     final geometry = _TimelineGeometry.build(
       startMinute: start,
@@ -121,7 +142,7 @@ class CalendarDayTimeline extends StatelessWidget {
             return Positioned(
               top: top,
               left: _leftGutter,
-              right: 16,
+              right: _rightMargin,
               height: height,
               child: TodoSwipeActions(
                 direction: TodoSwipeDirection.right,
@@ -152,7 +173,7 @@ class CalendarDayTimeline extends StatelessWidget {
             );
           }),
           if (indicator.visible)
-            _buildCurrentTimeLine(context, indicator, geometry),
+            _buildCurrentTimeLine(context, indicator, geometry, currentTimeKey),
         ],
       ),
     );
@@ -253,6 +274,7 @@ class CalendarDayTimeline extends StatelessWidget {
     BuildContext context,
     _EffectiveIndicator indicator,
     _TimelineGeometry geometry,
+    GlobalKey currentTimeKey,
   ) {
     final top =
         _topPadding +
@@ -266,6 +288,7 @@ class CalendarDayTimeline extends StatelessWidget {
       left: 16,
       right: 16,
       child: Row(
+        key: currentTimeKey,
         children: [
           SizedBox(
             width: 44,
@@ -302,7 +325,13 @@ class CalendarDayTimeline extends StatelessWidget {
     return '${hour.toString().padLeft(2, '0')}:${min.toString().padLeft(2, '0')}';
   }
 
-  List<_TimedTodoLayout> _timedTodoLayouts(int start, int end) {
+  List<_TimedTodoLayout> _timedTodoLayouts(
+    BuildContext context,
+    int start,
+    int end,
+    double width,
+  ) {
+    final cardWidth = width - _leftGutter - _rightMargin;
     final items = <_TimedTodoLayout>[];
     for (final todo in detail.timedTodos) {
       final minute = todo.minutesSinceMidnight ?? todoTimeMinutes(todo.time);
@@ -319,7 +348,13 @@ class CalendarDayTimeline extends StatelessWidget {
           startMinute: clampedStart,
           endMinute: endMinute <= clampedStart ? clampedStart : endMinute,
           hasDuration: hasDuration,
-          cardHeight: todo.isDone ? _doneTodoCardHeight : _todoCardHeight,
+          cardHeight: todo.isDone
+              ? _doneTodoCardHeight
+              : _CalendarTodoCard.measureHeight(
+                  context,
+                  todo: todo,
+                  cardWidth: cardWidth,
+                ),
         ),
       );
     }
@@ -332,6 +367,42 @@ class CalendarDayTimeline extends StatelessWidget {
     });
     return items;
   }
+}
+
+/// Khi [enabled], đưa vạch giờ hiện tại vào giữa vùng cuộn đúng một lần ngay
+/// sau khi timeline xuất hiện. Vạch này chỉ có ở ngày hôm nay nên các ngày
+/// khác không bị cuộn.
+class _CenterOnCurrentTime extends StatefulWidget {
+  final bool enabled;
+  final Widget Function(BuildContext context, GlobalKey currentTimeKey) builder;
+
+  const _CenterOnCurrentTime({required this.enabled, required this.builder});
+
+  @override
+  State<_CenterOnCurrentTime> createState() => _CenterOnCurrentTimeState();
+}
+
+class _CenterOnCurrentTimeState extends State<_CenterOnCurrentTime> {
+  final GlobalKey _currentTimeKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.enabled) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _center());
+    }
+  }
+
+  void _center() {
+    if (!mounted) return;
+    final target = _currentTimeKey.currentContext;
+    if (target == null) return;
+    Scrollable.ensureVisible(target, alignment: 0.5);
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      widget.builder(context, _currentTimeKey);
 }
 
 class _TimedTodoLayout {
@@ -365,17 +436,22 @@ class _TimelineGeometry {
     required this.height,
   });
 
-  List<int> get halfHourMarks {
-    final marks = <int>{};
-    for (final slot in slots) {
-      if (!slot.hasTodo) continue;
-      final hourStart = (slot.startMinute ~/ 60) * 60;
-      final mark = hourStart + 30;
-      if (mark > startMinute && mark < endMinute) {
-        marks.add(mark);
-      }
-    }
-    return marks.toList()..sort();
+  List<int> get halfHourMarks => _halfHourMarksOf(slots);
+
+  /// Vạch xx:30 chỉ hiện khi cả hai nửa giờ đều có todo bắt đầu trong đó.
+  static List<int> visibleHalfHourMarks(
+    int startMinute,
+    int endMinute,
+    List<_TimedTodoLayout> items,
+  ) {
+    return _halfHourMarksOf(_buildSlots(startMinute, endMinute, items));
+  }
+
+  static List<int> _halfHourMarksOf(List<_TimelineSlot> slots) {
+    return [
+      for (final slot in slots)
+        if (slot.showsHalfHourMark) slot.startMinute,
+    ];
   }
 
   static _TimelineGeometry build({
@@ -397,7 +473,6 @@ class _TimelineGeometry {
             ? slot.intersectsDuration(item)
             : slot.containsStart(item.startMinute, endMinute),
       );
-      slot.hasTodo = startingItems.isNotEmpty;
       var slotHeight = _initialSlotHeight(
         slot,
         touchesAnyTodo,
@@ -474,6 +549,7 @@ class _TimelineGeometry {
       } else {
         firstHalf.hasStartInHour = true;
         secondHalf.hasStartInHour = true;
+        secondHalf.showsHalfHourMark = firstHasStart && secondHasStart;
         slots.add(firstHalf);
         slots.add(secondHalf);
       }
@@ -651,8 +727,8 @@ class _SlotItemLayout {
 class _TimelineSlot {
   final int startMinute;
   final int endMinute;
-  bool hasTodo = false;
   bool hasStartInHour = false;
+  bool showsHalfHourMark = false;
   double top = 0;
   double height = CalendarDayTimeline._emptyHourHeight;
 
@@ -744,6 +820,119 @@ class _CalendarTodoCard extends StatelessWidget {
     this.onCompleteTap,
   });
 
+  static const double _borderWidth = 1;
+  static const double _horizontalPadding = 10;
+  static const double _verticalPadding = 8;
+  static const double _leadingSize = 34;
+  static const double _leadingGap = 4;
+  static const double _metaTopGap = 4;
+  static const double _metaSpacing = 6;
+  static const double _metaRunSpacing = 4;
+  static const TextStyle _titleStyle = TextStyle(
+    fontSize: 13,
+    fontWeight: FontWeight.w700,
+    height: 1.2,
+  );
+
+  static List<_MetaSpec> _metaSpecs(CalendarDayTodo todo, Color secondary) {
+    return [
+      if (todo.isDailyLog)
+        _MetaSpec(
+          Icons.lock_rounded,
+          todo.lockedCompleted == true ? 'Đã chốt' : 'Đã chốt: chưa xong',
+          secondary,
+        ),
+      if (todo.estimatedMinutes != null)
+        _MetaSpec(
+          Icons.hourglass_empty,
+          '${todo.estimatedMinutes} phút',
+          secondary,
+        ),
+      if (todo.hasSubtasks)
+        _MetaSpec(Icons.account_tree_outlined, 'Có việc con', secondary),
+      for (final tag in todo.tags.take(2))
+        _MetaSpec(Icons.local_offer_outlined, tag.name, tag.color),
+    ];
+  }
+
+  /// Chiều cao cần thiết của thẻ đang mở trong timeline (tiêu đề tối đa 2
+  /// dòng + hàng meta có thể xuống dòng), không nhỏ hơn chiều cao tối thiểu.
+  static double measureHeight(
+    BuildContext context, {
+    required CalendarDayTodo todo,
+    required double cardWidth,
+  }) {
+    final textWidth =
+        cardWidth -
+        2 * _borderWidth -
+        2 * _horizontalPadding -
+        _leadingSize -
+        _leadingGap;
+    if (textWidth <= 0) return CalendarDayTimeline._todoCardHeight;
+
+    // Thẻ nằm dưới Material nên text mặc định là bodyMedium.
+    final bodyStyle = Theme.of(context).textTheme.bodyMedium;
+    final titleHeight = TodoTimedTitle.measureHeight(
+      context,
+      title: todo.title,
+      time: todo.time,
+      maxWidth: textWidth,
+      style: _titleStyle,
+      baseStyle: bodyStyle,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+    );
+    final metas = _metaSpecs(todo, Colors.transparent);
+    final metaHeight = metas.isEmpty
+        ? 0.0
+        : _metaTopGap +
+              _measureMetaHeight(context, metas, textWidth, bodyStyle);
+    final content = math.max(_leadingSize, titleHeight + metaHeight);
+    final height = (2 * _borderWidth + 2 * _verticalPadding + content)
+        .ceilToDouble();
+    return math.max(height, CalendarDayTimeline._todoCardHeight);
+  }
+
+  static double _measureMetaHeight(
+    BuildContext context,
+    List<_MetaSpec> metas,
+    double maxWidth,
+    TextStyle? bodyStyle,
+  ) {
+    final style = (bodyStyle ?? DefaultTextStyle.of(context).style).merge(
+      _MiniMeta.textStyle(Colors.transparent),
+    );
+    final direction = Directionality.of(context);
+    final locale = Localizations.maybeLocaleOf(context);
+    final scaler = MediaQuery.textScalerOf(context);
+
+    var total = 0.0;
+    var lineWidth = 0.0;
+    var lineHeight = 0.0;
+    for (final meta in metas) {
+      final painter = TextPainter(
+        text: TextSpan(text: meta.label, style: style),
+        textDirection: direction,
+        locale: locale,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      final chipWidth = _MiniMeta.iconSize + _MiniMeta.iconGap + painter.width;
+      final chipHeight = math.max(_MiniMeta.iconSize, painter.height);
+      painter.dispose();
+
+      if (lineWidth > 0 && lineWidth + _metaSpacing + chipWidth > maxWidth) {
+        total += lineHeight + _metaRunSpacing;
+        lineWidth = chipWidth;
+        lineHeight = chipHeight;
+      } else {
+        lineWidth += (lineWidth > 0 ? _metaSpacing : 0) + chipWidth;
+        lineHeight = math.max(lineHeight, chipHeight);
+      }
+    }
+    return total + lineHeight;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -810,12 +999,10 @@ class _CalendarTodoCard extends StatelessWidget {
             important: todo.isImportant,
             urgent: todo.isUrgent,
           );
-    final titleStyle = TextStyle(
-      fontSize: 13,
-      fontWeight: FontWeight.w700,
-      height: 1.2,
+    final titleStyle = _titleStyle.copyWith(
       color: isLockedOpenLog ? secondary : null,
     );
+    final metas = _metaSpecs(todo, secondary);
 
     return Material(
       color: Colors.transparent,
@@ -844,13 +1031,16 @@ class _CalendarTodoCard extends StatelessWidget {
                 child: ColoredBox(color: accent),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: _horizontalPadding,
+                  vertical: _verticalPadding,
+                ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     SizedBox(
-                      width: 34,
-                      height: 34,
+                      width: _leadingSize,
+                      height: _leadingSize,
                       child: IconButton(
                         key: ValueKey('calendar-complete-${todo.id}'),
                         tooltip: 'Hoàn thành',
@@ -866,7 +1056,7 @@ class _CalendarTodoCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 4),
+                    const SizedBox(width: _leadingGap),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -880,40 +1070,17 @@ class _CalendarTodoCard extends StatelessWidget {
                             overflow: TextOverflow.ellipsis,
                             now: now,
                           ),
-                          if (todo.isDailyLog ||
-                              todo.estimatedMinutes != null ||
-                              todo.hasSubtasks ||
-                              todo.tags.isNotEmpty) ...[
-                            const SizedBox(height: 4),
+                          if (metas.isNotEmpty) ...[
+                            const SizedBox(height: _metaTopGap),
                             Wrap(
-                              spacing: 6,
-                              runSpacing: 4,
+                              spacing: _metaSpacing,
+                              runSpacing: _metaRunSpacing,
                               children: [
-                                if (todo.isDailyLog)
+                                for (final meta in metas)
                                   _MiniMeta(
-                                    icon: Icons.lock_rounded,
-                                    label: todo.lockedCompleted == true
-                                        ? 'Đã chốt'
-                                        : 'Đã chốt: chưa xong',
-                                    color: secondary,
-                                  ),
-                                if (todo.estimatedMinutes != null)
-                                  _MiniMeta(
-                                    icon: Icons.hourglass_empty,
-                                    label: '${todo.estimatedMinutes} phút',
-                                    color: secondary,
-                                  ),
-                                if (todo.hasSubtasks)
-                                  _MiniMeta(
-                                    icon: Icons.account_tree_outlined,
-                                    label: 'Có việc con',
-                                    color: secondary,
-                                  ),
-                                for (final tag in todo.tags.take(2))
-                                  _MiniMeta(
-                                    icon: Icons.local_offer_outlined,
-                                    label: tag.name,
-                                    color: tag.color,
+                                    icon: meta.icon,
+                                    label: meta.label,
+                                    color: meta.color,
                                   ),
                               ],
                             ),
@@ -932,6 +1099,14 @@ class _CalendarTodoCard extends StatelessWidget {
   }
 }
 
+class _MetaSpec {
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  const _MetaSpec(this.icon, this.label, this.color);
+}
+
 class _MiniMeta extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -943,21 +1118,20 @@ class _MiniMeta extends StatelessWidget {
     required this.color,
   });
 
+  static const double iconSize = 12;
+  static const double iconGap = 3;
+
+  static TextStyle textStyle(Color color) =>
+      TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600);
+
   @override
   Widget build(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 12, color: color),
-        const SizedBox(width: 3),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            color: color,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
+        Icon(icon, size: iconSize, color: color),
+        const SizedBox(width: iconGap),
+        Text(label, style: textStyle(color)),
       ],
     );
   }
@@ -1016,6 +1190,7 @@ class _EffectiveIndicator {
     required DateTime now,
     required int startMinute,
     required int endMinute,
+    required List<int> halfHourMarks,
   }) {
     final indicator = detail.currentTimeIndicator;
     final visible =
@@ -1031,7 +1206,12 @@ class _EffectiveIndicator {
     final minute = (now.hour * 60 + now.minute)
         .clamp(startMinute, endMinute)
         .toInt();
-    final hidden = _nearbyTimeMarkMinute(minute, startMinute, endMinute);
+    final hidden = _nearbyTimeMarkMinute(
+      minute,
+      startMinute,
+      endMinute,
+      halfHourMarks,
+    );
     return _EffectiveIndicator(
       visible: true,
       lineMinutesSinceMidnight: minute,
@@ -1040,12 +1220,18 @@ class _EffectiveIndicator {
     );
   }
 
-  static int _nearbyTimeMarkMinute(int minute, int startMinute, int endMinute) {
+  static int _nearbyTimeMarkMinute(
+    int minute,
+    int startMinute,
+    int endMinute,
+    List<int> halfHourMarks,
+  ) {
     final nearest = ((minute + 15) ~/ 30) * 30;
     final distance = (nearest - minute).abs();
     if (distance >= 10 || nearest < startMinute || nearest > endMinute) {
       return -1;
     }
+    if (nearest % 60 != 0 && !halfHourMarks.contains(nearest)) return -1;
     return nearest;
   }
 }

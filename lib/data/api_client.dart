@@ -17,9 +17,13 @@ import 'auth_storage.dart';
 /// - 204 → trả null
 /// - SocketException → throw ApiException('no_connection')
 class ApiClient {
-  ApiClient._();
+  ApiClient._({http.Client? httpClient}) : _http = httpClient ?? http.Client();
 
   static final ApiClient instance = ApiClient._();
+
+  @visibleForTesting
+  factory ApiClient.forTesting(http.Client httpClient) =>
+      ApiClient._(httpClient: httpClient);
 
   /// CONFIGURE TRƯỚC KHI BUILD:
   /// - Android emulator: 'http://10.0.2.2:3000'
@@ -30,7 +34,7 @@ class ApiClient {
   /// Health probe endpoint (không qua /api/v1 prefix).
   static String get healthUrl => ApiConfig.healthUrl;
 
-  final http.Client _http = http.Client();
+  final http.Client _http;
 
   Map<String, String> _headers({
     bool requireAuth = true,

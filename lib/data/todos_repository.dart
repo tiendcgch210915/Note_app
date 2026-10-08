@@ -46,8 +46,13 @@ class TodosRepository {
   factory TodosRepository.forTesting(
     AppDatabase database, {
     required String userId,
+    ApiClient? client,
   }) {
-    return TodosRepository._(database: database, userIdOverride: userId);
+    return TodosRepository._(
+      client: client,
+      database: database,
+      userIdOverride: userId,
+    );
   }
 
   String get _userId =>
@@ -1300,10 +1305,28 @@ class TodosRepository {
         !todo.isDone;
   }
 
+  /// Id các todo đang có thay đổi chưa đồng bộ (sửa, hoàn thành, xóa...).
+  Future<Set<String>> _pendingTodoIds() async {
+    if (_userId.isEmpty) return const {};
+    final rows = await _db.syncDao.getRowsForUser(userId: _userId);
+    return {
+      for (final row in rows)
+        if (row.entityType == 'todo' && !row.isDeadLetter) row.entityId,
+    };
+  }
+
   Future<void> _cacheTodos(List<Todo> todos) async {
     if (todos.isEmpty) return;
     final userId = _userId;
-    final normalized = todos.map(_normalizeSubtask).toList();
+    // Bản trên server có thể cũ hơn thay đổi người dùng vừa làm offline (sửa,
+    // hoàn thành...): bỏ qua chúng để thay đổi đó không bị hoàn tác trên màn
+    // hình trước khi kịp đồng bộ.
+    final pendingIds = await _pendingTodoIds();
+    final normalized = todos
+        .where((todo) => !pendingIds.contains(todo.id))
+        .map(_normalizeSubtask)
+        .toList();
+    if (normalized.isEmpty) return;
     final tags = <Tag>[];
     for (final todo in normalized) {
       tags.addAll(todo.tags);

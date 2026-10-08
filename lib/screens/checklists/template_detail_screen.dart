@@ -44,8 +44,24 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
     _load();
   }
 
+  /// Hiện ngay bản đã lưu trong SQLite (nếu có), sau đó mới hỏi server.
   Future<void> _load() async {
     setState(() => _loading = true);
+    await _loadLocal();
+    if (mounted && _template != null) setState(() => _loading = false);
+    await _revalidate();
+  }
+
+  Future<void> _loadLocal() async {
+    final repo = ChecklistsRepository.instance;
+    final local = await repo.getTemplateLocal(widget.templateId);
+    final categories = await repo.listCategoriesLocal();
+    if (!mounted || local == null) return;
+    _applyTemplate(local.template, local.items, categories);
+  }
+
+  Future<void> _revalidate() async {
+    if (!mounted) return;
     try {
       final results = await Future.wait([
         ChecklistsRepository.instance.getTemplate(widget.templateId),
@@ -53,17 +69,33 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
       ]);
       final res = results[0] as ({Template template, List<TemplateItem> items});
       if (!mounted) return;
-      setState(() {
-        _template = res.template;
-        _items = res.items;
-        _categories = results[1] as List<ChecklistCategory>;
-        _titleCtrl.text = res.template.title;
-      });
+      _applyTemplate(
+        res.template,
+        res.items,
+        results[1] as List<ChecklistCategory>,
+      );
     } on ApiException catch (e) {
-      if (mounted) _showError(e.vnMessage);
+      // Đã có bản cache để xem thì lỗi mạng tạm thời không đáng báo.
+      if (mounted && (_template == null || !e.isRetryable)) {
+        _showError(e.vnMessage);
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  void _applyTemplate(
+    Template template,
+    List<TemplateItem> items,
+    List<ChecklistCategory> categories,
+  ) {
+    setState(() {
+      _template = template;
+      _items = items;
+      _categories = categories;
+      // Không đè tiêu đề người dùng đang gõ dở.
+      if (!_editMode) _titleCtrl.text = template.title;
+    });
   }
 
   Future<void> _startRun() async {
