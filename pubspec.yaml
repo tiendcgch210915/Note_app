@@ -59,6 +59,9 @@ dependencies:
   # WYSIWYG Quill editor; 11.5.1 requires Dart 3.12.
   flutter_quill: 11.5.0
   url_launcher: ^6.3.2
+  firebase_core: ^4.15.0
+  firebase_messaging: ^16.7.0
+  flutter_local_notifications: ^20.1.0
 
   # TODO(user): Sau khi merge, chạy:
   #   flutter pub get

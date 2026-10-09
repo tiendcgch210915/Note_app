@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icon nhỏ của thông báo (status bar): hệ thống chỉ dùng kênh alpha nên phải
+     đơn sắc, nền trong suốt. Vòng tròn + dấu tick, cùng ý với icon task_alt của
+     app. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M3,12a9,9 0 1,0 18,0a9,9 0 1,0 -18,0"
+        android:strokeWidth="2"
+        android:strokeColor="#FFFFFF" />
+    <path
+        android:pathData="M7.5,12.5L10.5,15.5L16.5,9"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeColor="#FFFFFF" />
+</vector>

@@ -2,84 +2,104 @@ import 'package:flutter/material.dart';
 
 import '../models/habit.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_tokens.dart';
+import '../utils/app_haptics.dart';
+import 'pressable.dart';
 
 class DashboardHabitCard extends StatelessWidget {
   final Habit habit;
   final bool completed;
-  final VoidCallback onToggle;
+
+  /// Chạm vào thẻ: mở bảng xác nhận hoàn thành / bỏ lỡ (không tự tick).
+  final VoidCallback onTap;
 
   const DashboardHabitCard({
     super.key,
     required this.habit,
     required this.completed,
-    required this.onToggle,
+    required this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textPrimary = isDark
-        ? AppColors.textPrimaryDark
-        : AppColors.textPrimary;
-    final textSecondary = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
+    final textPrimary = context.appTextPrimary;
+    final textSecondary = context.appTextSecondary;
     final streak = habit.currentStreak;
     final longest = habit.longestStreak;
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: onToggle,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Theme.of(context).cardTheme.color,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: completed
-                ? habit.color.withValues(alpha: 0.36)
-                : Colors.transparent,
+    return Pressable(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          AppHaptics.selection();
+          onTap();
+        },
+        child: AnimatedContainer(
+          duration: AppMotion.normal,
+          curve: AppMotion.curve,
+          padding: const EdgeInsets.all(12),
+          decoration: ShapeDecoration(
+            color: context.appSurface,
+            shape: AppShape.squircle(
+              AppRadius.lg,
+              side: BorderSide(
+                color: completed
+                    ? habit.color.withValues(alpha: 0.5)
+                    : context.appDivider.withValues(alpha: 0.8),
+                width: completed ? 1.2 : 0.8,
+              ),
+            ),
+            shadows: AppShadows.card(context.isDark),
           ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(habit.icon ?? Icons.flag, size: 18, color: habit.color),
-                const Spacer(),
-                Icon(
-                  completed ? Icons.check_circle : Icons.radio_button_unchecked,
-                  size: 20,
-                  color: completed ? habit.color : textSecondary,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(habit.icon ?? Icons.flag, size: 18, color: habit.color),
+                  const Spacer(),
+                  AnimatedSwitcher(
+                    duration: AppMotion.normal,
+                    switchInCurve: Curves.easeOutBack,
+                    transitionBuilder: (child, animation) =>
+                        ScaleTransition(scale: animation, child: child),
+                    child: Icon(
+                      completed
+                          ? Icons.check_circle_rounded
+                          : Icons.radio_button_unchecked,
+                      key: ValueKey(completed),
+                      size: 22,
+                      color: completed ? habit.color : textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                habit.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: textPrimary,
                 ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              habit.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: textPrimary,
               ),
-            ),
-            const SizedBox(height: 8),
-            _StreakBadge(currentStreak: streak),
-            const SizedBox(height: 5),
-            Text(
-              'Kỷ lục: $longest ngày',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 10,
-                color: textSecondary,
-                fontWeight: FontWeight.w600,
+              const SizedBox(height: 8),
+              _StreakBadge(currentStreak: streak),
+              const SizedBox(height: 5),
+              Text(
+                'Kỷ lục: $longest ngày',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -94,16 +114,16 @@ class _StreakBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-      decoration: BoxDecoration(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: ShapeDecoration(
         color: AppColors.streakGold.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(999),
+        shape: AppShape.pill,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           const Icon(
-            Icons.local_fire_department,
+            Icons.local_fire_department_rounded,
             size: 14,
             color: AppColors.streakGold,
           ),

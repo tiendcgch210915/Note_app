@@ -5,7 +5,7 @@ class ApiConfig {
 
   static const String rawApiBaseUrl = String.fromEnvironment(
     dartDefineName,
-    defaultValue: 'https://todosnotes.onrender.com/api/v1',
+    defaultValue: 'https://todo-note-h8s1.onrender.com/api/v1',
   );
 
   static final Uri apiBaseUri = _normalizeApiBaseUri(rawApiBaseUrl);

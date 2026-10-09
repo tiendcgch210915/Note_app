@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "89485232728",
+    "project_id": "todos-note-start",
+    "storage_bucket": "todos-note-start.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:89485232728:android:80a0db8a386d3ea91e982d",
+        "android_client_info": {
+          "package_name": "com.example.todonote"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBwNr655CkzQQUC5v50Ex1tvyDZuAsi8sM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

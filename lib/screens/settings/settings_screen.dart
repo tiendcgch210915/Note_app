@@ -3,7 +3,13 @@ import '../../app.dart';
 import '../../data/auth_repository.dart';
 import '../../models/user.dart';
 import '../../theme/app_colors.dart';
-import '../../utils/focus_session_controller.dart';
+import '../../utils/app_haptics.dart';
+import '../../utils/app_routes.dart';
+import '../../utils/app_snack.dart';
+import '../../utils/active_session_guard.dart';
+import '../../widgets/app_list_section.dart';
+import '../../widgets/app_state_views.dart';
+import '../../widgets/user_avatar.dart';
 import '../auth/login_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -34,11 +40,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _logout() async {
-    FocusSessionController.instance.cancel();
+    cancelAllSessions();
     await AuthRepository.instance.logout();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      AppRoutes.fade((_) => const LoginScreen()),
       (_) => false,
     );
   }
@@ -46,32 +52,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     final controller = AppThemeScope.of(context);
-    final isDark = controller?.mode.value == ThemeMode.dark;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Cài đặt')),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const AppSpinner()
           : ListView(
-              padding: const EdgeInsets.only(bottom: 32),
+              padding: const EdgeInsets.only(top: 8, bottom: 32),
               children: [
                 Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
                   child: Row(
                     children: [
-                      CircleAvatar(
-                        radius: 30,
-                        backgroundColor: AppColors.primary,
-                        child: Text(
-                          (_user?.displayName ?? _user?.email ?? 'U')[0]
-                              .toUpperCase(),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                            fontSize: 24,
-                          ),
-                        ),
-                      ),
+                      const UserAvatar(size: 64),
                       const SizedBox(width: 16),
                       Expanded(
                         child: Column(
@@ -79,15 +72,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           children: [
                             Text(
                               _user?.displayName ?? 'Người dùng',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
-                                fontSize: 18,
+                                fontSize: 20,
                                 fontWeight: FontWeight.w700,
+                                letterSpacing: -0.3,
                               ),
                             ),
                             const SizedBox(height: 2),
                             Text(
                               _user?.email ?? '',
-                              style: const TextStyle(fontSize: 13),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 14,
+                                color: context.appTextSecondary,
+                              ),
                             ),
                           ],
                         ),
@@ -95,73 +96,109 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ],
                   ),
                 ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.person_outline),
-                  title: const Text('Hồ sơ'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Backend chưa hỗ trợ update profile'),
+                AppListSection(
+                  header: 'Tài khoản',
+                  dividerIndent: AppListSection.iconIndent,
+                  children: [
+                    AppListTile(
+                      icon: Icons.person_rounded,
+                      title: 'Hồ sơ',
+                      onTap: () => showAppSnack(
+                        context,
+                        'Tính năng đang được phát triển',
                       ),
-                    );
-                  },
+                    ),
+                    AppListTile(
+                      icon: Icons.public_rounded,
+                      iconColor: AppColors.tagCyan,
+                      title: 'Múi giờ',
+                      value: _user?.timezone ?? 'Asia/Ho_Chi_Minh',
+                    ),
+                  ],
                 ),
-                ListTile(
-                  leading: const Icon(Icons.public),
-                  title: const Text('Múi giờ'),
-                  trailing: Text(
-                    _user?.timezone ?? 'Asia/Ho_Chi_Minh',
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                ),
-                SwitchListTile(
-                  value: isDark,
-                  onChanged: (v) => controller?.mode.value = v
-                      ? ThemeMode.dark
-                      : ThemeMode.light,
-                  secondary: const Icon(Icons.dark_mode_outlined),
-                  title: const Text('Chế độ tối'),
-                ),
-                SwitchListTile(
-                  value: _notif,
-                  onChanged: (v) => setState(() => _notif = v),
-                  secondary: const Icon(Icons.notifications_outlined),
-                  title: const Text('Thông báo nhắc nhở'),
-                  subtitle: const Text('Chỉ lưu local — chưa sync server'),
-                ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.info_outline),
-                  title: const Text('Về ứng dụng'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    showAboutDialog(
-                      context: context,
-                      applicationName: 'Productivity',
-                      applicationVersion: '1.0.0',
-                      applicationIcon: const Icon(
-                        Icons.task_alt,
-                        color: AppColors.primary,
-                        size: 32,
+                AppListSection(
+                  header: 'Giao diện & thông báo',
+                  dividerIndent: AppListSection.iconIndent,
+                  children: [
+                    if (controller != null)
+                      ValueListenableBuilder<ThemeMode>(
+                        valueListenable: controller.mode,
+                        builder: (context, mode, _) {
+                          final isDark = mode == ThemeMode.dark;
+                          void toggle(bool v) {
+                            AppHaptics.selection();
+                            controller.mode.value = v
+                                ? ThemeMode.dark
+                                : ThemeMode.light;
+                          }
+
+                          return AppListTile(
+                            icon: Icons.dark_mode_rounded,
+                            iconColor: AppColors.tagPurple,
+                            title: 'Chế độ tối',
+                            onTap: () => toggle(!isDark),
+                            trailing: Switch(value: isDark, onChanged: toggle),
+                          );
+                        },
                       ),
-                      children: const [
-                        Text(
-                          'App năng suất cá nhân: Todo, Note, Habit, Checklist.',
-                        ),
-                      ],
-                    );
-                  },
+                    AppListTile(
+                      icon: Icons.notifications_rounded,
+                      iconColor: AppColors.tagAmber,
+                      title: 'Thông báo nhắc nhở',
+                      subtitle: 'Chỉ lưu local — chưa sync server',
+                      onTap: () {
+                        AppHaptics.selection();
+                        setState(() => _notif = !_notif);
+                      },
+                      trailing: Switch(
+                        value: _notif,
+                        onChanged: (v) {
+                          AppHaptics.selection();
+                          setState(() => _notif = v);
+                        },
+                      ),
+                    ),
+                  ],
                 ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.logout, color: AppColors.danger),
-                  title: const Text(
-                    'Đăng xuất',
-                    style: TextStyle(color: AppColors.danger),
-                  ),
-                  onTap: _logout,
+                AppListSection(
+                  header: 'Giới thiệu',
+                  dividerIndent: AppListSection.iconIndent,
+                  children: [
+                    AppListTile(
+                      icon: Icons.info_rounded,
+                      iconColor: AppColors.tagSlate,
+                      title: 'Về ứng dụng',
+                      onTap: () {
+                        showAboutDialog(
+                          context: context,
+                          applicationName: 'Productivity',
+                          applicationVersion: '1.0.0',
+                          applicationIcon: Icon(
+                            Icons.task_alt_rounded,
+                            color: context.appPrimary,
+                            size: 32,
+                          ),
+                          children: const [
+                            Text(
+                              'App năng suất cá nhân: Todo, Note, Habit, Checklist.',
+                            ),
+                          ],
+                        );
+                      },
+                    ),
+                  ],
+                ),
+                AppListSection(
+                  dividerIndent: AppListSection.iconIndent,
+                  children: [
+                    AppListTile(
+                      icon: Icons.logout_rounded,
+                      title: 'Đăng xuất',
+                      destructive: true,
+                      showChevron: false,
+                      onTap: _logout,
+                    ),
+                  ],
                 ),
               ],
             ),

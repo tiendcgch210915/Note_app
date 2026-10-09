@@ -2,6 +2,8 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
+import '../utils/app_haptics.dart';
+import 'primary_button.dart';
 
 class DurationPickerSheet extends StatefulWidget {
   final int initialMinutes;
@@ -38,12 +40,10 @@ class _DurationPickerSheetState extends State<DurationPickerSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final secondary = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
+    final secondary = context.appTextSecondary;
     return SafeArea(
-      child: Padding(
+      // Cuộn được để không tràn khi màn thấp (xoay ngang) hoặc chữ hệ thống lớn.
+      child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -51,7 +51,11 @@ class _DurationPickerSheetState extends State<DurationPickerSheet> {
             Text(
               widget.title,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                letterSpacing: -0.3,
+              ),
             ),
             const SizedBox(height: 18),
             Row(
@@ -88,21 +92,17 @@ class _DurationPickerSheetState extends State<DurationPickerSheet> {
               style: TextStyle(
                 fontSize: 22,
                 fontWeight: FontWeight.w800,
-                color: _totalMinutes == 0 ? secondary : AppColors.primary,
+                color: _totalMinutes == 0 ? secondary : context.appPrimary,
                 fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
             const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              height: 48,
-              child: ElevatedButton.icon(
-                onPressed: _totalMinutes == 0
-                    ? null
-                    : () => Navigator.of(context).pop(_totalMinutes),
-                icon: Icon(widget.actionIcon),
-                label: Text(widget.actionLabel),
-              ),
+            PrimaryButton(
+              label: widget.actionLabel,
+              icon: widget.actionIcon,
+              onPressed: _totalMinutes == 0
+                  ? null
+                  : () => Navigator.of(context).pop(_totalMinutes),
             ),
           ],
         ),
@@ -126,10 +126,7 @@ class _DurationWheel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final secondary = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
+    final secondary = context.appTextSecondary;
     return Column(
       children: [
         Text(
@@ -148,7 +145,10 @@ class _DurationWheel extends StatelessWidget {
             itemExtent: 40,
             magnification: 1.08,
             useMagnifier: true,
-            onSelectedItemChanged: onChanged,
+            onSelectedItemChanged: (value) {
+              AppHaptics.selection();
+              onChanged(value);
+            },
             children: [
               for (var i = 0; i <= max; i++)
                 Center(

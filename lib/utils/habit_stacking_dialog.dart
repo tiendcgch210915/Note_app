@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../models/todo.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_tokens.dart';
+import '../widgets/app_sheet.dart';
 import '../widgets/duration_picker_sheet.dart';
+import '../widgets/primary_button.dart';
 import 'date_utils.dart';
 
 /// Shows next-todo suggestions returned by complete todo / local offline lookup.
@@ -21,9 +24,8 @@ Future<void> showHabitStackingDialog(
     return;
   }
 
-  final selected = await showModalBottomSheet<Todo>(
+  final selected = await showAppSheet<Todo>(
     context: context,
-    showDragHandle: true,
     builder: (ctx) => SafeArea(
       child: ConstrainedBox(
         constraints: BoxConstraints(
@@ -37,15 +39,15 @@ Future<void> showHabitStackingDialog(
               child: Row(
                 children: [
                   Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(8),
+                    width: 38,
+                    height: 38,
+                    decoration: ShapeDecoration(
+                      color: ctx.appPrimarySoft,
+                      shape: AppShape.squircle(AppRadius.sm),
                     ),
-                    child: const Icon(
-                      Icons.account_tree_outlined,
-                      color: AppColors.primary,
+                    child: Icon(
+                      Icons.account_tree_rounded,
+                      color: ctx.appPrimary,
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -104,12 +106,10 @@ Future<void> showHabitStackingDialog(
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-              child: SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: () => Navigator.of(ctx).pop(),
-                  child: const Text('Bỏ qua'),
-                ),
+              child: PrimaryButton(
+                label: 'Bỏ qua',
+                variant: PrimaryButtonVariant.tonal,
+                onPressed: () => Navigator.of(ctx).pop(),
               ),
             ),
           ],

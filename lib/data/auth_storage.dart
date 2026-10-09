@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// Wrapper an toàn cho JWT token + user JSON.
@@ -22,10 +23,22 @@ class AuthStorage {
   String? _cachedToken;
   String? _cachedUserJson;
 
+  final ValueNotifier<bool> _authenticated = ValueNotifier<bool>(false);
+
+  /// `true` khi đang có token. Đổi giá trị ở mọi đường đăng nhập/đăng xuất
+  /// (kể cả 401 → [clear]) nên service nền như push chỉ cần lắng nghe ở đây,
+  /// không phải chờ từng màn hình báo.
+  ValueListenable<bool> get authenticated => _authenticated;
+
+  void _syncAuthenticated() {
+    _authenticated.value = _cachedToken != null && _cachedToken!.isNotEmpty;
+  }
+
   /// Đọc token vào cache. Gọi 1 lần lúc app boot.
   Future<void> init() async {
     _cachedToken = await _storage.read(key: _kToken);
     _cachedUserJson = await _storage.read(key: _kUser);
+    _syncAuthenticated();
   }
 
   /// Lấy token sync từ cache (sau khi init).
@@ -34,6 +47,7 @@ class AuthStorage {
   Future<void> saveToken(String token) async {
     _cachedToken = token;
     await _storage.write(key: _kToken, value: token);
+    _syncAuthenticated();
   }
 
   Future<String?> readToken() async {
@@ -66,6 +80,7 @@ class AuthStorage {
   Future<void> clear() async {
     _cachedToken = null;
     _cachedUserJson = null;
+    _syncAuthenticated();
     await _storage.delete(key: _kToken);
     await _storage.delete(key: _kUser);
   }

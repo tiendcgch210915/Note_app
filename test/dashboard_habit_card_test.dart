@@ -28,7 +28,7 @@ void main() {
               child: DashboardHabitCard(
                 habit: habit,
                 completed: false,
-                onToggle: () => toggled = true,
+                onTap: () => toggled = true,
               ),
             ),
           ),

@@ -32,9 +32,9 @@ class AppTextStyles {
 
   /// Cho section header style "MA TRẬN EISENHOWER".
   static const sectionLabel = TextStyle(
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: FontWeight.w600,
-    letterSpacing: 1.5,
+    letterSpacing: 0.6,
   );
 
   /// Số to (score, streak).

@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 
 import '../models/dashboard.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_tokens.dart';
 import '../utils/date_utils.dart';
 import '../utils/todo_time_utils.dart';
+import 'pressable.dart';
 import 'todo_swipe_actions.dart';
 import 'todo_timed_title.dart';
 
@@ -942,49 +944,55 @@ class _CalendarTodoCard extends StatelessWidget {
         ? AppColors.textSecondaryDark
         : AppColors.textSecondary;
     if (todo.isDone) {
-      return Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(6),
-          onTap: onTap,
-          child: Container(
-            height: CalendarDayTimeline._doneTodoCardHeight,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            alignment: Alignment.centerLeft,
-            decoration: BoxDecoration(
-              color: secondary.withValues(alpha: isDark ? 0.08 : 0.06),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: secondary.withValues(alpha: 0.16)),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TodoTimedTitle(
-                    title: todo.title,
-                    time: todo.time,
-                    scheduledDate: todo.scheduledDate,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      height: 1.15,
-                      color: secondary.withValues(alpha: 0.68),
-                      decoration: TextDecoration.lineThrough,
-                      decorationColor: secondary.withValues(alpha: 0.46),
+      final doneShape = AppShape.squircle(
+        AppRadius.xs + 2,
+        side: BorderSide(color: secondary.withValues(alpha: 0.16)),
+      );
+      return Pressable(
+        enabled: onTap != null,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            customBorder: doneShape,
+            onTap: onTap,
+            child: Container(
+              height: CalendarDayTimeline._doneTodoCardHeight,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              alignment: Alignment.centerLeft,
+              decoration: ShapeDecoration(
+                color: secondary.withValues(alpha: isDark ? 0.08 : 0.06),
+                shape: doneShape,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TodoTimedTitle(
+                      title: todo.title,
+                      time: todo.time,
+                      scheduledDate: todo.scheduledDate,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        height: 1.15,
+                        color: secondary.withValues(alpha: 0.68),
+                        decoration: TextDecoration.lineThrough,
+                        decorationColor: secondary.withValues(alpha: 0.46),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      now: now,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    now: now,
                   ),
-                ),
-                if (todo.isDailyLog) ...[
-                  const SizedBox(width: 6),
-                  Icon(
-                    Icons.lock_rounded,
-                    size: 13,
-                    color: secondary.withValues(alpha: 0.72),
-                  ),
+                  if (todo.isDailyLog) ...[
+                    const SizedBox(width: 6),
+                    Icon(
+                      Icons.lock_rounded,
+                      size: 13,
+                      color: secondary.withValues(alpha: 0.72),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
@@ -1004,94 +1012,96 @@ class _CalendarTodoCard extends StatelessWidget {
     );
     final metas = _metaSpecs(todo, secondary);
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: onTap,
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 44),
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            color: surface,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: todo.isDailyLog
-                  ? secondary.withValues(alpha: 0.24)
-                  : border,
-            ),
-          ),
-          child: Stack(
-            children: [
-              Positioned(
-                left: 0,
-                top: 0,
-                bottom: 0,
-                width: 4,
-                child: ColoredBox(color: accent),
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: _horizontalPadding,
-                  vertical: _verticalPadding,
+    final cardShape = AppShape.squircle(
+      AppRadius.sm,
+      side: BorderSide(
+        color: todo.isDailyLog ? secondary.withValues(alpha: 0.24) : border,
+      ),
+    );
+
+    return Pressable(
+      enabled: onTap != null,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          customBorder: cardShape,
+          onTap: onTap,
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 44),
+            clipBehavior: Clip.antiAlias,
+            decoration: ShapeDecoration(color: surface, shape: cardShape),
+            child: Stack(
+              children: [
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 4,
+                  child: ColoredBox(color: accent),
                 ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: _leadingSize,
-                      height: _leadingSize,
-                      child: IconButton(
-                        key: ValueKey('calendar-complete-${todo.id}'),
-                        tooltip: 'Hoàn thành',
-                        onPressed: onCompleteTap,
-                        padding: EdgeInsets.zero,
-                        visualDensity: VisualDensity.compact,
-                        iconSize: 27,
-                        icon: Icon(
-                          todo.isDailyLog
-                              ? Icons.lock_outline_rounded
-                              : Icons.circle_outlined,
-                          color: accent,
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: _horizontalPadding,
+                    vertical: _verticalPadding,
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: _leadingSize,
+                        height: _leadingSize,
+                        child: IconButton(
+                          key: ValueKey('calendar-complete-${todo.id}'),
+                          tooltip: 'Hoàn thành',
+                          onPressed: onCompleteTap,
+                          padding: EdgeInsets.zero,
+                          visualDensity: VisualDensity.compact,
+                          iconSize: 27,
+                          icon: Icon(
+                            todo.isDailyLog
+                                ? Icons.lock_outline_rounded
+                                : Icons.circle_outlined,
+                            color: accent,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: _leadingGap),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          TodoTimedTitle(
-                            title: todo.title,
-                            time: todo.time,
-                            scheduledDate: todo.scheduledDate,
-                            style: titleStyle,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            now: now,
-                          ),
-                          if (metas.isNotEmpty) ...[
-                            const SizedBox(height: _metaTopGap),
-                            Wrap(
-                              spacing: _metaSpacing,
-                              runSpacing: _metaRunSpacing,
-                              children: [
-                                for (final meta in metas)
-                                  _MiniMeta(
-                                    icon: meta.icon,
-                                    label: meta.label,
-                                    color: meta.color,
-                                  ),
-                              ],
+                      const SizedBox(width: _leadingGap),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            TodoTimedTitle(
+                              title: todo.title,
+                              time: todo.time,
+                              scheduledDate: todo.scheduledDate,
+                              style: titleStyle,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              now: now,
                             ),
+                            if (metas.isNotEmpty) ...[
+                              const SizedBox(height: _metaTopGap),
+                              Wrap(
+                                spacing: _metaSpacing,
+                                runSpacing: _metaRunSpacing,
+                                children: [
+                                  for (final meta in metas)
+                                    _MiniMeta(
+                                      icon: meta.icon,
+                                      label: meta.label,
+                                      color: meta.color,
+                                    ),
+                                ],
+                              ),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -1131,7 +1141,16 @@ class _MiniMeta extends StatelessWidget {
       children: [
         Icon(icon, size: iconSize, color: color),
         const SizedBox(width: iconGap),
-        Text(label, style: textStyle(color)),
+        // Nhãn dài hơn chiều rộng thẻ: cắt "…" (vẫn một dòng nên chiều cao đo
+        // trong _measureMetaHeight không đổi).
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: textStyle(color),
+          ),
+        ),
       ],
     );
   }

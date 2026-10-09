@@ -44,6 +44,18 @@ class AppColors {
   static const warning = Color(0xFFF59E0B);
   static const streakGold = Color(0xFFF59E0B);
 
+  /// Nền nút điền (filled). Dùng chung cho cả light/dark để chữ trắng luôn đủ
+  /// tương phản (primaryDark quá sáng cho chữ trắng).
+  static const accentFill = primary;
+
+  // ─── Soft (tinted) fills — nền nhạt cho badge/banner ──────────────
+  static const dangerSoft = Color(0xFFFEE2E2);
+  static const dangerSoftDark = Color(0xFF3A1B1B);
+  static const successSoft = Color(0xFFDCFCE7);
+  static const successSoftDark = Color(0xFF14301F);
+  static const warningSoft = Color(0xFFFEF3C7);
+  static const warningSoftDark = Color(0xFF3A2E12);
+
   // ─── Tag colors preset ────────────────────────────────────────────
   static const tagIndigo = Color(0xFF6366F1);
   static const tagGreen = Color(0xFF22C55E);
@@ -61,4 +73,31 @@ class AppColors {
     if (important == false && urgent == true) return q3;
     return q4;
   }
+}
+
+/// Truy cập màu theo sáng/tối từ [BuildContext], thay cho các ternary
+/// `isDark ? AppColors.xDark : AppColors.x`. Chỉ phụ thuộc `brightness` nên
+/// hoạt động cả với `MaterialApp` theme mặc định (test).
+extension AppContextColors on BuildContext {
+  bool get isDark => Theme.of(this).brightness == Brightness.dark;
+
+  Color get appPrimary => isDark ? AppColors.primaryDark : AppColors.primary;
+  Color get appPrimarySoft =>
+      isDark ? AppColors.primarySoftDark : AppColors.primarySoft;
+  Color get appSurface => isDark ? AppColors.surfaceDark : AppColors.surface;
+  Color get appBackground =>
+      isDark ? AppColors.backgroundDark : AppColors.background;
+  Color get appNoteBackground =>
+      isDark ? AppColors.noteBackgroundDark : AppColors.noteBackground;
+  Color get appTextPrimary =>
+      isDark ? AppColors.textPrimaryDark : AppColors.textPrimary;
+  Color get appTextSecondary =>
+      isDark ? AppColors.textSecondaryDark : AppColors.textSecondary;
+  Color get appDivider => isDark ? AppColors.dividerDark : AppColors.divider;
+  Color get appDangerSoft =>
+      isDark ? AppColors.dangerSoftDark : AppColors.dangerSoft;
+  Color get appSuccessSoft =>
+      isDark ? AppColors.successSoftDark : AppColors.successSoft;
+  Color get appWarningSoft =>
+      isDark ? AppColors.warningSoftDark : AppColors.warningSoft;
 }

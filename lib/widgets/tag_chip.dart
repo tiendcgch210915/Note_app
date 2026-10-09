@@ -31,18 +31,23 @@ class TodoTagChip extends StatelessWidget {
         fontWeight: FontWeight.w700,
       ),
     );
+    final deletable = onDeleted != null;
+    // Khi có nút xoá, vùng chạm của nút được nới ra (padding) thay cho padding
+    // dọc của chip để chip không phình to.
+    final verticalPad = deletable ? 0.0 : (compact ? 3.0 : 5.0);
     final child = Container(
       constraints: const BoxConstraints(maxWidth: 160),
       padding: EdgeInsets.only(
         left: compact ? 8 : 10,
-        right: onDeleted == null ? (compact ? 8 : 10) : 4,
-        top: compact ? 3 : 5,
-        bottom: compact ? 3 : 5,
+        right: deletable ? 0 : (compact ? 8 : 10),
+        top: verticalPad,
+        bottom: verticalPad,
       ),
-      decoration: BoxDecoration(
+      decoration: ShapeDecoration(
         color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.22)),
+        shape: StadiumBorder(
+          side: BorderSide(color: color.withValues(alpha: 0.22)),
+        ),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -52,21 +57,29 @@ class TodoTagChip extends StatelessWidget {
             const SizedBox(width: 4),
           ],
           Flexible(child: text),
-          if (onDeleted != null) ...[
-            const SizedBox(width: 2),
-            InkWell(
+          if (deletable)
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTap: onDeleted,
-              customBorder: const CircleBorder(),
-              child: Icon(Icons.close, size: compact ? 14 : 16, color: color),
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: 6,
+                  vertical: compact ? 5 : 6,
+                ),
+                child: Icon(
+                  Icons.close_rounded,
+                  size: compact ? 14 : 16,
+                  color: color,
+                ),
+              ),
             ),
-          ],
         ],
       ),
     );
     if (onTap == null) return child;
     return InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(999),
+      customBorder: const StadiumBorder(),
       child: child,
     );
   }

@@ -1,7 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
+import '../theme/app_tokens.dart';
+import '../utils/app_haptics.dart';
 import '../utils/json_utils.dart' show formatDateOnly;
+import 'app_list_section.dart';
+import 'app_segmented_control.dart';
+import 'app_sheet.dart';
+import 'pressable.dart';
+import 'primary_button.dart';
+import 'weekday_picker.dart';
 
 // ─── RepeatSettings data class ─────────────────────────────────────────────
 
@@ -23,9 +31,18 @@ class RepeatSettings {
 
   bool get hasRepeat => type != null;
 
-  List<int> get activeDays => (daysOfWeek ?? '').isEmpty
-      ? []
-      : daysOfWeek!.split(',').map(int.parse).toList();
+  /// Same tolerant parsing as `Todo.activeDaysOfWeek` (and the backend): junk
+  /// entries are dropped, the rest is de-duplicated and sorted.
+  List<int> get activeDays {
+    final days = <int>{};
+    for (final part in (daysOfWeek ?? '').split(',')) {
+      final day = int.tryParse(part.trim());
+      if (day != null && day >= DateTime.monday && day <= DateTime.sunday) {
+        days.add(day);
+      }
+    }
+    return days.toList()..sort();
+  }
 
   String get label {
     if (!hasRepeat) return 'Không lặp lại';
@@ -71,12 +88,8 @@ Future<RepeatSettings?> showRepeatPicker(
   BuildContext context, {
   RepeatSettings? initial,
 }) {
-  return showModalBottomSheet<RepeatSettings>(
+  return showAppSheet<RepeatSettings>(
     context: context,
-    isScrollControlled: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-    ),
     builder: (ctx) =>
         _RepeatPickerSheet(initial: initial ?? RepeatSettings.none),
   );
@@ -109,12 +122,8 @@ class _RepeatPickerSheetState extends State<_RepeatPickerSheet> {
   }
 
   void _pickCustom() async {
-    final result = await showModalBottomSheet<RepeatSettings>(
+    final result = await showAppSheet<RepeatSettings>(
       context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
       builder: (ctx) => _CustomRepeatSheet(initial: _current),
     );
     if (result != null && mounted) {
@@ -125,71 +134,61 @@ class _RepeatPickerSheetState extends State<_RepeatPickerSheet> {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(0, 8, 0, 0),
+      child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-              child: Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'Lặp lại',
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  if (_current.hasRepeat)
-                    TextButton(
+            AppSheetHeader(
+              title: 'Lặp lại',
+              trailing: _current.hasRepeat
+                  ? TextButton(
                       onPressed: () =>
                           Navigator.of(context).pop(RepeatSettings.none),
                       child: const Text('Xoá'),
-                    ),
+                    )
+                  : null,
+            ),
+            AppListSection(
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              children: [
+                ..._presets.map(
+                  (p) => _PresetTile(
+                    label: p.label,
+                    selected: _isPresetMatch(p.value),
+                    onTap: () => Navigator.of(context).pop(p.value),
+                  ),
+                ),
+                _PresetTile(
+                  label: 'Tùy chỉnh...',
+                  selected: _isCustom(),
+                  subtitle: _isCustom() ? _current.label : null,
+                  onTap: _pickCustom,
+                ),
+              ],
+            ),
+            if (_current.hasRepeat)
+              AppListSection(
+                margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                children: [
+                  _EndDateTile(
+                    endDate: _current.endDate,
+                    onPick: (date) {
+                      setState(
+                        () => _current = _current.copyWith(
+                          endDate: date == null ? null : formatDateOnly(date),
+                          clearEndDate: date == null,
+                        ),
+                      );
+                    },
+                  ),
                 ],
               ),
-            ),
-            const Divider(height: 1),
-            ..._presets.map(
-              (p) => _PresetTile(
-                label: p.label,
-                selected: _isPresetMatch(p.value),
-                onTap: () => Navigator.of(context).pop(p.value),
-              ),
-            ),
-            _PresetTile(
-              label: 'Tùy chỉnh...',
-              selected: _isCustom(),
-              subtitle: _isCustom() ? _current.label : null,
-              onTap: _pickCustom,
-            ),
-            if (_current.hasRepeat) ...[
-              const Divider(height: 1),
-              _EndDateTile(
-                endDate: _current.endDate,
-                onPick: (date) {
-                  setState(
-                    () => _current = _current.copyWith(
-                      endDate: date == null ? null : formatDateOnly(date),
-                      clearEndDate: date == null,
-                    ),
-                  );
-                },
-              ),
-            ],
-            const SizedBox(height: 8),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () => Navigator.of(context).pop(_current),
-                  child: const Text('Xác nhận'),
-                ),
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+              child: PrimaryButton(
+                label: 'Xác nhận',
+                onPressed: () => Navigator.of(context).pop(_current),
               ),
             ),
           ],
@@ -236,14 +235,13 @@ class _PresetTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      leading: Icon(
-        selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
-        color: selected ? AppColors.primary : null,
-        size: 22,
-      ),
-      title: Text(label),
-      subtitle: subtitle != null ? Text(subtitle!) : null,
+    return AppListTile(
+      title: label,
+      subtitle: subtitle,
+      showChevron: false,
+      trailing: selected
+          ? Icon(Icons.check_rounded, color: context.appPrimary, size: 22)
+          : null,
       onTap: onTap,
     );
   }
@@ -259,15 +257,24 @@ class _EndDateTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      leading: const Icon(Icons.event_available, size: 20),
-      title: const Text('Ngày kết thúc'),
-      subtitle: Text(endDate ?? 'Không có'),
+    return AppListTile(
+      icon: Icons.event_available_rounded,
+      title: 'Ngày kết thúc',
+      value: endDate ?? 'Không có',
+      showChevron: endDate == null,
       trailing: endDate == null
           ? null
-          : IconButton(
-              icon: const Icon(Icons.close, size: 18),
-              onPressed: () => onPick(null),
+          : GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => onPick(null),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Icon(
+                  Icons.close_rounded,
+                  size: 18,
+                  color: context.appTextSecondary,
+                ),
+              ),
             ),
       onTap: () async {
         final now = DateTime.now();
@@ -298,8 +305,6 @@ class _CustomRepeatSheetState extends State<_CustomRepeatSheet> {
   late int _interval;
   late Set<int> _selectedDays; // 1=Mon…7=Sun
 
-  static const _dayNames = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
-
   @override
   void initState() {
     super.initState();
@@ -323,147 +328,93 @@ class _CustomRepeatSheetState extends State<_CustomRepeatSheet> {
     Navigator.of(context).pop(settings);
   }
 
+  void _toggleDay(int day) {
+    setState(() {
+      if (_selectedDays.contains(day)) {
+        if (_selectedDays.length > 1) _selectedDays.remove(day);
+      } else {
+        _selectedDays.add(day);
+      }
+    });
+    AppHaptics.selection();
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Tùy chỉnh lặp lại',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            const AppSheetHeader(
+              title: 'Tùy chỉnh lặp lại',
+              padding: EdgeInsets.only(bottom: 16),
             ),
-            const SizedBox(height: 16),
-            // Type selector
-            Row(
-              children: [
-                _TypeChip(
-                  label: 'Theo ngày',
-                  selected: _type == 'daily',
-                  onTap: () => setState(() => _type = 'daily'),
-                ),
-                const SizedBox(width: 8),
-                _TypeChip(
-                  label: 'Theo tuần',
-                  selected: _type == 'weekly',
-                  onTap: () {
-                    setState(() {
-                      _type = 'weekly';
-                      if (_selectedDays.isEmpty) {
-                        _selectedDays = {DateTime.now().weekday};
-                      }
-                    });
-                  },
-                ),
+            AppSegmentedControl<String>(
+              value: _type,
+              onChanged: (value) => setState(() {
+                _type = value;
+                if (value == 'weekly' && _selectedDays.isEmpty) {
+                  _selectedDays = {DateTime.now().weekday};
+                }
+              }),
+              segments: const [
+                AppSegment(value: 'daily', label: 'Theo ngày'),
+                AppSegment(value: 'weekly', label: 'Theo tuần'),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
             // Interval row
             Row(
               children: [
-                const Text('Mỗi', style: TextStyle(fontSize: 15)),
+                const Text('Mỗi', style: TextStyle(fontSize: 16)),
                 const SizedBox(width: 12),
                 _IntervalButton(
-                  icon: Icons.remove,
+                  icon: Icons.remove_rounded,
                   enabled: _interval > 1,
                   onTap: () => setState(() => _interval--),
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  '$_interval',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
+                SizedBox(
+                  width: 48,
+                  child: Text(
+                    '$_interval',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-                const SizedBox(width: 8),
                 _IntervalButton(
-                  icon: Icons.add,
+                  icon: Icons.add_rounded,
                   enabled: _interval < 90,
                   onTap: () => setState(() => _interval++),
                 ),
                 const SizedBox(width: 12),
                 Text(
                   _type == 'weekly' ? 'tuần' : 'ngày',
-                  style: const TextStyle(fontSize: 15),
+                  style: const TextStyle(fontSize: 16),
                 ),
               ],
             ),
             if (_type == 'weekly') ...[
-              const SizedBox(height: 16),
-              const Text(
+              const SizedBox(height: 20),
+              Text(
                 'Chọn thứ lặp lại',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: context.appTextSecondary,
+                ),
               ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                children: List.generate(7, (i) {
-                  final day = i + 1;
-                  final selected = _selectedDays.contains(day);
-                  return FilterChip(
-                    label: Text(_dayNames[i]),
-                    selected: selected,
-                    onSelected: (v) => setState(() {
-                      if (v) {
-                        _selectedDays.add(day);
-                      } else if (_selectedDays.length > 1) {
-                        _selectedDays.remove(day);
-                      }
-                    }),
-                  );
-                }),
-              ),
+              const SizedBox(height: 10),
+              WeekdayPicker(selected: _selectedDays, onToggle: _toggleDay),
             ],
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                onPressed: _confirm,
-                child: const Text('Xác nhận'),
-              ),
-            ),
+            const SizedBox(height: 24),
+            PrimaryButton(label: 'Xác nhận', onPressed: _confirm),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _TypeChip extends StatelessWidget {
-  final String label;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _TypeChip({
-    required this.label,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.primary.withValues(alpha: 0.15) : null,
-          border: Border.all(
-            color: selected ? AppColors.primary : Colors.grey,
-            width: selected ? 1.5 : 1,
-          ),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: selected ? AppColors.primary : null,
-            fontWeight: selected ? FontWeight.w600 : null,
-          ),
         ),
       ),
     );
@@ -483,19 +434,32 @@ class _IntervalButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: enabled ? onTap : null,
-      borderRadius: BorderRadius.circular(20),
-      child: Container(
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          border: Border.all(color: enabled ? AppColors.primary : Colors.grey),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Icon(
-          icon,
-          size: 16,
-          color: enabled ? AppColors.primary : Colors.grey,
+    final color = enabled
+        ? context.appPrimary
+        : context.appTextSecondary.withValues(alpha: 0.5);
+    return Pressable(
+      enabled: enabled,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: enabled
+            ? () {
+                AppHaptics.selection();
+                onTap();
+              }
+            : null,
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: ShapeDecoration(
+            color: enabled ? context.appPrimarySoft : Colors.transparent,
+            shape: AppShape.squircle(
+              AppRadius.sm,
+              side: enabled
+                  ? BorderSide.none
+                  : BorderSide(color: context.appDivider),
+            ),
+          ),
+          child: Icon(icon, size: 22, color: color),
         ),
       ),
     );

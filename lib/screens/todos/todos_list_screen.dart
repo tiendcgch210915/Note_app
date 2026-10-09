@@ -7,6 +7,9 @@ import '../../data/todos_repository.dart';
 import '../../models/tag.dart';
 import '../../models/todo.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
+import '../../utils/app_haptics.dart';
+import '../../utils/app_snack.dart';
 import '../../utils/date_utils.dart';
 import '../../utils/featured_todo_tags.dart';
 import '../../utils/habit_stacking_dialog.dart';
@@ -14,10 +17,15 @@ import '../../utils/json_utils.dart';
 import '../../utils/todo_delete_dialog.dart';
 import '../../utils/todo_local_events.dart';
 import '../../utils/todo_time_utils.dart';
+import '../../widgets/app_list_section.dart';
+import '../../widgets/app_sheet.dart';
+import '../../widgets/app_state_views.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/primary_button.dart';
 import '../../widgets/section_header.dart';
 import '../../widgets/todo_swipe_actions.dart';
 import '../../widgets/todo_tile.dart';
+import '../../widgets/todo_time_action_sheet.dart';
 import 'todo_create_screen.dart';
 import 'todo_detail_screen.dart';
 
@@ -36,6 +44,9 @@ class _TodosListScreenState extends State<TodosListScreen> {
   List<Todo> _done = [];
   String? _doneCursor;
   bool _loading = false;
+
+  /// Lỗi tải lần đầu khi chưa có dữ liệu cache nào để hiện.
+  String? _loadError;
 
   /// Số lượt làm mới từ server đang chạy (cache đã hiện từ trước đó).
   int _inFlight = 0;
@@ -144,16 +155,17 @@ class _TodosListScreenState extends State<TodosListScreen> {
       if (hasPendingBefore || hasPendingAfter) {
         await _refreshLocal(allowEmpty: true);
       }
+      if (mounted && _loadError != null) setState(() => _loadError = null);
     } on ApiException catch (e) {
-      // Đã có dữ liệu cache để xem thì lỗi tạm thời (mất mạng, server đang
-      // khởi động lại...) không đáng làm phiền người dùng.
-      if (mounted && (!_hasAnyTodos || !e.isRetryable)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.vnMessage),
-            backgroundColor: AppColors.danger,
-          ),
-        );
+      // Chưa có gì để xem: hiện trạng thái lỗi có nút "Thử lại" thay vì một
+      // danh sách rỗng gây hiểu nhầm. Đã có dữ liệu cache thì lỗi tạm thời
+      // (mất mạng, server đang khởi động lại...) không đáng làm phiền.
+      if (mounted) {
+        if (!_hasAnyTodos) {
+          setState(() => _loadError = e.vnMessage);
+        } else if (!e.isRetryable) {
+          _showError(e.vnMessage);
+        }
       }
     } finally {
       if (mounted) {
@@ -358,6 +370,7 @@ class _TodosListScreenState extends State<TodosListScreen> {
   Future<void> _toggleDone(Todo t) async {
     // Uncomplete — chỉ refresh, không animate.
     if (t.isDone) {
+      AppHaptics.light();
       try {
         final reopened = await TodosRepository.instance.uncompleteLocalFirst(t);
         if (mounted) setState(() => _moveReopenedTodo(reopened));
@@ -368,6 +381,7 @@ class _TodosListScreenState extends State<TodosListScreen> {
     }
 
     // Complete flow với fade animation.
+    AppHaptics.medium();
     try {
       // 1. Strikethrough ngay lập tức (optimistic mark done).
       setState(() => _markDoneLocally(t.id));
@@ -541,31 +555,10 @@ class _TodosListScreenState extends State<TodosListScreen> {
   Future<void> _pickTodoTime(Todo todo) async {
     if (todo.parentId != null) return;
     final action = todo.time == null
-        ? 'pick'
-        : await showModalBottomSheet<String>(
-            context: context,
-            showDragHandle: true,
-            builder: (ctx) => SafeArea(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ListTile(
-                    leading: const Icon(Icons.schedule_rounded),
-                    title: const Text('Chọn giờ'),
-                    subtitle: Text('Hiện tại: ${todo.time}'),
-                    onTap: () => Navigator.of(ctx).pop('pick'),
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.close_rounded),
-                    title: const Text('Bỏ giờ'),
-                    onTap: () => Navigator.of(ctx).pop('clear'),
-                  ),
-                ],
-              ),
-            ),
-          );
+        ? todoTimeActionPick
+        : await showTodoTimeActionSheet(context, currentTime: todo.time!);
     if (action == null || !mounted) return;
-    if (action == 'clear') {
+    if (action == todoTimeActionClear) {
       await _changeTodoTimeLocalFirst(todo, null);
       return;
     }
@@ -719,9 +712,8 @@ class _TodosListScreenState extends State<TodosListScreen> {
   }
 
   void _openFilterSheet() {
-    showModalBottomSheet<void>(
+    showAppSheet<void>(
       context: context,
-      showDragHandle: true,
       builder: (ctx) => _TodoFilterSheet(
         filter: _filter,
         tagFilters: _tagFilters,
@@ -813,9 +805,7 @@ class _TodosListScreenState extends State<TodosListScreen> {
   }
 
   void _showError(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: AppColors.danger),
-    );
+    showAppSnack(context, msg, isError: true);
   }
 
   Widget _buildFilterRow() {
@@ -834,9 +824,10 @@ class _TodosListScreenState extends State<TodosListScreen> {
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.filter_list, size: 20),
+            tooltip: 'Bộ lọc',
+            icon: const Icon(Icons.tune_rounded, size: 22),
             color: _tagFilters.isNotEmpty || _filter != 'all'
-                ? AppColors.primary
+                ? context.appPrimary
                 : null,
             onPressed: _openFilterSheet,
           ),
@@ -883,7 +874,7 @@ class _TodosListScreenState extends State<TodosListScreen> {
         _overdue.isEmpty &&
         _unscheduled.isEmpty &&
         _done.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const AppSpinner();
     }
 
     final today = _filter == 'done' ? <Todo>[] : _applyFilter(_today);
@@ -910,6 +901,9 @@ class _TodosListScreenState extends State<TodosListScreen> {
         done.isEmpty;
     final hasActiveFilters = _filter != 'all' || _tagFilters.isNotEmpty;
     if (isEmpty && !hasActiveFilters) {
+      if (_loadError != null) {
+        return AppErrorState(message: _loadError!, onRetry: _refresh);
+      }
       return EmptyState(
         icon: Icons.check_circle_outline,
         title: 'Chưa có việc nào',
@@ -933,33 +927,63 @@ class _TodosListScreenState extends State<TodosListScreen> {
               subtitle: 'Chọn Tất cả hoặc đổi bộ lọc để xem việc khác.',
             ),
           if (overdue.isNotEmpty) ...[
-            const SectionHeader(label: 'Quá hạn'),
+            SectionHeader(
+              label: 'Quá hạn',
+              leading: SectionHeader.dot(AppColors.danger),
+            ),
             ...overdue.map(_animatedTile),
           ],
           if (today.isNotEmpty) ...[
-            const SectionHeader(label: '⭐ Hôm nay'),
+            SectionHeader(
+              label: 'Hôm nay',
+              leading: SectionHeader.dot(context.appPrimary),
+            ),
             ...today.map(_animatedTile),
           ],
           if (upcoming.isNotEmpty) ...[
-            const SectionHeader(label: '📅 Sắp tới'),
+            SectionHeader(
+              label: 'Sắp tới',
+              leading: SectionHeader.dot(AppColors.tagCyan),
+            ),
             ...upcoming.map(_animatedTile),
           ],
           if (unscheduled.isNotEmpty) ...[
-            const SectionHeader(label: '📋 Chưa lên lịch'),
+            SectionHeader(
+              label: 'Chưa lên lịch',
+              leading: SectionHeader.dot(AppColors.tagSlate),
+            ),
             ...unscheduled.map(_animatedTile),
           ],
           if (done.isNotEmpty) ...[
-            SectionHeader(
-              label:
-                  '✅ Đã xong (${done.length}${_doneCursor != null ? '+' : ''})',
-              trailing: IconButton(
-                icon: Icon(
-                  _doneExpanded ? Icons.expand_less : Icons.expand_more,
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                AppHaptics.selection();
+                setState(() => _doneExpanded = !_doneExpanded);
+              },
+              child: SectionHeader(
+                label:
+                    'Đã xong (${done.length}${_doneCursor != null ? '+' : ''})',
+                leading: SectionHeader.dot(AppColors.success),
+                trailing: AnimatedRotation(
+                  turns: _doneExpanded ? 0.5 : 0,
+                  duration: AppMotion.normal,
+                  curve: AppMotion.curve,
+                  child: Icon(
+                    Icons.expand_more_rounded,
+                    color: context.appTextSecondary,
+                  ),
                 ),
-                onPressed: () => setState(() => _doneExpanded = !_doneExpanded),
               ),
             ),
-            if (_doneExpanded) ...done.map(_animatedTile),
+            AnimatedSize(
+              duration: AppMotion.normal,
+              curve: AppMotion.curve,
+              alignment: Alignment.topCenter,
+              child: _doneExpanded
+                  ? Column(children: done.map(_animatedTile).toList())
+                  : const SizedBox(width: double.infinity),
+            ),
           ],
         ],
       ),
@@ -1003,15 +1027,18 @@ class _TodoQuickFilterBar extends StatelessWidget {
     final selectedTagIds = tagFilters.map((tag) => tag.id).toSet();
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.only(right: 8),
       child: Row(
         children: [
           _filterChip(
+            context,
             label: 'Tất cả',
             selected: filter == 'all' && selectedTagIds.isEmpty,
             onTap: onAllSelected,
           ),
           const SizedBox(width: 8),
           _filterChip(
+            context,
             label: 'Chưa phân loại',
             selected: filter == 'untagged' && selectedTagIds.isEmpty,
             icon: Icons.label_off_outlined,
@@ -1019,14 +1046,15 @@ class _TodoQuickFilterBar extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           _filterChip(
+            context,
             label: 'Hôm nay',
             selected: filter == 'today',
             icon: Icons.today_outlined,
-            color: AppColors.primary,
             onTap: () => onFilterChanged('today'),
           ),
           const SizedBox(width: 8),
           _filterChip(
+            context,
             label: 'Quan trọng',
             selected: filter == 'important',
             icon: Icons.star_rounded,
@@ -1035,6 +1063,7 @@ class _TodoQuickFilterBar extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           _filterChip(
+            context,
             label: 'Đã xong',
             selected: filter == 'done',
             icon: Icons.check_circle_outline,
@@ -1054,29 +1083,38 @@ class _TodoQuickFilterBar extends StatelessWidget {
     );
   }
 
-  Widget _filterChip({
+  Widget _filterChip(
+    BuildContext context, {
     required String label,
     required bool selected,
     required VoidCallback onTap,
     IconData? icon,
     Color? color,
   }) {
-    final chipColor = color ?? AppColors.primary;
+    // Chip đang chọn: nền đậm + chữ trắng; chưa chọn: icon theo màu nhóm.
+    final fillColor = color ?? AppColors.accentFill;
+    final iconColor = color ?? context.appPrimary;
     return ChoiceChip(
       label: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 16, color: selected ? Colors.white : chipColor),
+            Icon(icon, size: 16, color: selected ? Colors.white : iconColor),
             const SizedBox(width: 6),
           ],
           Text(label),
         ],
       ),
       selected: selected,
-      selectedColor: chipColor,
-      labelStyle: TextStyle(color: selected ? Colors.white : null),
-      onSelected: (_) => onTap(),
+      selectedColor: fillColor,
+      labelStyle: TextStyle(
+        fontWeight: FontWeight.w600,
+        color: selected ? Colors.white : null,
+      ),
+      onSelected: (_) {
+        AppHaptics.selection();
+        onTap();
+      },
     );
   }
 
@@ -1191,77 +1229,78 @@ class _TodoFilterSheetState extends State<_TodoFilterSheet> {
       child: SizedBox(
         height: MediaQuery.sizeOf(context).height * 0.62,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          padding: const EdgeInsets.only(bottom: 16),
           children: [
-            const Text(
-              'Bộ lọc',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            const AppSheetHeader(title: 'Bộ lọc'),
+            AppListSection(
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+              children: [
+                _filterTile('all', 'Tất cả'),
+                _filterTile('untagged', 'Chưa phân loại'),
+                _filterTile('today', 'Hôm nay'),
+                _filterTile('important', 'Quan trọng'),
+                _filterTile('done', 'Đã hoàn thành'),
+              ],
             ),
-            const SizedBox(height: 8),
-            _filterTile('all', 'Tất cả'),
-            _filterTile('untagged', 'Chưa phân loại'),
-            _filterTile('today', 'Hôm nay'),
-            _filterTile('important', 'Quan trọng'),
-            _filterTile('done', 'Đã hoàn thành'),
-            const Divider(),
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.local_offer_outlined),
-              title: Text(
-                _selectedTags.isEmpty
-                    ? 'Tags'
-                    : 'Tags (${_selectedTags.length})',
-              ),
+            SectionHeader(
+              label: _selectedTags.isEmpty
+                  ? 'Tags'
+                  : 'Tags (${_selectedTags.length})',
+              padding: const EdgeInsets.fromLTRB(20, 0, 12, 8),
               trailing: _selectedTags.isEmpty
                   ? null
-                  : IconButton(
-                      icon: const Icon(Icons.close),
+                  : TextButton(
                       onPressed: () => setState(() => _selectedTags = []),
+                      child: const Text('Bỏ chọn'),
                     ),
             ),
-            if (_loading)
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Center(child: CircularProgressIndicator()),
-              )
-            else
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final tag in _tags)
-                    _FilterTagChip(
-                      tag: tag,
-                      selected: _selectedTags.any((item) => item.id == tag.id),
-                      onTap: () => _toggleTag(tag),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: _loading
+                  ? const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: AppSpinner(),
+                    )
+                  : Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final tag in _tags)
+                          _FilterTagChip(
+                            tag: tag,
+                            selected: _selectedTags.any(
+                              (item) => item.id == tag.id,
+                            ),
+                            onTap: () => _toggleTag(tag),
+                          ),
+                      ],
                     ),
-                ],
-              ),
+            ),
             const SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _selectedTags.isEmpty
-                        ? null
-                        : widget.onClearTags,
-                    icon: const Icon(Icons.clear),
-                    label: const Text('Bỏ lọc tag'),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: PrimaryButton(
+                      label: 'Bỏ lọc tag',
+                      variant: PrimaryButtonVariant.tonal,
+                      onPressed: _selectedTags.isEmpty
+                          ? null
+                          : widget.onClearTags,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: () => widget.onTagsChanged(_selectedTags),
-                    icon: const Icon(Icons.check),
-                    label: Text(
-                      _selectedTags.isEmpty
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: PrimaryButton(
+                      label: _selectedTags.isEmpty
                           ? 'Áp dụng'
                           : 'Áp dụng ${_selectedTags.length} tag',
+                      onPressed: () => widget.onTagsChanged(_selectedTags),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
@@ -1271,13 +1310,12 @@ class _TodoFilterSheetState extends State<_TodoFilterSheet> {
 
   Widget _filterTile(String value, String label) {
     final selected = widget.filter == value;
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(
-        selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
-        color: selected ? AppColors.primary : null,
-      ),
-      title: Text(label),
+    return AppListTile(
+      title: label,
+      showChevron: false,
+      trailing: selected
+          ? Icon(Icons.check_rounded, color: context.appPrimary, size: 22)
+          : null,
       onTap: () => widget.onFilterChanged(value),
     );
   }

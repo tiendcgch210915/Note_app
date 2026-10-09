@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../models/user.dart';
 import 'api_client.dart';
 import 'auth_storage.dart';
@@ -70,9 +72,35 @@ class AuthRepository {
     return User.fromJson(json);
   }
 
-  /// Logout — clear token + user. Backend không có endpoint logout server-side
-  /// (token vẫn valid 30 ngày trong DB nhưng client không còn dùng).
+  final List<Future<void> Function()> _beforeLogoutHooks = [];
+
+  /// Thời gian tối đa chờ **mỗi** hook trước khi bỏ qua và đăng xuất tiếp.
+  @visibleForTesting
+  Duration beforeLogoutTimeout = const Duration(seconds: 5);
+
+  /// Đăng ký việc cần làm khi phiên còn hiệu lực, ngay trước khi xóa token
+  /// (ví dụ hủy đăng ký thiết bị push — cần JWT để gọi API). Hook được gọi theo
+  /// thứ tự đăng ký; lỗi hoặc quá [beforeLogoutTimeout] không chặn đăng xuất.
+  void addBeforeLogoutHook(Future<void> Function() hook) {
+    if (!_beforeLogoutHooks.contains(hook)) _beforeLogoutHooks.add(hook);
+  }
+
+  @visibleForTesting
+  void removeBeforeLogoutHook(Future<void> Function() hook) {
+    _beforeLogoutHooks.remove(hook);
+  }
+
+  /// Logout — chạy các hook trước khi đăng xuất rồi clear token + user.
+  /// Backend không có endpoint logout server-side (token vẫn valid 30 ngày
+  /// trong DB nhưng client không còn dùng).
   Future<void> logout() async {
+    for (final hook in List.of(_beforeLogoutHooks)) {
+      try {
+        await hook().timeout(beforeLogoutTimeout);
+      } catch (_) {
+        // Đăng xuất phải luôn hoàn tất, dù hook lỗi, treo hay mất mạng.
+      }
+    }
     await _storage.clear();
   }
 }

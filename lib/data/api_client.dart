@@ -79,12 +79,22 @@ class ApiClient {
     return _send('GET', path, query: query, requireAuth: requireAuth);
   }
 
+  /// [timeout] (tuỳ chọn) giới hạn thời gian chờ phản hồi của riêng lời gọi này.
+  /// Hết giờ → `ApiException('no_connection')`, tức loại lỗi có thể thử lại.
+  /// Mặc định không giới hạn, giữ nguyên hành vi cũ của các lời gọi khác.
   Future<dynamic> post(
     String path, {
     Object? body,
     bool requireAuth = true,
+    Duration? timeout,
   }) async {
-    return _send('POST', path, body: body, requireAuth: requireAuth);
+    return _send(
+      'POST',
+      path,
+      body: body,
+      requireAuth: requireAuth,
+      timeout: timeout,
+    );
   }
 
   Future<dynamic> patch(
@@ -103,12 +113,23 @@ class ApiClient {
     return _send('PUT', path, body: body, requireAuth: requireAuth);
   }
 
+  /// [body] (tuỳ chọn) cho các endpoint DELETE nhận JSON body (ví dụ
+  /// `DELETE /devices`). Không có body thì không gửi `Content-Type`, như trước.
   Future<dynamic> delete(
     String path, {
     Map<String, dynamic>? query,
+    Object? body,
     bool requireAuth = true,
+    Duration? timeout,
   }) async {
-    return _send('DELETE', path, query: query, requireAuth: requireAuth);
+    return _send(
+      'DELETE',
+      path,
+      query: query,
+      body: body,
+      requireAuth: requireAuth,
+      timeout: timeout,
+    );
   }
 
   Future<dynamic> _send(
@@ -117,6 +138,7 @@ class ApiClient {
     Map<String, dynamic>? query,
     Object? body,
     bool requireAuth = true,
+    Duration? timeout,
   }) async {
     final uri = _buildUri(path, query);
     final encodedBody = body == null ? null : jsonEncode(body);
@@ -127,26 +149,27 @@ class ApiClient {
     debugPrint('[ApiClient] $method $uri');
 
     try {
-      late http.Response resp;
+      final Future<http.Response> pending;
       switch (method) {
         case 'GET':
-          resp = await _http.get(uri, headers: headers);
+          pending = _http.get(uri, headers: headers);
           break;
         case 'POST':
-          resp = await _http.post(uri, headers: headers, body: encodedBody);
+          pending = _http.post(uri, headers: headers, body: encodedBody);
           break;
         case 'PATCH':
-          resp = await _http.patch(uri, headers: headers, body: encodedBody);
+          pending = _http.patch(uri, headers: headers, body: encodedBody);
           break;
         case 'PUT':
-          resp = await _http.put(uri, headers: headers, body: encodedBody);
+          pending = _http.put(uri, headers: headers, body: encodedBody);
           break;
         case 'DELETE':
-          resp = await _http.delete(uri, headers: headers);
+          pending = _http.delete(uri, headers: headers, body: encodedBody);
           break;
         default:
           throw ApiException(0, 'unknown', 'Unsupported method $method');
       }
+      final resp = await (timeout == null ? pending : pending.timeout(timeout));
 
       // 204 No Content
       if (resp.statusCode == 204) return null;

@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../models/dashboard.dart';
 import '../models/habit.dart';
 import '../models/tag.dart';
@@ -15,10 +17,20 @@ import 'todos_repository.dart';
 
 /// Repository cho Group D — Dashboard. 3 endpoint F-D1/F-D2/F-D3.
 class DashboardRepository {
-  DashboardRepository._();
+  DashboardRepository._({AppDatabase? database})
+    : _db = database ?? AppDatabase.instance;
   static final DashboardRepository instance = DashboardRepository._();
+
+  /// Chỉ để test các đường đọc Drift (`localCalendarDayDetail`...): không dựng
+  /// kết nối SQLite thật của app. Các hàm dùng `TodosRepository.instance` hay
+  /// `HabitsRepository.instance` (ví dụ `localTodayData`) vẫn chạm singleton
+  /// nên chưa test được qua đây.
+  @visibleForTesting
+  factory DashboardRepository.forTesting(AppDatabase database) =>
+      DashboardRepository._(database: database);
+
   final ApiClient _client = ApiClient.instance;
-  final AppDatabase _db = AppDatabase.instance;
+  final AppDatabase _db;
 
   String get _userId =>
       AuthStorage.instance.currentUserJson?['id'] as String? ?? '';

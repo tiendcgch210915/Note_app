@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../data/api_exception.dart';
@@ -6,9 +8,18 @@ import '../../models/checklist_category.dart';
 import '../../models/template.dart';
 import '../../models/template_item.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
+import '../../utils/app_haptics.dart';
+import '../../utils/app_snack.dart';
 import '../../utils/checklist_step_text_utils.dart';
 import '../../utils/date_utils.dart';
+import '../../widgets/app_list_section.dart';
+import '../../widgets/app_sheet.dart';
+import '../../widgets/app_state_views.dart';
+import '../../widgets/app_surface.dart';
+import '../../widgets/checklist_category_picker.dart';
 import '../../widgets/checklist_paste_steps_sheet.dart';
+import '../../widgets/empty_state.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/section_header.dart';
 import 'run_detail_screen.dart';
@@ -28,8 +39,10 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
   List<TemplateItem> _items = [];
   List<ChecklistCategory> _categories = [];
   bool _loading = false;
+  String? _loadError;
   bool _editMode = false;
   bool _savingTitle = false;
+  bool _starting = false;
   final _titleCtrl = TextEditingController();
 
   @override
@@ -46,7 +59,10 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
 
   /// Hiện ngay bản đã lưu trong SQLite (nếu có), sau đó mới hỏi server.
   Future<void> _load() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
     await _loadLocal();
     if (mounted && _template != null) setState(() => _loading = false);
     await _revalidate();
@@ -76,7 +92,10 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
       );
     } on ApiException catch (e) {
       // Đã có bản cache để xem thì lỗi mạng tạm thời không đáng báo.
-      if (mounted && (_template == null || !e.isRetryable)) {
+      if (!mounted) return;
+      if (_template == null) {
+        setState(() => _loadError = e.vnMessage);
+      } else if (!e.isRetryable) {
         _showError(e.vnMessage);
       }
     } finally {
@@ -99,17 +118,26 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
   }
 
   Future<void> _startRun() async {
+    if (_starting) return;
+    _starting = true;
+    var opened = false;
     try {
-      final res = await ChecklistsRepository.instance.startRun(
+      final navigator = Navigator.of(context);
+      // Bị chặn (đang làm việc khác) thì runId = null và người dùng đã được báo.
+      final runId = await beginChecklistRun(
+        context,
         templateId: widget.templateId,
         name: _template?.title,
       );
-      if (!mounted) return;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => RunDetailScreen(runId: res.run.id)),
-      );
+      if (runId == null || !mounted) return;
+      opened = true;
+      unawaited(openRunDetail(navigator, runId, replace: true));
     } on ApiException catch (e) {
       if (mounted) _showError(e.vnMessage);
+    } finally {
+      // Mở được run thì giữ cờ cho tới khi màn hình này bị thay thế, để bấm đúp
+      // không đẩy hai màn hình run chồng lên nhau.
+      if (!opened) _starting = false;
     }
   }
 
@@ -135,35 +163,20 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
   }
 
   Future<void> _addItem() async {
-    final ctrl = TextEditingController();
-    final title = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Thêm bước'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(hintText: 'Tên bước'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Hủy'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
-            child: const Text('Thêm'),
-          ),
-        ],
-      ),
+    final title = await showAppTextInputDialog(
+      context,
+      title: 'Thêm bước',
+      hintText: 'Tên bước',
+      confirmLabel: 'Thêm',
     );
-    if (title == null || title.isEmpty) return;
+    if (!mounted || title == null || title.isEmpty) return;
     try {
       final item = await ChecklistsRepository.instance.addItem(
         widget.templateId,
         title: title,
         isRequired: true,
       );
+      if (!mounted) return;
       setState(() => _items = [..._items, item]);
     } on ApiException catch (e) {
       if (mounted) _showError(e.vnMessage);
@@ -221,31 +234,12 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
   }
 
   Future<void> _editItemTitle(TemplateItem item) async {
-    final ctrl = TextEditingController(text: item.title);
-    final title = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Sửa bước'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          textInputAction: TextInputAction.done,
-          decoration: const InputDecoration(hintText: 'Tên bước'),
-          onSubmitted: (value) => Navigator.of(ctx).pop(value.trim()),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Hủy'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
-            child: const Text('Lưu'),
-          ),
-        ],
-      ),
+    final title = await showAppTextInputDialog(
+      context,
+      title: 'Sửa bước',
+      hintText: 'Tên bước',
+      initialText: item.title,
     );
-    ctrl.dispose();
     if (!mounted) return;
     if (title == null) return;
     if (title.isEmpty) {
@@ -295,43 +289,13 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
   Future<void> _changeCategory() async {
     final template = _template;
     if (template == null || template.isSystem) return;
-    final picked = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (ctx) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            ListTile(
-              title: const Text('Chưa phân loại'),
-              leading: const Icon(Icons.block_outlined),
-              trailing: template.categoryId == null
-                  ? const Icon(Icons.check, color: AppColors.primary)
-                  : null,
-              onTap: () => Navigator.of(ctx).pop('__uncategorized__'),
-            ),
-            ..._categories.map(
-              (category) => ListTile(
-                title: Text(category.name),
-                subtitle: category.isSystem
-                    ? const Text('Hệ thống')
-                    : const Text('Của tôi'),
-                leading: Icon(
-                  ChecklistCategory.iconFor(category.icon),
-                  color: category.color,
-                ),
-                trailing: template.categoryId == category.id
-                    ? const Icon(Icons.check, color: AppColors.primary)
-                    : null,
-                onTap: () => Navigator.of(ctx).pop(category.id),
-              ),
-            ),
-          ],
-        ),
-      ),
+    final picked = await showChecklistCategorySheet(
+      context,
+      categories: _categories,
+      selectedId: template.categoryId,
     );
     if (picked == null) return;
-    final categoryId = picked == '__uncategorized__' ? null : picked;
+    final categoryId = picked == kUncategorizedCategory ? null : picked;
     try {
       final updated = await ChecklistsRepository.instance.updateTemplate(
         template.id,
@@ -373,9 +337,7 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
         _template = updated;
         _titleCtrl.text = updated.title;
       });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Đã lưu tiêu đề')));
+      showAppSnack(context, 'Đã lưu tiêu đề');
       return true;
     } on ApiException catch (e) {
       if (!mounted) return false;
@@ -391,6 +353,7 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
   }
 
   Future<void> _toggleEditMode() async {
+    AppHaptics.selection();
     if (!_editMode) {
       setState(() {
         _titleCtrl.text = _template?.title ?? '';
@@ -404,29 +367,26 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
   }
 
   void _showError(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: AppColors.danger),
-    );
+    showAppSnack(context, msg, isError: true);
   }
 
   @override
   Widget build(BuildContext context) {
     if (_loading && _template == null) {
-      return Scaffold(
-        appBar: AppBar(),
-        body: const Center(child: CircularProgressIndicator()),
-      );
+      return Scaffold(appBar: AppBar(), body: const AppSpinner());
     }
     if (_template == null) {
       return Scaffold(
         appBar: AppBar(),
-        body: const Center(child: Text('Không tìm thấy template')),
+        body: _loadError != null
+            ? AppErrorState(message: _loadError!, onRetry: _load)
+            : const EmptyState(
+                icon: Icons.search_off_rounded,
+                title: 'Không tìm thấy template',
+              ),
       );
     }
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final secondary = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
+    final secondary = context.appTextSecondary;
     final template = _template!;
     final canEdit = !template.isSystem;
     final categoryById = {for (final c in _categories) c.id: c};
@@ -440,13 +400,22 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
         actions: [
           if (canEdit)
             IconButton(
-              icon: Icon(_editMode ? Icons.check : Icons.edit_outlined),
+              tooltip: _editMode ? 'Xong' : 'Chỉnh sửa',
+              icon: AnimatedSwitcher(
+                duration: AppMotion.fast,
+                transitionBuilder: (child, animation) =>
+                    ScaleTransition(scale: animation, child: child),
+                child: Icon(
+                  _editMode ? Icons.check_rounded : Icons.edit_rounded,
+                  key: ValueKey(_editMode),
+                ),
+              ),
               onPressed: _savingTitle ? null : _toggleEditMode,
             ),
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.only(bottom: 100),
+        padding: EdgeInsets.only(bottom: _editMode ? 32 : 24),
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
@@ -455,13 +424,13 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
                 Container(
                   width: 56,
                   height: 56,
-                  decoration: const BoxDecoration(
-                    color: AppColors.primarySoft,
-                    shape: BoxShape.circle,
+                  decoration: ShapeDecoration(
+                    color: context.appPrimarySoft,
+                    shape: AppShape.squircle(AppRadius.lg),
                   ),
                   child: Icon(
                     Template.iconFor(template.icon),
-                    color: AppColors.primary,
+                    color: context.appPrimary,
                     size: 28,
                   ),
                 ),
@@ -470,48 +439,51 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (_editMode)
-                        TextField(
-                          controller: _titleCtrl,
-                          textInputAction: TextInputAction.done,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                          ),
-                          decoration: InputDecoration(
-                            hintText: 'Tiêu đề checklist',
-                            isDense: true,
-                            contentPadding: EdgeInsets.zero,
-                            border: InputBorder.none,
-                            enabledBorder: InputBorder.none,
-                            focusedBorder: InputBorder.none,
-                            suffixIcon: _savingTitle
-                                ? const SizedBox(
-                                    width: 20,
-                                    height: 20,
-                                    child: Padding(
-                                      padding: EdgeInsets.all(12),
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    ),
-                                  )
-                                : IconButton(
-                                    icon: const Icon(Icons.check_rounded),
-                                    tooltip: 'Lưu tiêu đề',
-                                    onPressed: _saveTemplateTitle,
+                      AnimatedSwitcher(
+                        duration: AppMotion.normal,
+                        child: _editMode
+                            ? TextField(
+                                key: const ValueKey('template-title-edit'),
+                                controller: _titleCtrl,
+                                textInputAction: TextInputAction.done,
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                                decoration: InputDecoration(
+                                  hintText: 'Tiêu đề checklist',
+                                  isDense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  border: InputBorder.none,
+                                  enabledBorder: InputBorder.none,
+                                  focusedBorder: InputBorder.none,
+                                  suffixIcon: _savingTitle
+                                      ? const SizedBox(
+                                          width: 36,
+                                          height: 36,
+                                          child: AppSpinner(radius: 8),
+                                        )
+                                      : IconButton(
+                                          icon: const Icon(Icons.check_rounded),
+                                          tooltip: 'Lưu tiêu đề',
+                                          onPressed: _saveTemplateTitle,
+                                        ),
+                                ),
+                                onSubmitted: (_) => _saveTemplateTitle(),
+                              )
+                            : Align(
+                                key: const ValueKey('template-title-read'),
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  template.title,
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: -0.2,
                                   ),
-                          ),
-                          onSubmitted: (_) => _saveTemplateTitle(),
-                        )
-                      else
-                        Text(
-                          template.title,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
+                                ),
+                              ),
+                      ),
                       if (template.description != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 4),
@@ -532,48 +504,67 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                _chip('${_items.length} bước'),
+                _chip(context, '${_items.length} bước'),
                 _TemplateDetailCategoryChip(
                   template: template,
                   category: category,
                 ),
                 if (template.lastUsedAt != null)
                   _chip(
-                    'Cập nhật: ${AppDateUtils.formatRelative(template.lastUsedAt!)}',
+                    context,
+                    'Dùng gần nhất: ${AppDateUtils.formatRelative(template.lastUsedAt!)}',
                   ),
               ],
             ),
           ),
           const SectionHeader(label: 'Các bước'),
           if (_editMode)
-            ListTile(
-              leading: const Icon(Icons.category_outlined),
-              title: const Text('Danh mục'),
-              subtitle: Text(
-                category?.name ?? template.category ?? 'Chưa phân loại',
-              ),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: _changeCategory,
+            AppListSection(
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              dividerIndent: AppListSection.iconIndent,
+              children: [
+                AppListTile(
+                  icon: Icons.category_rounded,
+                  iconColor: category?.color ?? AppColors.tagSlate,
+                  title: 'Danh mục',
+                  value:
+                      category?.name ?? template.category ?? 'Chưa phân loại',
+                  onTap: _changeCategory,
+                ),
+              ],
             ),
-          if (_editMode) _editList(secondary) else _readList(secondary),
+          AnimatedSwitcher(
+            duration: AppMotion.normal,
+            child: _editMode
+                ? KeyedSubtree(
+                    key: const ValueKey('steps-edit'),
+                    child: _editList(secondary),
+                  )
+                : KeyedSubtree(
+                    key: const ValueKey('steps-read'),
+                    child: _readList(secondary),
+                  ),
+          ),
           if (_editMode)
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
               child: Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton.icon(
+                    child: PrimaryButton(
+                      label: 'Dán bước',
+                      icon: Icons.content_paste_rounded,
+                      variant: PrimaryButtonVariant.tonal,
                       onPressed: _showPasteStepsSheet,
-                      icon: const Icon(Icons.content_paste_outlined),
-                      label: const Text('Dán bước'),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: OutlinedButton.icon(
+                    child: PrimaryButton(
+                      label: 'Thêm bước',
+                      icon: Icons.add_rounded,
+                      variant: PrimaryButtonVariant.tonal,
                       onPressed: _addItem,
-                      icon: const Icon(Icons.add),
-                      label: const Text('Thêm bước'),
                     ),
                   ),
                 ],
@@ -583,13 +574,21 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
       ),
       bottomNavigationBar: _editMode
           ? null
-          : SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: PrimaryButton(
-                  label: 'Bắt đầu ngay',
-                  icon: Icons.play_arrow,
-                  onPressed: _startRun,
+          : Container(
+              decoration: BoxDecoration(
+                color: context.appBackground,
+                border: Border(
+                  top: BorderSide(color: context.appDivider, width: 0.5),
+                ),
+              ),
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: PrimaryButton(
+                    label: 'Bắt đầu ngay',
+                    icon: Icons.play_arrow_rounded,
+                    onPressed: _startRun,
+                  ),
                 ),
               ),
             ),
@@ -597,41 +596,62 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
   }
 
   Widget _readList(Color secondary) {
-    return Column(
-      children: _items.map((it) {
-        return ListTile(
-          leading: CircleAvatar(
-            radius: 14,
-            backgroundColor: AppColors.primarySoft,
-            child: Text(
-              '${it.position}',
-              style: const TextStyle(
-                color: AppColors.primary,
-                fontWeight: FontWeight.w600,
-                fontSize: 12,
+    if (_items.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(20, 0, 16, 12),
+        child: Text('Chưa có bước nào', style: TextStyle(color: secondary)),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: AppSurface(
+        clipBehavior: Clip.antiAlias,
+        showShadow: false,
+        child: Column(
+          children: [
+            for (var i = 0; i < _items.length; i++) ...[
+              if (i > 0)
+                Divider(height: 0.5, indent: 56, color: context.appDivider),
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 28,
+                      height: 28,
+                      alignment: Alignment.center,
+                      decoration: ShapeDecoration(
+                        color: context.appPrimarySoft,
+                        shape: AppShape.squircle(AppRadius.xs),
+                      ),
+                      child: Text(
+                        '${_items[i].position}',
+                        style: TextStyle(
+                          color: context.appPrimary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Text(
+                        _items[i].title,
+                        style: const TextStyle(fontSize: 15),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    _RequiredBadge(required: _items[i].isRequired),
+                  ],
+                ),
               ),
-            ),
-          ),
-          title: Text(it.title),
-          trailing: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: (it.isRequired ? AppColors.danger : secondary).withValues(
-                alpha: 0.15,
-              ),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              it.isRequired ? 'Bắt buộc' : 'Tùy chọn',
-              style: TextStyle(
-                fontSize: 11,
-                color: it.isRequired ? AppColors.danger : secondary,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        );
-      }).toList(),
+            ],
+          ],
+        ),
+      ),
     );
   }
 
@@ -639,71 +659,130 @@ class _TemplateDetailScreenState extends State<TemplateDetailScreen> {
     return ReorderableListView.builder(
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
+      buildDefaultDragHandles: false,
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       itemCount: _items.length,
       onReorder: _reorder,
+      onReorderStart: (_) => AppHaptics.medium(),
+      proxyDecorator: (child, index, animation) => Material(
+        color: Colors.transparent,
+        elevation: 6,
+        shadowColor: Colors.black.withValues(alpha: 0.25),
+        shape: AppShape.squircle(AppRadius.md),
+        child: child,
+      ),
       itemBuilder: (ctx, i) {
         final it = _items[i];
         return Padding(
           key: ValueKey(it.id),
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          child: Row(
-            children: [
-              ReorderableDragStartListener(
-                index: i,
-                child: const Padding(
-                  padding: EdgeInsets.all(4),
-                  child: Icon(Icons.drag_handle),
-                ),
-              ),
-              Expanded(
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: () => _editItemTitle(it),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 12,
-                    ),
-                    child: Text(
-                      it.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+          padding: const EdgeInsets.only(bottom: 8),
+          child: AppSurface(
+            radius: AppRadius.md,
+            showShadow: false,
+            padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+            child: Row(
+              children: [
+                ReorderableDragStartListener(
+                  index: i,
+                  child: SizedBox.square(
+                    dimension: 44,
+                    child: Center(
+                      child: Icon(
+                        Icons.drag_indicator_rounded,
+                        color: secondary.withValues(alpha: 0.7),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              IconButton(
-                icon: Icon(
-                  it.isRequired ? Icons.star : Icons.star_outline,
-                  color: it.isRequired ? AppColors.danger : secondary,
-                  size: 20,
+                Expanded(
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(AppRadius.xs),
+                    onTap: () => _editItemTitle(it),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 12,
+                      ),
+                      child: Text(
+                        it.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
                 ),
-                onPressed: () => _toggleRequired(it),
-              ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline, size: 20),
-                onPressed: () => _deleteItem(it),
-              ),
-            ],
+                IconButton(
+                  tooltip: it.isRequired ? 'Bỏ bắt buộc' : 'Đặt bắt buộc',
+                  icon: Icon(
+                    it.isRequired
+                        ? Icons.star_rounded
+                        : Icons.star_outline_rounded,
+                    color: it.isRequired ? AppColors.warning : secondary,
+                    size: 22,
+                  ),
+                  onPressed: () {
+                    AppHaptics.selection();
+                    _toggleRequired(it);
+                  },
+                ),
+                IconButton(
+                  tooltip: 'Xóa bước',
+                  icon: Icon(
+                    Icons.delete_outline_rounded,
+                    size: 22,
+                    color: secondary,
+                  ),
+                  onPressed: () => _deleteItem(it),
+                ),
+              ],
+            ),
           ),
         );
       },
     );
   }
 
-  Widget _chip(String label) {
+  Widget _chip(BuildContext context, String label) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppColors.primarySoft,
-        borderRadius: BorderRadius.circular(20),
+      decoration: ShapeDecoration(
+        color: context.appPrimarySoft,
+        shape: AppShape.pill,
       ),
       child: Text(
         label,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 12,
-          color: AppColors.primary,
-          fontWeight: FontWeight.w500,
+          color: context.appPrimary,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+/// Huy hiệu "Bắt buộc"/"Tùy chọn" của một bước (tông trung tính, không dùng đỏ
+/// cho trạng thái bình thường).
+class _RequiredBadge extends StatelessWidget {
+  final bool required;
+
+  const _RequiredBadge({required this.required});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = required ? context.appPrimary : context.appTextSecondary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: ShapeDecoration(
+        color: color.withValues(alpha: 0.14),
+        shape: AppShape.pill,
+      ),
+      child: Text(
+        required ? 'Bắt buộc' : 'Tùy chọn',
+        style: TextStyle(
+          fontSize: 11,
+          color: color,
+          fontWeight: FontWeight.w700,
         ),
       ),
     );
@@ -723,14 +802,14 @@ class _TemplateDetailCategoryChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final label = category?.name ?? template.category;
     if (label == null || label.isEmpty) {
-      return _plainChip('Chưa phân loại');
+      return _plainChip(context, 'Chưa phân loại');
     }
-    final color = category?.color ?? AppColors.textSecondary;
+    final color = category?.color ?? context.appTextSecondary;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
+      decoration: ShapeDecoration(
         color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(20),
+        shape: AppShape.pill,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -754,18 +833,18 @@ class _TemplateDetailCategoryChip extends StatelessWidget {
     );
   }
 
-  Widget _plainChip(String label) {
+  Widget _plainChip(BuildContext context, String label) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppColors.primarySoft,
-        borderRadius: BorderRadius.circular(20),
+      decoration: ShapeDecoration(
+        color: context.appPrimarySoft,
+        shape: AppShape.pill,
       ),
       child: Text(
         label,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 12,
-          color: AppColors.primary,
+          color: context.appPrimary,
           fontWeight: FontWeight.w500,
         ),
       ),

@@ -154,12 +154,12 @@ class _EmptyRelation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = Theme.of(context).brightness == Brightness.dark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Text(text, style: TextStyle(fontSize: 13, color: color)),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Text(
+        text,
+        style: TextStyle(fontSize: 14, color: context.appTextSecondary),
+      ),
     );
   }
 }

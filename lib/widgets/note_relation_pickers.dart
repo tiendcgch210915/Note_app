@@ -9,14 +9,16 @@ import '../models/note.dart';
 import '../models/tag.dart';
 import '../models/todo.dart';
 import '../theme/app_colors.dart';
+import 'app_sheet.dart';
+import 'app_state_views.dart';
+import 'primary_button.dart';
 
 Future<List<Tag>?> showNoteTagSelector(
   BuildContext context, {
   required List<Tag> selected,
 }) {
-  return showModalBottomSheet<List<Tag>>(
+  return showAppSheet<List<Tag>>(
     context: context,
-    isScrollControlled: true,
     builder: (_) => _NoteTagSelector(selected: selected),
   );
 }
@@ -26,9 +28,8 @@ Future<Note?> showNotePicker(
   required String excludeId,
   required Set<String> excludedIds,
 }) {
-  return showModalBottomSheet<Note>(
+  return showAppSheet<Note>(
     context: context,
-    isScrollControlled: true,
     builder: (_) => _NotePicker(excludeId: excludeId, excludedIds: excludedIds),
   );
 }
@@ -37,9 +38,8 @@ Future<Todo?> showNoteTodoPicker(
   BuildContext context, {
   required Set<String> excludedIds,
 }) {
-  return showModalBottomSheet<Todo>(
+  return showAppSheet<Todo>(
     context: context,
-    isScrollControlled: true,
     builder: (_) => _TodoPicker(excludedIds: excludedIds),
   );
 }
@@ -121,10 +121,10 @@ class _NoteTagSelectorState extends State<_NoteTagSelector> {
                   .map(
                     (color) => InkWell(
                       onTap: () => Navigator.of(context).pop(color),
-                      borderRadius: BorderRadius.circular(20),
+                      customBorder: const CircleBorder(),
                       child: Container(
-                        width: 36,
-                        height: 36,
+                        width: 44,
+                        height: 44,
                         decoration: BoxDecoration(
                           color: color,
                           shape: BoxShape.circle,
@@ -161,17 +161,12 @@ class _NoteTagSelectorState extends State<_NoteTagSelector> {
       minChildSize: 0.5,
       builder: (context, scrollController) => Column(
         children: [
-          const SizedBox(height: 10),
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade500,
-              borderRadius: BorderRadius.circular(2),
-            ),
+          const AppSheetHeader(
+            title: 'Tags',
+            padding: EdgeInsets.fromLTRB(20, 4, 16, 8),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Row(
               children: [
                 Expanded(
@@ -180,7 +175,7 @@ class _NoteTagSelectorState extends State<_NoteTagSelector> {
                     onChanged: (_) => _load(),
                     decoration: const InputDecoration(
                       hintText: 'Tìm hoặc tạo tag',
-                      prefixIcon: Icon(Icons.search),
+                      prefixIcon: Icon(Icons.search_rounded),
                     ),
                   ),
                 ),
@@ -188,22 +183,25 @@ class _NoteTagSelectorState extends State<_NoteTagSelector> {
                 IconButton.filledTonal(
                   tooltip: 'Tạo tag mới',
                   onPressed: _create,
-                  icon: const Icon(Icons.add),
+                  icon: const Icon(Icons.add_rounded),
                 ),
               ],
             ),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: Text('${_selected.length}/20 tags'),
+              child: Text(
+                '${_selected.length}/20 tags',
+                style: TextStyle(fontSize: 13, color: context.appTextSecondary),
+              ),
             ),
           ),
           const SizedBox(height: 8),
           Expanded(
             child: _loading && _tags.isEmpty
-                ? const Center(child: CircularProgressIndicator())
+                ? const AppSpinner()
                 : ListView.builder(
                     controller: scrollController,
                     itemCount: _tags.length,
@@ -238,13 +236,10 @@ class _NoteTagSelectorState extends State<_NoteTagSelector> {
             top: false,
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () =>
-                      Navigator.of(context).pop(_selected.values.toList()),
-                  child: const Text('Áp dụng'),
-                ),
+              child: PrimaryButton(
+                label: 'Áp dụng',
+                onPressed: () =>
+                    Navigator.of(context).pop(_selected.values.toList()),
               ),
             ),
           ),
@@ -384,7 +379,9 @@ class _TodoPickerState extends State<_TodoPicker> {
           final todo = _todos[index];
           return ListTile(
             leading: Icon(
-              todo.isDone ? Icons.check_circle : Icons.radio_button_unchecked,
+              todo.isDone
+                  ? Icons.check_circle_rounded
+                  : Icons.radio_button_unchecked,
               color: todo.isDone ? AppColors.success : null,
             ),
             title: Text(todo.title),
@@ -420,21 +417,9 @@ class _PickerScaffold extends StatelessWidget {
       minChildSize: 0.45,
       builder: (context, _) => Column(
         children: [
-          const SizedBox(height: 10),
-          Container(
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: Colors.grey.shade500,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(title, style: Theme.of(context).textTheme.titleLarge),
-            ),
+          AppSheetHeader(
+            title: title,
+            padding: const EdgeInsets.fromLTRB(20, 4, 16, 8),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -444,7 +429,7 @@ class _PickerScaffold extends StatelessWidget {
               onChanged: onChanged,
               decoration: InputDecoration(
                 hintText: searchHint,
-                prefixIcon: const Icon(Icons.search),
+                prefixIcon: const Icon(Icons.search_rounded),
               ),
             ),
           ),

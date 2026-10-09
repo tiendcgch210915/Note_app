@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../data/todos_repository.dart';
 import '../models/todo.dart';
+import 'active_session_lock.dart';
 import 'todo_local_events.dart';
 
 /// Snapshot của một phiên tập trung (focus) đang chạy.
@@ -89,9 +90,16 @@ class FocusSessionController {
 
   bool isActiveFor(String todoId) => session.value?.todo.id == todoId;
 
-  /// Bắt đầu phiên mới, thay thế phiên đang chạy (nếu có). Caller chịu trách
-  /// nhiệm xin xác nhận người dùng trước khi thay thế.
-  void start(TodoWithRelations detail, Duration duration) {
+  /// Bắt đầu phiên mới. Trả về `false` (không đổi gì) nếu đang có một phiên
+  /// khác — todo hay checklist — chưa kết thúc: phải hoàn thành hoặc hủy nó
+  /// trước. Caller nên kiểm tra sớm bằng `ensureNoActiveSession()` để báo người
+  /// dùng; giá trị trả về là lưới an toàn cho tình huống tranh nhau.
+  bool start(TodoWithRelations detail, Duration duration) {
+    if (!ActiveSessionLock.instance.tryAcquire(
+      ActiveSessionRef(ActiveSessionKind.todo, detail.todo.id),
+    )) {
+      return false;
+    }
     _stopTimer();
     _endsAt = clock().add(duration);
     session.value = FocusSession(
@@ -106,6 +114,7 @@ class FocusSessionController {
       _listening = true;
       TodoLocalEvents.instance.revision.addListener(_onLocalTodoChanged);
     }
+    return true;
   }
 
   void _tick(Timer timer) {
@@ -164,6 +173,9 @@ class FocusSessionController {
       TodoLocalEvents.instance.revision.removeListener(_onLocalTodoChanged);
     }
     session.value = null;
+    ActiveSessionLock.instance.release(
+      ActiveSessionRef(ActiveSessionKind.todo, current.todo.id),
+    );
     return FocusSessionResult(
       todo: current.todo,
       subtasks: current.subtasks,

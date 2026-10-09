@@ -8,9 +8,13 @@ import '../../data/api_exception.dart';
 import '../../data/notes_repository.dart';
 import '../../models/note.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
+import '../../utils/app_snack.dart';
 import '../../utils/date_utils.dart';
 import '../../utils/note_delta_utils.dart';
+import '../../widgets/app_state_views.dart';
 import '../../widgets/cornell_note_layout.dart';
+import '../../widgets/empty_state.dart';
 import '../../widgets/note_quill_editor.dart';
 import 'note_editor_screen.dart';
 
@@ -31,6 +35,10 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
   late final QuillController _body;
   late final QuillController _cue;
   late final QuillController _summary;
+
+  final _scroll = ScrollController();
+  bool _showBarTitle = false;
+  String? _loadError;
 
   NoteWithRelations? _detail;
   bool _loading = false;
@@ -59,11 +67,21 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
     for (final focus in [_bodyFocus, _cueFocus, _summaryFocus]) {
       focus.addListener(_handleFocusChanged);
     }
+    _scroll.addListener(_handleScroll);
     _load();
+  }
+
+  /// Tiêu đề trên thanh AppBar chỉ hiện khi tiêu đề lớn đã cuộn khỏi màn hình.
+  void _handleScroll() {
+    final show = _scroll.hasClients && _scroll.offset > 56;
+    if (show != _showBarTitle && mounted) setState(() => _showBarTitle = show);
   }
 
   @override
   void dispose() {
+    _scroll
+      ..removeListener(_handleScroll)
+      ..dispose();
     _saveTimer?.cancel();
     for (final controller in [_body, _cue, _summary]) {
       controller
@@ -79,14 +97,22 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
   }
 
   Future<void> _load() async {
-    setState(() => _loading = _detail == null);
+    setState(() {
+      _loading = _detail == null;
+      _loadError = null;
+    });
     try {
       final detail = await _repository.getDetail(widget.noteId);
       if (!mounted) return;
       _applyDetail(detail);
       unawaited(_refreshInBackground());
     } on ApiException catch (error) {
-      if (mounted) _showError(error.vnMessage);
+      if (!mounted) return;
+      if (_detail == null) {
+        setState(() => _loadError = error.vnMessage);
+      } else {
+        _showError(error.vnMessage);
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -268,17 +294,12 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
   ]);
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: AppColors.danger),
-    );
+    showAppSnack(context, message, isError: true);
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final background = isDark
-        ? AppColors.noteBackgroundDark
-        : AppColors.noteBackground;
+    final background = context.appNoteBackground;
     final detail = _detail;
     final activeController = _activeController;
     final bottomPadding = noteKeyboardAwareBottomPadding(
@@ -292,14 +313,19 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
       return Scaffold(
         backgroundColor: background,
         appBar: AppBar(backgroundColor: background),
-        body: const Center(child: CircularProgressIndicator()),
+        body: const AppSpinner(),
       );
     }
     if (detail == null) {
       return Scaffold(
         backgroundColor: background,
         appBar: AppBar(backgroundColor: background),
-        body: const Center(child: Text('Không tìm thấy note')),
+        body: _loadError != null
+            ? AppErrorState(message: _loadError!, onRetry: _load)
+            : const EmptyState(
+                icon: Icons.search_off_rounded,
+                title: 'Không tìm thấy note',
+              ),
       );
     }
 
@@ -317,19 +343,25 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
           leading: IconButton(
             tooltip: 'Quay lại',
             onPressed: () => _handleBack(null),
-            icon: const Icon(Icons.arrow_back),
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
           ),
-          title: Text(note.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+          title: AnimatedOpacity(
+            opacity: _showBarTitle ? 1 : 0,
+            duration: AppMotion.normal,
+            child: Text(
+              note.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
           actions: [
-            if (_saving)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12),
-                child: SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              ),
+            // Ô cố định chỗ cho spinner để thanh công cụ không bị nhảy bố cục.
+            SizedBox(
+              width: 36,
+              child: _saving
+                  ? const AppSpinner(radius: 8, centered: false)
+                  : null,
+            ),
             if (activeController != null)
               NoteQuillAppBarActions(
                 controller: activeController,
@@ -338,7 +370,7 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
             IconButton(
               tooltip: 'Chỉnh sửa thông tin',
               onPressed: _openEditor,
-              icon: const Icon(Icons.edit_outlined),
+              icon: const Icon(Icons.edit_rounded),
             ),
           ],
         ),
@@ -347,6 +379,7 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
             RefreshIndicator(
               onRefresh: _refreshFromPull,
               child: ListView(
+                controller: _scroll,
                 keyboardDismissBehavior:
                     ScrollViewKeyboardDismissBehavior.onDrag,
                 padding: EdgeInsets.fromLTRB(20, 8, 20, bottomPadding),
@@ -354,23 +387,39 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
                   Row(
                     children: [
                       if (note.isPinned) ...[
-                        const Icon(Icons.push_pin, size: 16),
+                        Icon(
+                          Icons.push_pin_rounded,
+                          size: 16,
+                          color: context.appTextSecondary,
+                        ),
                         const SizedBox(width: 6),
                       ],
                       Text(
                         AppDateUtils.formatRelative(note.updatedAt),
                         style: TextStyle(
                           fontSize: 12,
-                          color: isDark
-                              ? AppColors.textSecondaryDark
-                              : AppColors.textSecondary,
+                          color: context.appTextSecondary,
                         ),
                       ),
                       const Spacer(),
                       if (note.type == NoteType.cornell)
-                        const Chip(
-                          visualDensity: VisualDensity.compact,
-                          label: Text('Cornell'),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 3,
+                          ),
+                          decoration: ShapeDecoration(
+                            color: context.appPrimarySoft,
+                            shape: AppShape.pill,
+                          ),
+                          child: Text(
+                            'Cornell',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: context.appPrimary,
+                            ),
+                          ),
                         ),
                     ],
                   ),
@@ -415,13 +464,36 @@ class _NoteDetailScreenState extends State<NoteDetailScreen> {
                 ],
               ),
             ),
-            if (activeController != null)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: NoteQuillToolbar(controller: activeController),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: AnimatedSwitcher(
+                duration: AppMotion.normal,
+                switchInCurve: AppMotion.curve,
+                layoutBuilder: (current, previous) => Stack(
+                  fit: StackFit.passthrough,
+                  alignment: Alignment.bottomCenter,
+                  children: [...previous, ?current],
+                ),
+                transitionBuilder: (child, animation) => FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0, 0.6),
+                      end: Offset.zero,
+                    ).animate(animation),
+                    child: child,
+                  ),
+                ),
+                child: activeController != null
+                    ? NoteQuillToolbar(
+                        key: const ValueKey('note-toolbar'),
+                        controller: activeController,
+                      )
+                    : const SizedBox.shrink(key: ValueKey('note-no-toolbar')),
               ),
+            ),
           ],
         ),
       ),

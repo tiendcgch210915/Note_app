@@ -7,9 +7,19 @@ import '../../models/checklist_category.dart';
 import '../../models/run.dart';
 import '../../models/template.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
+import '../../utils/app_haptics.dart';
+import '../../utils/app_snack.dart';
 import '../../utils/checklist_local_events.dart';
 import '../../utils/date_utils.dart';
+import '../../widgets/app_list_section.dart';
+import '../../widgets/app_sheet.dart';
+import '../../widgets/app_state_views.dart';
+import '../../widgets/app_surface.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/pressable.dart';
+import '../../widgets/primary_button.dart';
+import '../../widgets/run_status_chip.dart';
 import 'run_detail_screen.dart';
 import 'template_create_screen.dart';
 import 'template_detail_screen.dart';
@@ -176,24 +186,14 @@ class _ChecklistsScreenState extends State<ChecklistsScreen>
   }
 
   Future<void> _deleteRun(Run run) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Xóa khỏi lịch sử?'),
-        content: const Text('Hành động này không thể hoàn tác.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Hủy'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Xóa', style: TextStyle(color: AppColors.danger)),
-          ),
-        ],
-      ),
+    final confirm = await showAppConfirmDialog(
+      context,
+      title: 'Xóa khỏi lịch sử?',
+      message: 'Hành động này không thể hoàn tác.',
+      confirmLabel: 'Xóa',
+      destructive: true,
     );
-    if (confirm != true) return;
+    if (!confirm || !mounted) return;
     try {
       await ChecklistsRepository.instance.deleteRun(run.id);
       setState(() => _runs.removeWhere((r) => r.id == run.id));
@@ -203,9 +203,7 @@ class _ChecklistsScreenState extends State<ChecklistsScreen>
   }
 
   void _showError(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: AppColors.danger),
-    );
+    showAppSnack(context, msg, isError: true);
   }
 
   @override
@@ -215,7 +213,7 @@ class _ChecklistsScreenState extends State<ChecklistsScreen>
         title: const Text('Checklist'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.category_outlined),
+            icon: const Icon(Icons.category_rounded),
             tooltip: 'Quản lý danh mục',
             onPressed: _openCategoryManager,
           ),
@@ -223,30 +221,32 @@ class _ChecklistsScreenState extends State<ChecklistsScreen>
         bottom: TabBar(
           controller: _tab,
           tabs: const [
-            Tab(text: 'Templates'),
+            Tab(text: 'Mẫu'),
             Tab(text: 'Lịch sử'),
           ],
         ),
       ),
       floatingActionButton: AnimatedBuilder(
         animation: _tab,
-        builder: (ctx, _) => _tab.index == 0
-            ? _SquareFab(
-                tooltip: 'Tạo template',
-                icon: Icons.add_rounded,
-                onPressed: () async {
-                  final created = await Navigator.of(context).push<bool>(
-                    MaterialPageRoute(
-                      builder: (_) => const TemplateCreateScreen(),
-                    ),
-                  );
-                  if (created == true && mounted) _refresh();
-                },
-              )
-            : const SizedBox.shrink(),
+        builder: (ctx, _) => AnimatedScale(
+          scale: _tab.index == 0 ? 1 : 0,
+          duration: AppMotion.normal,
+          curve: AppMotion.curve,
+          child: FloatingActionButton(
+            heroTag: null,
+            tooltip: 'Tạo template',
+            onPressed: () async {
+              final created = await Navigator.of(context).push<bool>(
+                MaterialPageRoute(builder: (_) => const TemplateCreateScreen()),
+              );
+              if (created == true && mounted) _refresh();
+            },
+            child: const Icon(Icons.add_rounded, size: 28),
+          ),
+        ),
       ),
       body: !_localLoaded || (_refreshing && !_hasData)
-          ? const Center(child: CircularProgressIndicator())
+          ? const AppSpinner()
           : Column(
               children: [
                 if (_refreshing) const LinearProgressIndicator(minHeight: 2),
@@ -307,6 +307,7 @@ class _TemplatesTab extends StatelessWidget {
         physics: const AlwaysScrollableScrollPhysics(),
         buildDefaultDragHandles: false,
         onReorder: onReorder,
+        onReorderStart: (_) => AppHaptics.medium(),
         header: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -321,7 +322,7 @@ class _TemplatesTab extends StatelessWidget {
               const Padding(
                 padding: EdgeInsets.only(top: 48),
                 child: EmptyState(
-                  icon: Icons.checklist,
+                  icon: Icons.checklist_rounded,
                   title: 'Chưa có template nào',
                 ),
               ),
@@ -329,11 +330,21 @@ class _TemplatesTab extends StatelessWidget {
         ),
         itemCount: templates.length,
         proxyDecorator: (child, index, animation) {
-          return Material(
-            color: Colors.transparent,
-            elevation: 8,
-            borderRadius: BorderRadius.circular(12),
-            child: child,
+          return AnimatedBuilder(
+            animation: animation,
+            builder: (context, _) {
+              final t = Curves.easeOut.transform(animation.value);
+              return Transform.scale(
+                scale: 1 + 0.02 * t,
+                child: Material(
+                  color: Colors.transparent,
+                  elevation: 8 * t,
+                  shadowColor: Colors.black.withValues(alpha: 0.25),
+                  shape: AppShape.squircle(AppRadius.lg),
+                  child: child,
+                ),
+              );
+            },
           );
         },
         itemBuilder: (ctx, i) {
@@ -342,101 +353,193 @@ class _TemplatesTab extends StatelessWidget {
               ? null
               : categoryById[t.categoryId];
           final categoryLabel = category?.name ?? t.category;
+          final hasCategory = categoryLabel != null && categoryLabel.isNotEmpty;
           return Padding(
             key: ValueKey('checklist-template-${t.id}'),
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Container(
-              decoration: BoxDecoration(
-                color: Theme.of(context).cardTheme.color,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: ListTile(
-                leading: Icon(
-                  Template.iconFor(t.icon),
-                  color: AppColors.primary,
-                ),
-                title: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        t.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+            padding: const EdgeInsets.only(bottom: 10),
+            child: AppSurface(
+              padding: const EdgeInsets.fromLTRB(12, 12, 4, 10),
+              onTap: () async {
+                await Navigator.of(ctx).push(
+                  MaterialPageRoute(
+                    builder: (_) => TemplateDetailScreen(templateId: t.id),
+                  ),
+                );
+                onChanged();
+              },
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: ShapeDecoration(
+                      color: ctx.appPrimarySoft,
+                      shape: AppShape.squircle(AppRadius.sm),
                     ),
-                    if (t.isSystem)
-                      Container(
-                        margin: const EdgeInsets.only(left: 6),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.primarySoft,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Text(
-                          'Hệ thống',
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                subtitle: categoryLabel == null || categoryLabel.isEmpty
-                    ? null
-                    : Align(
-                        alignment: Alignment.centerLeft,
-                        child: _TemplateCategoryChip(
-                          template: t,
-                          category: category,
-                        ),
-                      ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextButton.icon(
-                      icon: const Icon(Icons.play_arrow, size: 18),
-                      label: const Text('Bắt đầu'),
-                      onPressed: () async {
-                        try {
-                          final res = await ChecklistsRepository.instance
-                              .startRun(templateId: t.id, name: t.title);
-                          if (!ctx.mounted) return;
-                          onChanged();
-                          Navigator.of(ctx).push(
-                            MaterialPageRoute(
-                              builder: (_) =>
-                                  RunDetailScreen(runId: res.run.id),
+                    child: Icon(
+                      Template.iconFor(t.icon),
+                      color: ctx.appPrimary,
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.only(top: 2),
+                                child: Text(
+                                  t.title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: -0.2,
+                                  ),
+                                ),
+                              ),
                             ),
-                          );
-                        } on ApiException catch (e) {
-                          if (ctx.mounted) {
-                            ScaffoldMessenger.of(ctx).showSnackBar(
-                              SnackBar(content: Text(e.vnMessage)),
-                            );
-                          }
-                        }
-                      },
+                            if (t.isSystem)
+                              Container(
+                                margin: const EdgeInsets.only(left: 6, top: 3),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                decoration: ShapeDecoration(
+                                  color: ctx.appPrimarySoft,
+                                  shape: AppShape.pill,
+                                ),
+                                child: Text(
+                                  'Hệ thống',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: ctx.appPrimary,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            if (hasCategory)
+                              Flexible(
+                                child: _TemplateCategoryChip(
+                                  template: t,
+                                  category: category,
+                                ),
+                              ),
+                            const Spacer(),
+                            _StartRunButton(
+                              templateId: t.id,
+                              title: t.title,
+                              onChanged: onChanged,
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                    _TemplateReorderHandle(index: i),
-                  ],
-                ),
-                onTap: () async {
-                  await Navigator.of(ctx).push(
-                    MaterialPageRoute(
-                      builder: (_) => TemplateDetailScreen(templateId: t.id),
-                    ),
-                  );
-                  onChanged();
-                },
+                  ),
+                  _TemplateReorderHandle(index: i),
+                ],
               ),
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+/// Nút "Bắt đầu" tạo một lượt chạy mới từ template. Chặn nhấn đôi khi đang tạo.
+class _StartRunButton extends StatefulWidget {
+  final String templateId;
+  final String title;
+  final VoidCallback onChanged;
+
+  const _StartRunButton({
+    required this.templateId,
+    required this.title,
+    required this.onChanged,
+  });
+
+  @override
+  State<_StartRunButton> createState() => _StartRunButtonState();
+}
+
+class _StartRunButtonState extends State<_StartRunButton> {
+  bool _busy = false;
+
+  Future<void> _start() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    AppHaptics.light();
+    try {
+      final navigator = Navigator.of(context);
+      // Bị chặn (đang làm việc khác) thì runId = null và người dùng đã được báo.
+      final runId = await beginChecklistRun(
+        context,
+        templateId: widget.templateId,
+        name: widget.title,
+      );
+      if (runId == null || !mounted) return;
+      widget.onChanged();
+      unawaited(openRunDetail(navigator, runId));
+    } on ApiException catch (e) {
+      if (mounted) showAppSnack(context, e.vnMessage, isError: true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Pressable(
+      enabled: !_busy,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: _busy ? null : _start,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Container(
+            height: 36,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: ShapeDecoration(
+              color: AppColors.accentFill,
+              shape: AppShape.pill,
+            ),
+            child: _busy
+                ? const AppSpinner(radius: 8, centered: false)
+                : const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.play_arrow_rounded,
+                        size: 18,
+                        color: Colors.white,
+                      ),
+                      SizedBox(width: 4),
+                      Text(
+                        'Bắt đầu',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ),
       ),
     );
   }
@@ -449,7 +552,7 @@ class _TemplateReorderHandle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = Theme.of(context).iconTheme.color?.withValues(alpha: 0.72);
+    final color = context.appTextSecondary.withValues(alpha: 0.7);
     return ReorderableDragStartListener(
       index: index,
       child: Semantics(
@@ -457,39 +560,8 @@ class _TemplateReorderHandle extends StatelessWidget {
         button: true,
         child: SizedBox.square(
           dimension: 44,
-          child: Center(child: Icon(Icons.drag_handle_rounded, color: color)),
-        ),
-      ),
-    );
-  }
-}
-
-class _SquareFab extends StatelessWidget {
-  final String tooltip;
-  final IconData icon;
-  final VoidCallback onPressed;
-
-  const _SquareFab({
-    required this.tooltip,
-    required this.icon,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: AppColors.primary,
-        elevation: 6,
-        shadowColor: AppColors.primary.withValues(alpha: 0.32),
-        borderRadius: BorderRadius.circular(14),
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(14),
-          child: SizedBox.square(
-            dimension: 56,
-            child: Icon(icon, color: Colors.white, size: 28),
+          child: Center(
+            child: Icon(Icons.drag_indicator_rounded, color: color),
           ),
         ),
       ),
@@ -517,12 +589,14 @@ class _CategoryFilterBar extends StatelessWidget {
       child: Row(
         children: [
           _filterChip(
+            context,
             label: 'Tất cả',
             selected: selectedCategoryId == null && !showUncategorized,
             onTap: () => onChanged(null),
           ),
           const SizedBox(width: 8),
           _filterChip(
+            context,
             label: 'Chưa phân loại',
             selected: showUncategorized,
             onTap: () => onChanged(null, uncategorized: true),
@@ -530,6 +604,7 @@ class _CategoryFilterBar extends StatelessWidget {
           for (final category in categories) ...[
             const SizedBox(width: 8),
             _filterChip(
+              context,
               label: category.name,
               selected: selectedCategoryId == category.id,
               icon: ChecklistCategory.iconFor(category.icon),
@@ -542,29 +617,37 @@ class _CategoryFilterBar extends StatelessWidget {
     );
   }
 
-  Widget _filterChip({
+  Widget _filterChip(
+    BuildContext context, {
     required String label,
     required bool selected,
     required VoidCallback onTap,
     IconData? icon,
     Color? color,
   }) {
-    final chipColor = color ?? AppColors.primary;
+    final fillColor = color ?? AppColors.accentFill;
+    final iconColor = color ?? context.appPrimary;
     return ChoiceChip(
       label: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (icon != null) ...[
-            Icon(icon, size: 16, color: selected ? Colors.white : chipColor),
+            Icon(icon, size: 16, color: selected ? Colors.white : iconColor),
             const SizedBox(width: 6),
           ],
           Text(label),
         ],
       ),
       selected: selected,
-      selectedColor: chipColor,
-      labelStyle: TextStyle(color: selected ? Colors.white : null),
-      onSelected: (_) => onTap(),
+      selectedColor: fillColor,
+      labelStyle: TextStyle(
+        fontWeight: FontWeight.w600,
+        color: selected ? Colors.white : null,
+      ),
+      onSelected: (_) {
+        AppHaptics.selection();
+        onTap();
+      },
     );
   }
 }
@@ -581,12 +664,12 @@ class _TemplateCategoryChip extends StatelessWidget {
     if (label == null || label.isEmpty) {
       return const SizedBox.shrink();
     }
-    final color = category?.color ?? AppColors.textSecondary;
+    final color = category?.color ?? context.appTextSecondary;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-      decoration: BoxDecoration(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: ShapeDecoration(
         color: color.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(999),
+        shape: AppShape.pill,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -597,12 +680,16 @@ class _TemplateCategoryChip extends StatelessWidget {
             color: color,
           ),
           const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              color: color,
-              fontWeight: FontWeight.w600,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12,
+                color: color,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -623,6 +710,7 @@ class _ChecklistCategoriesScreenState
     extends State<_ChecklistCategoriesScreen> {
   List<ChecklistCategory> _categories = [];
   bool _loading = false;
+  String? _loadError;
 
   @override
   void initState() {
@@ -631,23 +719,29 @@ class _ChecklistCategoriesScreenState
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
     try {
       final categories = await ChecklistsRepository.instance.listCategories();
       if (!mounted) return;
       setState(() => _categories = categories);
     } on ApiException catch (e) {
-      if (mounted) _showError(e.vnMessage);
+      if (!mounted) return;
+      if (_categories.isEmpty) {
+        setState(() => _loadError = e.vnMessage);
+      } else {
+        _showError(e.vnMessage);
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _createCategory() async {
-    final draft = await showModalBottomSheet<_CategoryDraft>(
+    final draft = await showAppSheet<_CategoryDraft>(
       context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
       builder: (_) => const _CategoryEditorSheet(),
     );
     if (draft == null) return;
@@ -668,10 +762,8 @@ class _ChecklistCategoriesScreenState
 
   Future<void> _editCategory(ChecklistCategory category) async {
     if (category.isSystem) return;
-    final draft = await showModalBottomSheet<_CategoryDraft>(
+    final draft = await showAppSheet<_CategoryDraft>(
       context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
       builder: (_) => _CategoryEditorSheet(category: category),
     );
     if (draft == null) return;
@@ -692,26 +784,15 @@ class _ChecklistCategoriesScreenState
 
   Future<void> _deleteCategory(ChecklistCategory category) async {
     if (category.isSystem) return;
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Xóa danh mục?'),
-        content: Text(
+    final confirm = await showAppConfirmDialog(
+      context,
+      title: 'Xóa danh mục?',
+      message:
           'Các template đang dùng "${category.name}" sẽ chuyển về chưa phân loại.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Hủy'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Xóa', style: TextStyle(color: AppColors.danger)),
-          ),
-        ],
-      ),
+      confirmLabel: 'Xóa',
+      destructive: true,
     );
-    if (confirm != true) return;
+    if (!confirm || !mounted) return;
     try {
       await ChecklistsRepository.instance.deleteCategory(category);
       await _load();
@@ -728,9 +809,7 @@ class _ChecklistCategoriesScreenState
   }
 
   void _showError(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: AppColors.danger),
-    );
+    showAppSnack(context, msg, isError: true);
   }
 
   @override
@@ -739,40 +818,58 @@ class _ChecklistCategoriesScreenState
     final system = _categories.where((c) => c.isSystem).toList();
     return Scaffold(
       appBar: AppBar(title: const Text('Danh mục checklist')),
-      floatingActionButton: _SquareFab(
+      floatingActionButton: FloatingActionButton(
+        heroTag: null,
         tooltip: 'Tạo danh mục',
-        icon: Icons.add_rounded,
         onPressed: _createCategory,
+        child: const Icon(Icons.add_rounded, size: 28),
       ),
       body: _loading && _categories.isEmpty
-          ? const Center(child: CircularProgressIndicator())
+          ? const AppSpinner()
+          : _loadError != null && _categories.isEmpty
+          ? AppErrorState(message: _loadError!, onRetry: _load)
           : RefreshIndicator(
               onRefresh: _load,
               child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.only(top: 12, bottom: 96),
                 children: [
-                  const _CategorySectionHeader(label: 'Của tôi'),
-                  if (own.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.only(bottom: 12),
-                      child: Text('Chưa có danh mục riêng'),
-                    )
-                  else
-                    ...own.map(
-                      (category) => _CategoryListTile(
-                        category: category,
-                        onEdit: () => _editCategory(category),
-                        onDelete: () => _deleteCategory(category),
+                  if (own.isEmpty) ...[
+                    _CategorySectionLabel('Của tôi'),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 16, 16),
+                      child: Text(
+                        'Chưa có danh mục riêng. Bấm nút + để tạo danh mục đầu tiên.',
+                        style: TextStyle(
+                          color: context.appTextSecondary,
+                          height: 1.4,
+                        ),
                       ),
                     ),
-                  const SizedBox(height: 12),
-                  const _CategorySectionHeader(label: 'Hệ thống'),
-                  ...system.map(
-                    (category) => _CategoryListTile(
-                      category: category,
-                      onEdit: null,
-                      onDelete: null,
+                  ] else
+                    AppListSection(
+                      header: 'Của tôi',
+                      dividerIndent: AppListSection.iconIndent,
+                      children: [
+                        for (final category in own)
+                          _CategoryRow(
+                            category: category,
+                            onEdit: () => _editCategory(category),
+                            onDelete: () => _deleteCategory(category),
+                          ),
+                      ],
                     ),
+                  AppListSection(
+                    header: 'Hệ thống',
+                    dividerIndent: AppListSection.iconIndent,
+                    children: [
+                      for (final category in system)
+                        _CategoryRow(
+                          category: category,
+                          onEdit: null,
+                          onDelete: null,
+                        ),
+                    ],
                   ),
                 ],
               ),
@@ -781,29 +878,34 @@ class _ChecklistCategoriesScreenState
   }
 }
 
-class _CategorySectionHeader extends StatelessWidget {
+class _CategorySectionLabel extends StatelessWidget {
   final String label;
 
-  const _CategorySectionHeader({required this.label});
+  const _CategorySectionLabel(this.label);
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(32, 0, 16, 6),
       child: Text(
-        label,
-        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+        label.toUpperCase(),
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.6,
+          color: context.appTextSecondary,
+        ),
       ),
     );
   }
 }
 
-class _CategoryListTile extends StatelessWidget {
+class _CategoryRow extends StatelessWidget {
   final ChecklistCategory category;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
 
-  const _CategoryListTile({
+  const _CategoryRow({
     required this.category,
     required this.onEdit,
     required this.onDelete,
@@ -811,38 +913,36 @@ class _CategoryListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      margin: const EdgeInsets.only(bottom: 8),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: category.color.withValues(alpha: 0.16),
-          child: Icon(
-            ChecklistCategory.iconFor(category.icon),
-            color: category.color,
-          ),
-        ),
-        title: Text(category.name),
-        subtitle: Text(category.isSystem ? 'Hệ thống' : 'Của tôi'),
-        trailing: category.isSystem
-            ? const Icon(Icons.lock_outline, size: 18)
-            : PopupMenuButton<String>(
-                onSelected: (value) {
-                  if (value == 'edit') onEdit?.call();
-                  if (value == 'delete') onDelete?.call();
-                },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'edit', child: Text('Sửa')),
-                  PopupMenuItem(
-                    value: 'delete',
-                    child: Text(
-                      'Xóa',
-                      style: TextStyle(color: AppColors.danger),
-                    ),
-                  ),
-                ],
+    return AppListTile(
+      icon: ChecklistCategory.iconFor(category.icon),
+      iconColor: category.color,
+      title: category.name,
+      subtitle: category.isSystem ? 'Hệ thống' : 'Của tôi',
+      onTap: onEdit,
+      showChevron: false,
+      trailing: category.isSystem
+          ? Icon(
+              Icons.lock_outline_rounded,
+              size: 18,
+              color: context.appTextSecondary,
+            )
+          : PopupMenuButton<String>(
+              icon: Icon(
+                Icons.more_horiz_rounded,
+                color: context.appTextSecondary,
               ),
-        onTap: onEdit,
-      ),
+              onSelected: (value) {
+                if (value == 'edit') onEdit?.call();
+                if (value == 'delete') onDelete?.call();
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'edit', child: Text('Sửa')),
+                PopupMenuItem(
+                  value: 'delete',
+                  child: Text('Xóa', style: TextStyle(color: AppColors.danger)),
+                ),
+              ],
+            ),
     );
   }
 }
@@ -869,28 +969,30 @@ class _SortOrderStepper extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final borderColor = Theme.of(
-      context,
-    ).colorScheme.outline.withValues(alpha: 0.24);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Thứ tự sắp xếp',
-          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+            color: context.appTextSecondary,
+          ),
         ),
         const SizedBox(height: 8),
         Container(
-          height: 46,
-          decoration: BoxDecoration(
-            border: Border.all(color: borderColor),
-            borderRadius: BorderRadius.circular(12),
+          height: 48,
+          decoration: ShapeDecoration(
+            color: context.appTextSecondary.withValues(alpha: 0.08),
+            shape: AppShape.squircle(AppRadius.md),
           ),
           child: Row(
             children: [
               _stepButton(
-                icon: Icons.add_rounded,
-                onPressed: () => onChanged(value + 1),
+                context,
+                icon: Icons.remove_rounded,
+                onPressed: value <= 0 ? null : () => onChanged(value - 1),
               ),
               Expanded(
                 child: Center(
@@ -904,8 +1006,9 @@ class _SortOrderStepper extends StatelessWidget {
                 ),
               ),
               _stepButton(
-                icon: Icons.remove_rounded,
-                onPressed: value <= 0 ? null : () => onChanged(value - 1),
+                context,
+                icon: Icons.add_rounded,
+                onPressed: () => onChanged(value + 1),
               ),
             ],
           ),
@@ -914,18 +1017,23 @@ class _SortOrderStepper extends StatelessWidget {
     );
   }
 
-  Widget _stepButton({
+  Widget _stepButton(
+    BuildContext context, {
     required IconData icon,
     required VoidCallback? onPressed,
   }) {
     return SizedBox.square(
-      dimension: 46,
+      dimension: 48,
       child: IconButton(
-        onPressed: onPressed,
+        onPressed: onPressed == null
+            ? null
+            : () {
+                AppHaptics.selection();
+                onPressed();
+              },
         icon: Icon(icon),
-        color: AppColors.primary,
-        disabledColor: AppColors.textSecondary.withValues(alpha: 0.38),
-        splashRadius: 22,
+        color: context.appPrimary,
+        disabledColor: context.appTextSecondary.withValues(alpha: 0.38),
       ),
     );
   }
@@ -997,22 +1105,21 @@ class _CategoryEditorSheetState extends State<_CategoryEditorSheet> {
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.viewInsetsOf(context).bottom;
+    final accent = _parseColor(_color);
     return SafeArea(
       child: Padding(
-        padding: EdgeInsets.fromLTRB(20, 8, 20, 20 + bottom),
+        padding: EdgeInsets.fromLTRB(20, 0, 20, 20 + bottom),
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                widget.category == null ? 'Tạo danh mục' : 'Sửa danh mục',
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                ),
+              AppSheetHeader(
+                title: widget.category == null
+                    ? 'Tạo danh mục'
+                    : 'Sửa danh mục',
+                padding: const EdgeInsets.only(bottom: 14),
               ),
-              const SizedBox(height: 14),
               TextField(
                 controller: _name,
                 autofocus: true,
@@ -1024,9 +1131,13 @@ class _CategoryEditorSheetState extends State<_CategoryEditorSheet> {
                 onChanged: (value) => setState(() => _sortOrder = value),
               ),
               const SizedBox(height: 14),
-              const Text(
+              Text(
                 'Icon',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: context.appTextSecondary,
+                ),
               ),
               const SizedBox(height: 8),
               Wrap(
@@ -1034,17 +1145,51 @@ class _CategoryEditorSheetState extends State<_CategoryEditorSheet> {
                 runSpacing: 8,
                 children: [
                   for (final icon in _icons)
-                    ChoiceChip(
-                      label: Icon(ChecklistCategory.iconFor(icon), size: 18),
-                      selected: _icon == icon,
-                      onSelected: (_) => setState(() => _icon = icon),
+                    Pressable(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () {
+                          AppHaptics.selection();
+                          setState(() => _icon = icon);
+                        },
+                        child: AnimatedContainer(
+                          duration: AppMotion.normal,
+                          curve: AppMotion.curve,
+                          width: 48,
+                          height: 48,
+                          decoration: ShapeDecoration(
+                            color: _icon == icon
+                                ? accent.withValues(alpha: 0.16)
+                                : context.appTextSecondary.withValues(
+                                    alpha: 0.08,
+                                  ),
+                            shape: AppShape.squircle(
+                              AppRadius.md,
+                              side: _icon == icon
+                                  ? BorderSide(color: accent, width: 1.6)
+                                  : BorderSide.none,
+                            ),
+                          ),
+                          child: Icon(
+                            ChecklistCategory.iconFor(icon),
+                            size: 22,
+                            color: _icon == icon
+                                ? accent
+                                : context.appTextSecondary,
+                          ),
+                        ),
+                      ),
                     ),
                 ],
               ),
               const SizedBox(height: 14),
-              const Text(
+              Text(
                 'Màu',
-                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: context.appTextSecondary,
+                ),
               ),
               const SizedBox(height: 8),
               Wrap(
@@ -1052,20 +1197,39 @@ class _CategoryEditorSheetState extends State<_CategoryEditorSheet> {
                 runSpacing: 8,
                 children: [
                   for (final color in _colors)
-                    InkWell(
-                      onTap: () => setState(() => _color = color),
-                      customBorder: const CircleBorder(),
-                      child: Container(
-                        width: 34,
-                        height: 34,
-                        decoration: BoxDecoration(
-                          color: _parseColor(color),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: _color == color
-                                ? Theme.of(context).colorScheme.onSurface
-                                : Colors.transparent,
-                            width: 2,
+                    Pressable(
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () {
+                          AppHaptics.selection();
+                          setState(() => _color = color);
+                        },
+                        child: SizedBox.square(
+                          dimension: 48,
+                          child: Center(
+                            child: AnimatedContainer(
+                              duration: AppMotion.normal,
+                              curve: AppMotion.curve,
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: _parseColor(color),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: _color == color
+                                      ? context.appTextPrimary
+                                      : Colors.transparent,
+                                  width: 2.5,
+                                ),
+                              ),
+                              child: _color == color
+                                  ? const Icon(
+                                      Icons.check_rounded,
+                                      color: Colors.white,
+                                      size: 20,
+                                    )
+                                  : null,
+                            ),
                           ),
                         ),
                       ),
@@ -1073,14 +1237,10 @@ class _CategoryEditorSheetState extends State<_CategoryEditorSheet> {
                 ],
               ),
               const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: ElevatedButton.icon(
-                  onPressed: _submit,
-                  icon: const Icon(Icons.check),
-                  label: const Text('Lưu'),
-                ),
+              PrimaryButton(
+                label: 'Lưu',
+                icon: Icons.check_rounded,
+                onPressed: _submit,
               ),
             ],
           ),
@@ -1115,35 +1275,91 @@ class _RunsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (runs.isEmpty) {
-      return const EmptyState(icon: Icons.history, title: 'Chưa có run nào');
+      // Vẫn cuộn được để kéo-làm-mới hoạt động ngay cả khi lịch sử rỗng.
+      return LayoutBuilder(
+        builder: (context, constraints) => RefreshIndicator(
+          onRefresh: () async => onChanged(),
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: const Center(
+                child: EmptyState(
+                  icon: Icons.history_rounded,
+                  title: 'Chưa có run nào',
+                  subtitle: 'Bấm "Bắt đầu" ở một template để tạo lượt chạy.',
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
     }
     return RefreshIndicator(
       onRefresh: () async => onChanged(),
       child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
         itemCount: runs.length,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
+        separatorBuilder: (_, _) => const SizedBox(height: 10),
         itemBuilder: (ctx, i) {
           final r = runs[i];
-          return Container(
-            decoration: BoxDecoration(
-              color: Theme.of(context).cardTheme.color,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: ListTile(
-              leading: const Icon(Icons.checklist),
-              title: Text(r.displayName),
-              subtitle: Text(_runSubtitle(r)),
-              trailing: _RunStatusChip(status: r.status),
-              onTap: () async {
-                await Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => RunDetailScreen(runId: r.id),
+          return AppSurface(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+            onTap: () async {
+              await openChecklistRun(context, r);
+              onChanged();
+            },
+            onLongPress: () {
+              AppHaptics.medium();
+              onDelete(r);
+            },
+            child: Row(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: ShapeDecoration(
+                    color: ctx.appPrimarySoft,
+                    shape: AppShape.squircle(AppRadius.sm),
                   ),
-                );
-                onChanged();
-              },
-              onLongPress: () => onDelete(r),
+                  child: Icon(
+                    Icons.checklist_rounded,
+                    color: ctx.appPrimary,
+                    size: 22,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        r.displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _runSubtitle(r),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: ctx.appTextSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                RunStatusChip(status: r.status),
+              ],
             ),
           );
         },
@@ -1169,36 +1385,4 @@ String _formatDurationMs(int durationMs) {
   if (hours == 0) return '$mm:$ss';
   final hh = hours.toString().padLeft(2, '0');
   return '$hh:$mm:$ss';
-}
-
-class _RunStatusChip extends StatelessWidget {
-  final RunStatus status;
-  const _RunStatusChip({required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    Color c;
-    switch (status) {
-      case RunStatus.inProgress:
-        c = AppColors.success;
-        break;
-      case RunStatus.completed:
-        c = AppColors.textSecondary;
-        break;
-      case RunStatus.abandoned:
-        c = AppColors.warning;
-        break;
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: c.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        status.label,
-        style: TextStyle(fontSize: 11, color: c, fontWeight: FontWeight.w600),
-      ),
-    );
-  }
 }

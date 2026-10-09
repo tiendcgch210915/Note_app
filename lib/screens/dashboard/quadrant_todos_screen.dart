@@ -4,15 +4,20 @@ import '../../data/todos_repository.dart';
 import '../../models/dashboard.dart';
 import '../../models/todo.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
+import '../../utils/app_haptics.dart';
+import '../../utils/app_snack.dart';
 import '../../utils/habit_stacking_dialog.dart';
 import '../../utils/date_utils.dart';
 import '../../utils/json_utils.dart';
 import '../../utils/quadrant_utils.dart';
 import '../../utils/todo_delete_dialog.dart';
 import '../../utils/todo_time_utils.dart';
+import '../../widgets/app_surface.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/habit_link_chip.dart';
 import '../../widgets/tag_chip.dart';
+import '../../widgets/todo_time_action_sheet.dart';
 import '../../widgets/todo_timed_title.dart';
 import '../../widgets/todo_swipe_actions.dart';
 import '../todos/todo_detail_screen.dart';
@@ -66,6 +71,7 @@ class _QuadrantTodosScreenState extends State<QuadrantTodosScreen> {
       return;
     }
 
+    AppHaptics.medium();
     setState(() {
       _completedIds.add(todo.id);
       _savingIds.add(todo.id);
@@ -249,31 +255,10 @@ class _QuadrantTodosScreenState extends State<QuadrantTodosScreen> {
     }
     if (todo.id.isEmpty || _savingIds.contains(todo.id)) return;
     final action = todo.time == null
-        ? 'pick'
-        : await showModalBottomSheet<String>(
-            context: context,
-            showDragHandle: true,
-            builder: (ctx) => SafeArea(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ListTile(
-                    leading: const Icon(Icons.schedule_rounded),
-                    title: const Text('Chọn giờ'),
-                    subtitle: Text('Hiện tại: ${todo.time}'),
-                    onTap: () => Navigator.of(ctx).pop('pick'),
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.close_rounded),
-                    title: const Text('Bỏ giờ'),
-                    onTap: () => Navigator.of(ctx).pop('clear'),
-                  ),
-                ],
-              ),
-            ),
-          );
+        ? todoTimeActionPick
+        : await showTodoTimeActionSheet(context, currentTime: todo.time!);
     if (action == null || !mounted) return;
-    if (action == 'clear') {
+    if (action == todoTimeActionClear) {
       await _changeTodoTimeLocalFirst(todo, null);
       return;
     }
@@ -475,9 +460,7 @@ class _QuadrantTodosScreenState extends State<QuadrantTodosScreen> {
   }
 
   void _showError(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: AppColors.danger),
-    );
+    showAppSnack(context, msg, isError: true);
   }
 
   List<DashboardEisenhowerTodo> _sortTodos(
@@ -495,89 +478,101 @@ class _QuadrantTodosScreenState extends State<QuadrantTodosScreen> {
   @override
   Widget build(BuildContext context) {
     final info = QuadrantUtils.info(widget.quadrant);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isDark = context.isDark;
     final background = Theme.of(context).scaffoldBackgroundColor;
+    // AppBar và vùng tóm tắt cùng một tông màu nhóm (không còn đường nối).
+    final tint = Color.alphaBlend(
+      info.color.withValues(alpha: isDark ? 0.14 : 0.08),
+      background,
+    );
     return Scaffold(
-      appBar: AppBar(
-        title: Text(info.label),
-        backgroundColor: Color.alphaBlend(
-          info.color.withValues(alpha: 0.12),
-          background,
-        ),
-      ),
+      appBar: AppBar(title: Text(info.label), backgroundColor: tint),
       body: _todos.isEmpty
           ? EmptyState(
               icon: Icons.inbox_outlined,
               title: 'Không có việc nào trong ${info.label}',
               subtitle: 'Action gợi ý: ${info.action}',
             )
-          : Column(
+          : ListView(
+              padding: const EdgeInsets.only(bottom: 32),
               children: [
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-                  color: Color.alphaBlend(
-                    info.color.withValues(alpha: isDark ? 0.14 : 0.08),
-                    background,
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 4,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          color: info.color,
-                          borderRadius: BorderRadius.circular(2),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                  child: Container(
+                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                    decoration: ShapeDecoration(
+                      color: info.color.withValues(alpha: isDark ? 0.14 : 0.1),
+                      shape: AppShape.squircle(AppRadius.lg),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 4,
+                          height: 36,
+                          decoration: ShapeDecoration(
+                            color: info.color,
+                            shape: AppShape.pill,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '${_todos.length} việc',
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.w700,
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${_todos.length} việc',
+                                style: Theme.of(context).textTheme.titleLarge,
                               ),
-                            ),
-                            Text(
-                              'Gợi ý: ${info.action}',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: info.color,
-                                fontWeight: FontWeight.w600,
+                              const SizedBox(height: 2),
+                              Text(
+                                'Gợi ý: ${info.action}',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: info.color,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: _todos.length,
-                    itemBuilder: (ctx, i) {
-                      final t = _todos[i];
-                      return TodoSwipeActions(
-                        enabled:
-                            t.id.isNotEmpty &&
-                            !t.isDailyLog &&
-                            !_savingIds.contains(t.id),
-                        onPickDate: () => _pickTodoDate(t),
-                        onPickTime: () => _pickTodoTime(t),
-                        onDelete: () => _deleteTodoLocalFirst(t),
-                        child: _DashboardTodoTile(
-                          todo: t,
-                          completed: _completedIds.contains(t.id),
-                          saving: _savingIds.contains(t.id),
-                          onTap: () => _openDetail(t),
-                          onComplete: () => _completeTodo(t),
-                        ),
-                      );
-                    },
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: AppSurface(
+                    clipBehavior: Clip.antiAlias,
+                    showShadow: false,
+                    child: Column(
+                      children: [
+                        for (var i = 0; i < _todos.length; i++) ...[
+                          if (i > 0)
+                            Divider(
+                              height: 0.5,
+                              indent: 68,
+                              color: context.appDivider,
+                            ),
+                          TodoSwipeActions(
+                            backgroundColor: context.appSurface,
+                            enabled:
+                                _todos[i].id.isNotEmpty &&
+                                !_todos[i].isDailyLog &&
+                                !_savingIds.contains(_todos[i].id),
+                            onPickDate: () => _pickTodoDate(_todos[i]),
+                            onPickTime: () => _pickTodoTime(_todos[i]),
+                            onDelete: () => _deleteTodoLocalFirst(_todos[i]),
+                            child: _DashboardTodoTile(
+                              todo: _todos[i],
+                              completed: _completedIds.contains(_todos[i].id),
+                              saving: _savingIds.contains(_todos[i].id),
+                              onTap: () => _openDetail(_todos[i]),
+                              onComplete: () => _completeTodo(_todos[i]),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -604,10 +599,7 @@ class _DashboardTodoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final secondary = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
+    final secondary = context.appTextSecondary;
     final isDone = completed || todo.effectiveDone;
     return ListTile(
       onTap: todo.id.isEmpty ? null : onTap,
@@ -622,7 +614,7 @@ class _DashboardTodoTile extends StatelessWidget {
                   size: 28,
                 )
               : todo.isFrog
-              ? const Icon(Icons.eco, color: AppColors.frog)
+              ? const Icon(Icons.eco_rounded, color: AppColors.frog)
               : IconButton(
                   tooltip: isDone ? 'Đã hoàn thành' : 'Hoàn thành',
                   onPressed: todo.id.isEmpty || isDone || saving
@@ -634,9 +626,18 @@ class _DashboardTodoTile extends StatelessWidget {
                     minWidth: 48,
                     minHeight: 48,
                   ),
-                  icon: Icon(
-                    isDone ? Icons.check_circle : Icons.radio_button_unchecked,
-                    color: isDone ? AppColors.success : secondary,
+                  icon: AnimatedSwitcher(
+                    duration: AppMotion.normal,
+                    switchInCurve: Curves.easeOutBack,
+                    transitionBuilder: (child, animation) =>
+                        ScaleTransition(scale: animation, child: child),
+                    child: Icon(
+                      isDone
+                          ? Icons.check_circle_rounded
+                          : Icons.radio_button_unchecked,
+                      key: ValueKey(isDone),
+                      color: isDone ? AppColors.success : secondary,
+                    ),
                   ),
                 ),
         ),
@@ -694,7 +695,10 @@ class _DashboardTodoTile extends StatelessWidget {
       ),
       trailing: todo.id.isEmpty
           ? null
-          : Icon(Icons.chevron_right, color: secondary),
+          : Icon(
+              Icons.chevron_right_rounded,
+              color: secondary.withValues(alpha: 0.7),
+            ),
     );
   }
 

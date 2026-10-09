@@ -105,4 +105,82 @@ void main() {
     expect(tester.getTopLeft(english).dy, lessThan(tester.getTopLeft(cv).dy));
     expect(tester.getTopLeft(cv).dy, lessThan(tester.getTopLeft(noTime).dy));
   });
+
+  group('many todos in one quadrant never overflow', () {
+    List<DashboardEisenhowerTodo> manyTodos(int n) => [
+      for (var i = 0; i < n; i++)
+        DashboardEisenhowerTodo(
+          id: 't$i',
+          title: 'Việc số ${i + 1} có tiêu đề khá dài để kiểm tra cắt chữ',
+          status: 'open',
+          scheduledDate: DateTime(2026, 6, 26),
+          time: '${(8 + i % 10).toString().padLeft(2, '0')}:00',
+          isImportant: true,
+          isUrgent: true,
+          isFrog: false,
+          frogDate: null,
+          quadrant: 'q1',
+        ),
+    ];
+
+    Future<void> pumpGrid(
+      WidgetTester tester, {
+      required int todos,
+      double textScale = 1,
+      double lineHeight = 1,
+      Size size = const Size(360, 800),
+    }) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaQuery(
+            data: MediaQueryData(
+              size: size,
+              textScaler: TextScaler.linear(textScale),
+            ),
+            child: Scaffold(
+              body: DefaultTextStyle(
+                style: TextStyle(height: lineHeight, color: Colors.black),
+                child: SingleChildScrollView(
+                  child: EisenhowerGrid(
+                    counts: {'q1': todos},
+                    previews: {'q1': manyTodos(todos)},
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    testWidgets('shows a "+N" summary instead of overflowing', (tester) async {
+      await pumpGrid(tester, todos: 12);
+
+      expect(tester.takeException(), isNull);
+      expect(find.textContaining('việc khác'), findsOneWidget);
+    });
+
+    testWidgets('survives large system text', (tester) async {
+      await pumpGrid(tester, todos: 12, textScale: 1.4);
+
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('survives lines much taller than the estimate', (tester) async {
+      // Dòng cao gấp ~2 lần bình thường (dấu tiếng Việt / font dự phòng).
+      await pumpGrid(tester, todos: 12, lineHeight: 2.2, textScale: 1.3);
+
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('does not show a summary when everything fits', (tester) async {
+      await pumpGrid(tester, todos: 2);
+
+      expect(tester.takeException(), isNull);
+      expect(find.textContaining('việc khác'), findsNothing);
+    });
+  });
 }

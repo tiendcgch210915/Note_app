@@ -22,14 +22,15 @@ class HabitLinkChip extends StatelessWidget {
       future: HabitsRepository.instance.getLocalHabit(id),
       builder: (context, snapshot) {
         final habit = snapshot.data;
-        final color = habit?.color ?? AppColors.primary;
+        final color = habit?.color ?? context.appPrimary;
         final label = habit?.title ?? fallbackLabel;
         return Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
+          decoration: ShapeDecoration(
             color: color.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: color.withValues(alpha: 0.30)),
+            shape: StadiumBorder(
+              side: BorderSide(color: color.withValues(alpha: 0.30)),
+            ),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,

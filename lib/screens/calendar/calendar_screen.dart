@@ -2,9 +2,19 @@ import 'package:flutter/material.dart';
 import '../../data/api_exception.dart';
 import '../../data/dashboard_repository.dart';
 import '../../models/dashboard.dart';
+import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
+import '../../utils/app_haptics.dart';
+import '../../utils/app_snack.dart';
 import '../../utils/date_utils.dart';
+import '../../widgets/app_state_views.dart';
+import '../../widgets/clamp_text_scale.dart';
+import '../../widgets/app_surface.dart';
 import '../../widgets/calendar_day_cell.dart';
 import 'calendar_day_detail_screen.dart';
+
+/// Cỡ chữ hệ thống tối đa mà ô lưới cố định chiều cao có thể chứa được.
+const double _maxTextScale = 1.35;
 
 /// Tab Lịch — dùng F-D3 calendar overview.
 ///
@@ -129,9 +139,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   void _showError(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    showAppSnack(context, message, isError: true);
   }
 
   List<DateTime> get _mainWindowDates {
@@ -155,7 +163,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loadingMainWindow && _days.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const AppSpinner();
     }
 
     return RefreshIndicator(
@@ -187,95 +195,88 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   Widget _buildHistoryHeader(BuildContext context) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final secondary = context.appTextSecondary;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: colorScheme.surface,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: colorScheme.outlineVariant.withValues(alpha: 0.7),
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              InkWell(
-                borderRadius: BorderRadius.circular(8),
-                onTap: _toggleHistory,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.history,
-                        color: _historyExpanded
-                            ? colorScheme.primary
-                            : colorScheme.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              _historyExpanded
-                                  ? '30 ngày trước đó'
-                                  : 'Xem 30 ngày trước đó',
-                              style: theme.textTheme.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              _historyExpanded
-                                  ? 'Lịch sử trước vùng 30 ngày hiện tại'
-                                  : 'Lịch sử đang được thu gọn',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Icon(
-                        _historyExpanded
-                            ? Icons.keyboard_arrow_up
-                            : Icons.keyboard_arrow_down,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                    ],
+      child: AppSurface(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () {
+                AppHaptics.selection();
+                _toggleHistory();
+              },
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.history_rounded,
+                    color: _historyExpanded ? context.appPrimary : secondary,
                   ),
-                ),
-              ),
-              if (_historyExpanded) ...[
-                const SizedBox(height: 10),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 240),
-                    child: OutlinedButton.icon(
-                      onPressed: _historyLoading ? null : _pickHistoryRange,
-                      icon: const Icon(Icons.filter_alt_outlined, size: 18),
-                      label: Text(
-                        _historyRangeLabel,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _historyExpanded
+                              ? '30 ngày trước đó'
+                              : 'Xem 30 ngày trước đó',
+                          style: theme.textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _historyExpanded
+                              ? 'Lịch sử trước vùng 30 ngày hiện tại'
+                              : 'Lịch sử đang được thu gọn',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              ],
-            ],
-          ),
+                  AnimatedRotation(
+                    turns: _historyExpanded ? 0.5 : 0,
+                    duration: AppMotion.normal,
+                    curve: AppMotion.curve,
+                    child: Icon(Icons.expand_more_rounded, color: secondary),
+                  ),
+                ],
+              ),
+            ),
+            AnimatedSize(
+              duration: AppMotion.normal,
+              curve: AppMotion.curve,
+              alignment: Alignment.topCenter,
+              child: _historyExpanded
+                  ? Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 260),
+                          child: OutlinedButton.icon(
+                            onPressed: _historyLoading
+                                ? null
+                                : _pickHistoryRange,
+                            icon: const Icon(
+                              Icons.date_range_rounded,
+                              size: 18,
+                            ),
+                            label: Text(
+                              _historyRangeLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ),
+                      ),
+                    )
+                  : const SizedBox(width: double.infinity),
+            ),
+          ],
         ),
       ),
     );
@@ -285,14 +286,18 @@ class _CalendarScreenState extends State<CalendarScreen> {
     required List<DateTime> dates,
     required EdgeInsetsGeometry padding,
   }) {
+    // Chiều cao ô co giãn theo cỡ chữ hệ thống để nội dung không bị tràn.
+    final scale = MediaQuery.textScalerOf(
+      context,
+    ).scale(1).clamp(1.0, _maxTextScale);
     return SliverPadding(
       padding: padding,
       sliver: SliverGrid(
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
           crossAxisCount: 3,
           mainAxisSpacing: 12,
           crossAxisSpacing: 12,
-          childAspectRatio: 0.85,
+          mainAxisExtent: 120 * scale,
         ),
         delegate: SliverChildBuilderDelegate(
           (ctx, i) => _buildDayCell(dates[i]),
@@ -306,16 +311,19 @@ class _CalendarScreenState extends State<CalendarScreen> {
     final day = _days[date];
     final isFuture = AppDateUtils.isFuture(date);
 
-    return CalendarDayCell(
-      date: date,
-      isFuture: isFuture,
-      isToday: AppDateUtils.isToday(date),
-      score: isFuture ? null : (day?.score ?? 0),
-      totalTodos: day?.totalTodos ?? 0,
-      doneTodos: day?.doneTodos ?? 0,
-      habitsTotal: day?.habitsTotal ?? 0,
-      habitsCompleted: day?.habitsCompleted ?? 0,
-      onTap: () => _openDayDetail(date),
+    return ClampTextScale(
+      maxScale: _maxTextScale,
+      child: CalendarDayCell(
+        date: date,
+        isFuture: isFuture,
+        isToday: AppDateUtils.isToday(date),
+        score: isFuture ? null : (day?.score ?? 0),
+        totalTodos: day?.totalTodos ?? 0,
+        doneTodos: day?.doneTodos ?? 0,
+        habitsTotal: day?.habitsTotal ?? 0,
+        habitsCompleted: day?.habitsCompleted ?? 0,
+        onTap: () => _openDayDetail(date),
+      ),
     );
   }
 

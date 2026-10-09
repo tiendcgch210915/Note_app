@@ -4,13 +4,21 @@ import '../../data/todos_repository.dart';
 import '../../models/habit.dart';
 import '../../models/tag.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
+import '../../utils/app_haptics.dart';
+import '../../utils/app_snack.dart';
 import '../../utils/date_utils.dart';
 import '../../utils/json_utils.dart';
 import '../../utils/quadrant_utils.dart';
 import '../../utils/todo_trigger_picker.dart';
+import '../../widgets/app_list_section.dart';
+import '../../widgets/app_sheet.dart';
+import '../../widgets/app_state_views.dart';
+import '../../widgets/app_surface.dart';
 import '../../widgets/duration_picker_sheet.dart';
 import '../../widgets/habit_selector_sheet.dart';
 import '../../widgets/repeat_picker_sheet.dart';
+import '../../widgets/section_header.dart';
 import '../../widgets/tag_chip.dart';
 import '../../widgets/todo_flag_button.dart';
 import '../../widgets/todo_tag_selector_sheet.dart';
@@ -42,6 +50,7 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
   String? _triggerTodoTitle;
   RepeatSettings _repeat = RepeatSettings.none;
   bool _saving = false;
+  String? _titleError;
 
   bool get _isSubtask => widget.parentId != null;
 
@@ -61,10 +70,10 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     if (_title.text.trim().isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Vui lòng nhập tiêu đề')));
+      AppHaptics.heavy();
+      setState(() => _titleError = 'Vui lòng nhập tiêu đề');
       return;
     }
     setState(() => _saving = true);
@@ -102,10 +111,9 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
             };
       final result = await TodosRepository.instance.createLocalFirst(body);
       if (!mounted) return;
+      AppHaptics.medium();
       Navigator.of(context).pop(!_isSubtask ? true : result.todo);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Đã lưu')));
+      showAppSnack(context, 'Đã lưu');
     } on ApiException catch (e) {
       if (!mounted) return;
       if (e.code == 'daily_limit_reached') {
@@ -115,19 +123,13 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
           _triggerTodoId = null;
           _triggerTodoTitle = null;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Việc trigger không còn hợp lệ. Vui lòng chọn lại.'),
-            backgroundColor: AppColors.danger,
-          ),
+        showAppSnack(
+          context,
+          'Việc trigger không còn hợp lệ. Vui lòng chọn lại.',
+          isError: true,
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.vnMessage),
-            backgroundColor: AppColors.danger,
-          ),
-        );
+        showAppSnack(context, e.vnMessage, isError: true);
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -168,10 +170,7 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final secondary = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
+    final primary = context.appPrimary;
     final qInfo = QuadrantUtils.info(
       QuadrantUtils.from(
         important: _frog || _important,
@@ -182,132 +181,148 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          icon: const Icon(Icons.close),
+          tooltip: 'Đóng',
+          icon: const Icon(Icons.close_rounded),
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Text(!_isSubtask ? 'Việc mới' : 'Việc con mới'),
         actions: [
           TextButton(
             onPressed: _saving ? null : _save,
-            child: _saving
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text(
-                    'Lưu',
-                    style: TextStyle(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+            child: SizedBox(
+              width: 36,
+              child: Center(
+                child: _saving
+                    ? const AppSpinner(radius: 9, centered: false)
+                    : const Text(
+                        'Lưu',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+              ),
+            ),
           ),
+          const SizedBox(width: 4),
         ],
       ),
       body: ListView(
+        padding: const EdgeInsets.only(top: 8),
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: TextField(
-              controller: _title,
-              autofocus: true,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-              decoration: const InputDecoration(
-                hintText: 'Bạn cần làm gì?',
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                filled: false,
-                contentPadding: EdgeInsets.zero,
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+            child: AppSurface(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _title,
+                    autofocus: true,
+                    textInputAction: TextInputAction.next,
+                    onChanged: (_) {
+                      if (_titleError != null) {
+                        setState(() => _titleError = null);
+                      }
+                    },
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: 'Bạn cần làm gì?',
+                      errorText: _titleError,
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
+                      errorBorder: InputBorder.none,
+                      focusedErrorBorder: InputBorder.none,
+                      filled: false,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
+                  ),
+                  if (!_isSubtask) ...[
+                    Divider(height: 1, color: context.appDivider),
+                    TextField(
+                      controller: _desc,
+                      maxLines: 3,
+                      minLines: 2,
+                      decoration: const InputDecoration(
+                        hintText: 'Mô tả thêm...',
+                        border: InputBorder.none,
+                        enabledBorder: InputBorder.none,
+                        focusedBorder: InputBorder.none,
+                        filled: false,
+                        contentPadding: EdgeInsets.symmetric(vertical: 10),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
           ),
           if (!_isSubtask) ...[
-            const Divider(height: 1),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: TextField(
-                controller: _desc,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  hintText: 'Mô tả thêm...',
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  filled: false,
-                  contentPadding: EdgeInsets.zero,
+            AppListSection(
+              dividerIndent: AppListSection.iconIndent,
+              children: [
+                AppListTile(
+                  icon: Icons.calendar_today_rounded,
+                  title: 'Ngày làm',
+                  value: AppDateUtils.formatDate(_scheduledDate),
+                  onTap: () async {
+                    final now = DateTime.now();
+                    final picked = await showDatePicker(
+                      context: context,
+                      initialDate: _scheduledDate,
+                      firstDate: now.subtract(const Duration(days: 30)),
+                      lastDate: now.add(const Duration(days: 365)),
+                    );
+                    if (picked != null) {
+                      setState(
+                        () => _scheduledDate = AppDateUtils.dateOnly(picked),
+                      );
+                    }
+                  },
                 ),
-              ),
+                AppListTile(
+                  icon: Icons.schedule_rounded,
+                  iconColor: _time == null ? AppColors.tagSlate : primary,
+                  title: 'Giờ nhắc',
+                  value: _time ?? 'Không đặt giờ',
+                  trailing: _time == null
+                      ? null
+                      : AppClearButton(
+                          tooltip: 'Bỏ giờ nhắc',
+                          onTap: () => setState(() => _time = null),
+                        ),
+                  showChevron: _time == null,
+                  onTap: _pickTime,
+                ),
+                AppListTile(
+                  icon: Icons.repeat_rounded,
+                  iconColor: _repeat.hasRepeat ? primary : AppColors.tagSlate,
+                  title: 'Lặp lại',
+                  value: _repeat.label,
+                  onTap: () async {
+                    final result = await showRepeatPicker(
+                      context,
+                      initial: _repeat,
+                    );
+                    if (result != null && mounted) {
+                      setState(() => _repeat = result);
+                    }
+                  },
+                ),
+                AppListTile(
+                  icon: Icons.hourglass_empty_rounded,
+                  iconColor: AppColors.tagAmber,
+                  title: 'Ước lượng',
+                  value: _estimated == null
+                      ? 'Chưa chọn'
+                      : formatDurationMinutes(_estimated!),
+                  onTap: _pickEstimate,
+                ),
+              ],
             ),
-            const Divider(height: 1),
-            ListTile(
-              leading: const Icon(Icons.calendar_today, size: 20),
-              title: const Text('Ngày làm'),
-              subtitle: Text(AppDateUtils.formatDate(_scheduledDate)),
-              onTap: () async {
-                final now = DateTime.now();
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: _scheduledDate,
-                  firstDate: now.subtract(const Duration(days: 30)),
-                  lastDate: now.add(const Duration(days: 365)),
-                );
-                if (picked != null) {
-                  setState(
-                    () => _scheduledDate = AppDateUtils.dateOnly(picked),
-                  );
-                }
-              },
-            ),
-            ListTile(
-              leading: Icon(
-                Icons.schedule,
-                size: 20,
-                color: _time == null ? null : AppColors.primary,
-              ),
-              title: const Text('Giờ nhắc'),
-              subtitle: Text(_time ?? 'Không đặt giờ'),
-              trailing: _time == null
-                  ? const Icon(Icons.chevron_right)
-                  : IconButton(
-                      icon: const Icon(Icons.close, size: 18),
-                      tooltip: 'Bỏ giờ nhắc',
-                      onPressed: () => setState(() => _time = null),
-                    ),
-              onTap: _pickTime,
-            ),
-            ListTile(
-              leading: Icon(
-                Icons.repeat,
-                size: 20,
-                color: _repeat.hasRepeat ? AppColors.primary : null,
-              ),
-              title: const Text('Lặp lại'),
-              subtitle: Text(_repeat.label),
-              onTap: () async {
-                final result = await showRepeatPicker(
-                  context,
-                  initial: _repeat,
-                );
-                if (result != null && mounted) {
-                  setState(() => _repeat = result);
-                }
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.hourglass_empty, size: 20),
-              title: const Text('Ước lượng'),
-              subtitle: Text(
-                _estimated == null
-                    ? 'Chưa chọn'
-                    : formatDurationMinutes(_estimated!),
-              ),
-              onTap: _pickEstimate,
-            ),
-            const Divider(height: 1),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: Row(
                 children: [
                   Expanded(
@@ -357,14 +372,16 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Container(
+                child: AnimatedContainer(
+                  duration: AppMotion.normal,
+                  curve: AppMotion.curve,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,
                     vertical: 6,
                   ),
-                  decoration: BoxDecoration(
+                  decoration: ShapeDecoration(
                     color: qInfo.color.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(20),
+                    shape: AppShape.pill,
                   ),
                   child: Text(
                     '${qInfo.label} → ${qInfo.action}',
@@ -377,23 +394,13 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
                 ),
               ),
             ),
-            const Divider(height: 1),
+            const SectionHeader(label: 'Tags'),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-              child: Text(
-                'Tags',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: secondary,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
               child: Wrap(
                 spacing: 8,
                 runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   if (_tags.isNotEmpty)
                     TodoTagWrap(
@@ -413,46 +420,43 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 8),
-            ListTile(
-              leading: Icon(
-                _habit?.icon ?? Icons.flag_outlined,
-                color: _habit?.color,
-              ),
-              title: const Text('Habit liên kết'),
-              subtitle: Text(_habit?.title ?? 'Không liên kết'),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_habit != null)
-                    IconButton(
-                      icon: const Icon(Icons.close, size: 18),
-                      tooltip: 'Bỏ liên kết',
-                      onPressed: () => setState(() => _habit = null),
-                    ),
-                  const Icon(Icons.chevron_right),
-                ],
-              ),
-              onTap: _pickHabit,
-            ),
-            ListTile(
-              leading: const Icon(Icons.account_tree_outlined),
-              title: const Text('Làm sau khi hoàn thành...'),
-              subtitle: Text(
-                _triggerTodoId == null
-                    ? 'Chưa chọn'
-                    : _triggerTodoTitle ?? 'Đã chọn việc trigger',
-              ),
-              trailing: _triggerTodoId == null
-                  ? null
-                  : IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => setState(() {
-                        _triggerTodoId = null;
-                        _triggerTodoTitle = null;
-                      }),
-                    ),
-              onTap: _pickTriggerTodo,
+            AppListSection(
+              dividerIndent: AppListSection.iconIndent,
+              children: [
+                AppListTile(
+                  icon: _habit?.icon ?? Icons.flag_rounded,
+                  iconColor: _habit?.color ?? AppColors.tagSlate,
+                  title: 'Habit liên kết',
+                  value: _habit?.title ?? 'Không liên kết',
+                  trailing: _habit == null
+                      ? null
+                      : AppClearButton(
+                          tooltip: 'Bỏ liên kết',
+                          onTap: () => setState(() => _habit = null),
+                        ),
+                  showChevron: _habit == null,
+                  onTap: _pickHabit,
+                ),
+                AppListTile(
+                  icon: Icons.account_tree_rounded,
+                  iconColor: AppColors.tagCyan,
+                  title: 'Làm sau khi hoàn thành...',
+                  value: _triggerTodoId == null
+                      ? 'Chưa chọn'
+                      : _triggerTodoTitle ?? 'Đã chọn việc trigger',
+                  trailing: _triggerTodoId == null
+                      ? null
+                      : AppClearButton(
+                          tooltip: 'Bỏ việc trigger',
+                          onTap: () => setState(() {
+                            _triggerTodoId = null;
+                            _triggerTodoTitle = null;
+                          }),
+                        ),
+                  showChevron: _triggerTodoId == null,
+                  onTap: _pickTriggerTodo,
+                ),
+              ],
             ),
           ],
           const SizedBox(height: 32),
@@ -463,25 +467,33 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
 
   Future<void> _pickEstimate() async {
     const customEstimate = -1;
-    final selected = await showModalBottomSheet<int>(
+    final selected = await showAppSheet<int>(
       context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+      builder: (ctx) => AppSheetScaffold(
+        title: 'Ước lượng thời gian',
+        child: AppListSection(
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          dividerIndent: AppListSection.iconIndent,
           children: [
             ...[15, 25, 45, 60].map((m) {
-              return ListTile(
-                leading: const Icon(Icons.hourglass_empty),
-                title: Text('$m phút'),
+              return AppListTile(
+                icon: Icons.hourglass_empty_rounded,
+                iconColor: AppColors.tagAmber,
+                title: '$m phút',
+                showChevron: false,
+                trailing: _estimated == m
+                    ? Icon(Icons.check_rounded, color: ctx.appPrimary, size: 22)
+                    : null,
                 onTap: () => Navigator.of(ctx).pop(m),
               );
             }),
-            ListTile(
-              leading: const Icon(Icons.tune),
-              title: const Text('Tùy chỉnh'),
+            AppListTile(
+              icon: Icons.tune_rounded,
+              iconColor: AppColors.tagPurple,
+              title: 'Tùy chỉnh',
               subtitle: _estimated == null
                   ? null
-                  : Text('Hiện tại: ${formatDurationMinutes(_estimated!)}'),
+                  : 'Hiện tại: ${formatDurationMinutes(_estimated!)}',
               onTap: () => Navigator.of(ctx).pop(customEstimate),
             ),
           ],
@@ -494,10 +506,8 @@ class _TodoCreateScreenState extends State<TodoCreateScreen> {
       return;
     }
 
-    final custom = await showModalBottomSheet<int>(
+    final custom = await showAppSheet<int>(
       context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
       builder: (ctx) => DurationPickerSheet(
         initialMinutes: _estimated ?? 25,
         title: 'Bạn muốn ước lượng bao nhiêu thời gian cho việc này?',

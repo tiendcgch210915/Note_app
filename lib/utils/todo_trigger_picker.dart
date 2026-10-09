@@ -4,6 +4,7 @@ import '../data/api_exception.dart';
 import '../data/todos_repository.dart';
 import '../models/todo.dart';
 import '../theme/app_colors.dart';
+import '../widgets/app_sheet.dart';
 import '../widgets/duration_picker_sheet.dart';
 import 'date_utils.dart';
 
@@ -23,9 +24,8 @@ Future<Todo?> showTodoTriggerPicker(
       return null;
     }
 
-    return showModalBottomSheet<Todo>(
+    return showAppSheet<Todo>(
       context: context,
-      showDragHandle: true,
       builder: (ctx) => SafeArea(
         child: ConstrainedBox(
           constraints: BoxConstraints(
@@ -40,11 +40,15 @@ Future<Todo?> showTodoTriggerPicker(
                   children: [
                     Icon(Icons.account_tree_outlined, size: 20),
                     SizedBox(width: 8),
-                    Text(
-                      'Làm sau khi hoàn thành...',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
+                    Expanded(
+                      child: Text(
+                        'Làm sau khi hoàn thành...',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ],

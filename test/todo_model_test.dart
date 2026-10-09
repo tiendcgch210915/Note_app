@@ -168,4 +168,75 @@ void main() {
       expect(next.actualMinutes, isNull);
     },
   );
+
+  group('"Lặp lại" row text', () {
+    Todo build({
+      String? type,
+      int interval = 1,
+      String? days,
+      String? templateId,
+    }) {
+      return Todo(
+        id: 'todo',
+        title: 'Todo',
+        scheduledDate: DateTime(2026, 6, 24),
+        recurrenceType: type,
+        recurrenceInterval: interval,
+        recurrenceDaysOfWeek: days,
+        recurrenceTemplateId: templateId,
+        createdAt: DateTime.utc(2026, 6, 24),
+        updatedAt: DateTime.utc(2026, 6, 24),
+      );
+    }
+
+    test('a next occurrence shows the same rule as the original', () {
+      final original = build(type: 'daily');
+      final next = build(type: 'daily', templateId: 'template');
+
+      expect(original.repeatRowValue, 'Mỗi ngày');
+      expect(next.repeatRowValue, original.repeatRowValue);
+      expect(next.hasRecurrenceRule, isTrue);
+    });
+
+    test('every kind of rule is carried over to the next occurrence', () {
+      final cases = <({String? type, int interval, String? days})>[
+        (type: 'daily', interval: 1, days: null),
+        (type: 'daily', interval: 3, days: null),
+        (type: 'weekly', interval: 1, days: null),
+        (type: 'weekly', interval: 1, days: '2'),
+        (type: 'weekly', interval: 1, days: '1,3,5'),
+        (type: 'custom', interval: 2, days: null),
+      ];
+      for (final rule in cases) {
+        final original = build(
+          type: rule.type,
+          interval: rule.interval,
+          days: rule.days,
+        );
+        final next = build(
+          type: rule.type,
+          interval: rule.interval,
+          days: rule.days,
+          templateId: 'template',
+        );
+        expect(next.repeatRowValue, original.repeatRowValue, reason: '$rule');
+        expect(
+          next.repeatRowValue,
+          isNot('Theo lịch lặp gốc'),
+          reason: '$rule',
+        );
+      }
+      expect(build(type: 'daily', interval: 3).repeatRowValue, 'Mỗi 3 ngày');
+      expect(build(type: 'weekly', days: '2').repeatRowValue, 'T3');
+      expect(build(type: 'weekly').repeatRowValue, 'Mỗi tuần');
+    });
+
+    test('only a row without its own rule follows the original schedule', () {
+      final legacyProjection = build(templateId: 'template');
+
+      expect(legacyProjection.hasRecurrenceRule, isFalse);
+      expect(legacyProjection.repeatRowValue, 'Theo lịch lặp gốc');
+      expect(build().repeatRowValue, 'Không lặp lại');
+    });
+  });
 }

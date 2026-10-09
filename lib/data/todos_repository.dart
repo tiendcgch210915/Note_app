@@ -43,6 +43,9 @@ class TodosRepository {
   final AppDatabase _db;
   final String? _userIdOverride;
 
+  /// Per-series queue used by [_withSeriesLock].
+  final Map<String, Future<void>> _seriesLocks = {};
+
   factory TodosRepository.forTesting(
     AppDatabase database, {
     required String userId,
@@ -106,9 +109,22 @@ class TodosRepository {
     final items = (map['items'] as List)
         .map((e) => _normalizeSubtask(Todo.fromJson(e as Map<String, dynamic>)))
         .toList();
-    // Cache in Drift
+    // Cache in Drift (parked rows included: they are real rows, see below).
     await _cacheTodos(items);
-    return (items: items, nextCursor: map['nextCursor'] as String?);
+    return (
+      items: _withoutParked(items, unlessAsking: status),
+      nextCursor: map['nextCursor'] as String?,
+    );
+  }
+
+  /// `GET /todos` and `GET /todos/day/:date` return parked occurrences
+  /// (`archived`, see [_parkGeneratedNextOccurrence]) like any other row. They
+  /// are hidden bookkeeping, so callers never see them unless they explicitly
+  /// ask for `status=archived`. They stay in the Drift cache so the next
+  /// completion can revive the very same row.
+  List<Todo> _withoutParked(List<Todo> todos, {TodoStatus? unlessAsking}) {
+    if (unlessAsking == TodoStatus.archived) return todos;
+    return todos.where((todo) => todo.status != TodoStatus.archived).toList();
   }
 
   Future<List<Todo>> listTriggerCandidates({String? excludeId}) async {
@@ -153,7 +169,9 @@ class TodosRepository {
       );
     }).toList();
     await _cacheTodos(result.map((d) => d.todo).toList());
-    return result;
+    return result
+        .where((item) => item.todo.status != TodoStatus.archived)
+        .toList();
   }
 
   // ─── F-T4 Detail ──────────────────────────────────────────────
@@ -623,6 +641,9 @@ class TodosRepository {
       'completed_at': now,
       'actual_minutes': actualMinutes ?? current.actualMinutes,
     };
+    // `current` is whatever the screen was holding; a second tap or a sync pull
+    // may already have completed the row, and that must not spawn another next.
+    final alreadyDone = current.isDone || await _isStoredDone(current.id);
     final completed = _normalizeSubtask(_patchTodo(current, body, now));
     await _db.todosDao.upsertTodo(todoToCompanion(completed, _userId));
     await _enqueueTodoUpdate(completed.id);
@@ -630,7 +651,7 @@ class TodosRepository {
     if (celebrateFrog) {
       _celebrateFrogCompletionIfNeeded(completed, wasDone: current.isDone);
     }
-    final nextRecurringTodo = current.isDone
+    final nextRecurringTodo = alreadyDone
         ? null
         : await _materializeNextRecurringOccurrence(completed);
     _notifyTodoLocalChanged();
@@ -645,6 +666,7 @@ class TodosRepository {
 
   Future<Todo> uncompleteLocalFirst(Todo current) async {
     final now = DateTime.now().toUtc();
+    final wasDone = current.isDone || await _isStoredDone(current.id);
     final reopened = _normalizeSubtask(
       _patchTodo(current, {
         'status': TodoStatus.open.backendValue,
@@ -653,6 +675,9 @@ class TodosRepository {
     );
     await _db.todosDao.upsertTodo(todoToCompanion(reopened, _userId));
     await _enqueueTodoUpdate(reopened.id);
+    // The occurrence this completion generated must not linger next to the
+    // reopened todo (and be duplicated when the todo is completed again).
+    if (wasDone) await _parkGeneratedNextOccurrence(reopened);
     _notifyTodoLocalChanged();
     ConnectivitySync.instance.scheduleWriteSync();
     return reopened;
@@ -1029,6 +1054,27 @@ class TodosRepository {
     final recurrenceSource = await _recurrenceSourceForCompleted(completed);
     final templateId =
         recurrenceSource.recurrenceTemplateId ?? recurrenceSource.id;
+    // One caller at a time per series: two taps, or a subtask reconcile racing
+    // the user, must not both conclude that the next occurrence is missing.
+    return _withSeriesLock(
+      templateId,
+      () => _materializeNextRecurringOccurrenceLocked(
+        completed,
+        recurrenceSource,
+        templateId,
+        minimumDate: minimumDate,
+        syncCreate: syncCreate,
+      ),
+    );
+  }
+
+  Future<Todo?> _materializeNextRecurringOccurrenceLocked(
+    Todo completed,
+    Todo recurrenceSource,
+    String templateId, {
+    DateTime? minimumDate,
+    required bool syncCreate,
+  }) async {
     final seriesRows = await _db.todosDao.getSeriesRows(
       templateId,
       userId: _userId.isEmpty ? null : _userId,
@@ -1044,10 +1090,25 @@ class TodosRepository {
     );
     if (nextDate == null) return null;
 
-    final existing = await _db.todosDao.getOccurrenceForSeriesDate(
+    // Which row plays "the next occurrence", in order of preference:
+    //  1. whatever already holds the slot (reused, never duplicated);
+    //  2. an occurrence parked when a previous completion was undone, which is
+    //     moved to the slot if the schedule changed in between;
+    //  3. an open occurrence the user already has further ahead.
+    // Only when none exists is a new row created.
+    final slotRow = await _db.todosDao.getOccurrenceForSeriesDate(
       templateId,
       formatDateOnly(nextDate),
     );
+    final parkedRow = slotRow == null
+        ? _firstParkedOccurrence(seriesRows)
+        : null;
+    final existing =
+        slotRow ??
+        parkedRow ??
+        (slotRow == null && parkedRow == null
+            ? _firstOpenSuccessor(seriesRows, after: recurrenceSource)
+            : null);
 
     final tagRows = await _db.todosDao.getTagsForTodo(completed.id);
     final tagModels = tagRows.isEmpty && completed.tagsLoaded
@@ -1069,6 +1130,27 @@ class TodosRepository {
             tags: tagModels,
             tagIds: tagIds,
           );
+    final reviveParked =
+        existingIsCanonical &&
+        existing.status == TodoStatus.archived.backendValue;
+    if (reviveParked) {
+      final movesToSlot = existing.scheduledDate != formatDateOnly(nextDate);
+      occurrence = _patchTodo(occurrence, {
+        'status': TodoStatus.open.backendValue,
+        'completed_at': null,
+        if (movesToSlot) 'scheduled_date': nextDate,
+        if (movesToSlot)
+          'due_at': recurrenceSource.dueAt == null
+              ? null
+              : DateTime.utc(
+                  nextDate.year,
+                  nextDate.month,
+                  nextDate.day,
+                  23,
+                  59,
+                ),
+      }, DateTime.now().toUtc());
+    }
 
     final sourceSubtree = await _db.todosDao.getActiveSubtree(
       completed.id,
@@ -1111,6 +1193,11 @@ class TodosRepository {
         if (syncCreate) {
           await _enqueueStoredTodoCreate(occurrence.id, tagIds);
         }
+      } else if (reviveParked) {
+        await _db.todosDao.upsertTodo(todoToCompanion(occurrence, _userId));
+        // `syncCreate: false` is the delete flow, where the backend revives the
+        // parked row itself while it creates the next occurrence.
+        if (syncCreate) await _enqueueTodoUpdate(occurrence.id);
       }
 
       if (!hasTargetChildren) {
@@ -1191,6 +1278,123 @@ class TodosRepository {
       operation: 'create',
       payload: SyncPayload.encode(SyncPayload.fromTodo(row, tagIds)),
     );
+  }
+
+  /// Runs [action] after every earlier action on the same series has finished.
+  /// Dart interleaves at each `await`, so without this two completions could
+  /// both read "no next occurrence yet" and each insert one.
+  Future<T> _withSeriesLock<T>(String seriesId, Future<T> Function() action) {
+    final previous = _seriesLocks[seriesId] ?? Future<void>.value();
+    final result = Completer<T>();
+    final tail = result.future.then<void>((_) {}, onError: (Object _) {});
+    _seriesLocks[seriesId] = tail;
+    previous.then((_) async {
+      try {
+        result.complete(await action());
+      } catch (error, stackTrace) {
+        result.completeError(error, stackTrace);
+      }
+    });
+    tail.whenComplete(() {
+      if (identical(_seriesLocks[seriesId], tail)) {
+        _seriesLocks.remove(seriesId);
+      }
+    });
+    return result.future;
+  }
+
+  Future<bool> _isStoredDone(String id) async {
+    final row = await _db.todosDao.getTodoById(id);
+    return row?.status == TodoStatus.done.backendValue;
+  }
+
+  bool _isLiveTopLevelOccurrence(TodoRow row) =>
+      row.deletedAt == null &&
+      row.parentId == null &&
+      row.recurrenceType != null &&
+      row.scheduledDate != null &&
+      _belongsToCurrentUser(row.userId);
+
+  /// Earliest occurrence parked by [_parkGeneratedNextOccurrence], whatever its
+  /// date: the schedule may have moved since, and the next completion moves it.
+  TodoRow? _firstParkedOccurrence(List<TodoRow> seriesRows) {
+    final parked =
+        seriesRows
+            .where(
+              (row) =>
+                  _isLiveTopLevelOccurrence(row) &&
+                  row.status == TodoStatus.archived.backendValue,
+            )
+            .toList()
+          ..sort((a, b) => a.scheduledDate!.compareTo(b.scheduledDate!));
+    return parked.isEmpty ? null : parked.first;
+  }
+
+  /// Earliest open occurrence strictly after [after], e.g. a next occurrence
+  /// the user rescheduled by hand. The series already has its actionable one.
+  TodoRow? _firstOpenSuccessor(
+    List<TodoRow> seriesRows, {
+    required Todo after,
+  }) {
+    final afterDate = after.scheduledDate;
+    if (afterDate == null) return null;
+    final afterKey = formatDateOnly(afterDate);
+    final open = seriesRows.where((row) {
+      if (!_isLiveTopLevelOccurrence(row) || row.id == after.id) {
+        return false;
+      }
+      final status = TodoStatus.parse(row.status);
+      return (status == TodoStatus.open || status == TodoStatus.inProgress) &&
+          row.scheduledDate!.compareTo(afterKey) > 0;
+    }).toList()..sort((a, b) => a.scheduledDate!.compareTo(b.scheduledDate!));
+    return open.isEmpty ? null : open.first;
+  }
+
+  /// Called after a done todo is reopened. The occurrence that completion
+  /// created is parked (`archived`: already hidden from every list, score and
+  /// reminder) instead of deleted. A soft-deleted occurrence is a recurrence
+  /// exception whose date gets skipped, so deleting it would make the next
+  /// completion jump a day ahead. Completing again revives the same row.
+  ///
+  /// Only the occurrence directly after [reopened], and only while it is still
+  /// open: a next occurrence that is done, in progress or moved elsewhere, and
+  /// anything further ahead, is the user's real todo and stays untouched.
+  Future<void> _parkGeneratedNextOccurrence(Todo reopened) async {
+    if (reopened.parentId != null) return;
+    final source = await _recurrenceSourceForCompleted(reopened);
+    if (source.recurrenceType == null) return;
+    final templateId = source.recurrenceTemplateId ?? source.id;
+
+    await _withSeriesLock(templateId, () async {
+      final seriesRows = await _db.todosDao.getSeriesRows(
+        templateId,
+        userId: _userId.isEmpty ? null : _userId,
+      );
+      final exceptionDates = seriesRows
+          .where((row) => row.deletedAt != null && row.scheduledDate != null)
+          .map((row) => row.scheduledDate!)
+          .toSet();
+      final nextDate = RecurrenceHelper.nextDateSkippingExceptions(
+        todo: source,
+        exceptionDates: exceptionDates,
+      );
+      if (nextDate == null) return;
+
+      final next = await _db.todosDao.getOccurrenceForSeriesDate(
+        templateId,
+        formatDateOnly(nextDate),
+      );
+      if (next == null ||
+          !_isLiveTopLevelOccurrence(next) ||
+          next.status != TodoStatus.open.backendValue) {
+        return;
+      }
+      final parked = _patchTodo(_todoRowToModel(next), {
+        'status': TodoStatus.archived.backendValue,
+      }, DateTime.now().toUtc());
+      await _db.todosDao.upsertTodo(todoToCompanion(parked, _userId));
+      await _enqueueTodoUpdate(parked.id);
+    });
   }
 
   Future<Todo> _recurrenceSourceForCompleted(Todo completed) async {

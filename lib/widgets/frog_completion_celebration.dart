@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
+import '../theme/app_tokens.dart';
 import '../utils/frog_completion_events.dart';
 
 class FrogCompletionCelebrationHost extends StatefulWidget {
@@ -169,7 +170,7 @@ class _AchievementCard extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
       decoration: BoxDecoration(
         color: cardColor,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(AppRadius.sheet - 6),
         border: Border.all(color: borderColor, width: 1.5),
         boxShadow: [
           BoxShadow(

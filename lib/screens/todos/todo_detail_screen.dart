@@ -6,14 +6,21 @@ import '../../data/api_exception.dart';
 import '../../data/todos_repository.dart';
 import '../../models/todo.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
+import '../../utils/active_session_guard.dart';
+import '../../utils/app_haptics.dart';
 import '../../utils/app_navigator.dart';
+import '../../utils/app_snack.dart';
 import '../../utils/date_utils.dart';
 import '../../utils/focus_session_controller.dart';
 import '../../utils/frog_completion_events.dart';
 import '../../utils/habit_stacking_dialog.dart';
 import '../../utils/todo_delete_dialog.dart';
 import '../../utils/todo_local_events.dart';
+import '../../widgets/app_sheet.dart';
+import '../../widgets/app_state_views.dart';
 import '../../widgets/duration_picker_sheet.dart';
+import '../../widgets/empty_state.dart';
 import '../../widgets/habit_link_chip.dart';
 import '../../widgets/primary_button.dart';
 import '../../widgets/section_header.dart';
@@ -42,7 +49,9 @@ class TodoDetailScreen extends StatefulWidget {
 class _TodoDetailScreenState extends State<TodoDetailScreen> {
   TodoWithRelations? _detail;
   final _draftSubtaskKey = GlobalKey<_DraftSubtaskRowState>();
-  bool _loading = false;
+
+  /// Bắt đầu = true để khung đầu hiện spinner thay vì nháy "Không tìm thấy".
+  bool _loading = true;
   bool _celebrating = false;
   bool _draftingSubtask = false;
   bool _savingDraftSubtask = false;
@@ -240,17 +249,18 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
     if (detail == null || detail.todo.isDone) return;
     final focusController = FocusSessionController.instance;
     if (!focusController.isActiveFor(detail.todo.id)) {
-      final running = focusController.session.value;
-      if (running != null) {
-        final replace = await _confirmReplaceFocus(running.todo);
-        if (replace != true || !mounted) return;
-      }
+      // Đang làm việc khác (todo hay checklist) thì phải xong/hủy nó trước.
+      if (!await ensureNoActiveSession(context) || !mounted) return;
       var focusMinutes = detail.todo.estimatedMinutes;
       if (focusMinutes == null || focusMinutes <= 0) {
         focusMinutes = await _pickFocusDuration();
         if (focusMinutes == null || focusMinutes <= 0 || !mounted) return;
       }
-      focusController.start(detail, Duration(minutes: focusMinutes));
+      if (!focusController.start(detail, Duration(minutes: focusMinutes))) {
+        // Có phiên khác chen vào trong lúc người dùng chọn thời lượng.
+        await ensureNoActiveSession(context);
+        return;
+      }
     }
     final result = await openTodoFocusScreen(Navigator.of(context));
     if (result == null || !mounted) return;
@@ -271,34 +281,9 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
     }
   }
 
-  Future<bool?> _confirmReplaceFocus(Todo running) {
-    return showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Đang có phiên tập trung'),
-        content: Text(
-          'Bạn đang tập trung vào "${running.title}". '
-          'Bắt đầu việc này sẽ kết thúc phiên hiện tại.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Hủy'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Bắt đầu việc mới'),
-          ),
-        ],
-      ),
-    );
-  }
-
   Future<int?> _pickFocusDuration() {
-    return showModalBottomSheet<int>(
+    return showAppSheet<int>(
       context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
       builder: (ctx) => const DurationPickerSheet(),
     );
   }
@@ -498,9 +483,7 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
   }
 
   void _showError(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: AppColors.danger),
-    );
+    showAppSnack(context, msg, isError: true);
   }
 
   Widget _buildNestedSubtasks(String parentId, int depth) {
@@ -541,6 +524,23 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
       physics: const NeverScrollableScrollPhysics(),
       buildDefaultDragHandles: false,
       itemCount: subtasks.length,
+      onReorderStart: (_) => AppHaptics.medium(),
+      proxyDecorator: (child, index, animation) => AnimatedBuilder(
+        animation: animation,
+        builder: (context, _) {
+          final t = Curves.easeOut.transform(animation.value);
+          return Transform.scale(
+            scale: 1 + 0.02 * t,
+            child: Material(
+              color: context.appSurface,
+              elevation: 8 * t,
+              shadowColor: Colors.black.withValues(alpha: 0.25),
+              shape: AppShape.squircle(AppRadius.sm),
+              child: child,
+            ),
+          );
+        },
+      ),
       onReorder: (oldIndex, newIndex) {
         unawaited(
           _reorderSubtaskSection(
@@ -590,22 +590,19 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
 
   Widget _buildContent(BuildContext context) {
     if (_loading && _detail == null) {
-      return Scaffold(
-        appBar: AppBar(),
-        body: const Center(child: CircularProgressIndicator()),
-      );
+      return Scaffold(appBar: AppBar(), body: const AppSpinner());
     }
     if (_detail == null) {
       return Scaffold(
         appBar: AppBar(),
-        body: const Center(child: Text('Không tìm thấy todo')),
+        body: const EmptyState(
+          icon: Icons.search_off_rounded,
+          title: 'Không tìm thấy todo',
+        ),
       );
     }
     final todo = _detail!.todo;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final secondary = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
+    final secondary = context.appTextSecondary;
     final rootSubtasks = _childrenOf(todo.id);
     final pendingSubtasks = rootSubtasks
         .where((subtask) => !subtask.isDone)
@@ -619,12 +616,12 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
         title: Text(todo.title, maxLines: 1, overflow: TextOverflow.ellipsis),
         actions: [
           IconButton(
-            icon: const Icon(Icons.edit_outlined),
+            icon: const Icon(Icons.edit_rounded),
             tooltip: 'Chỉnh sửa',
             onPressed: _openEdit,
           ),
           IconButton(
-            icon: const Icon(Icons.delete_outline),
+            icon: const Icon(Icons.delete_outline_rounded),
             tooltip: 'Xóa',
             onPressed: _confirmDelete,
           ),
@@ -656,16 +653,26 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
                       child: HabitLinkChip(habitId: todo.habitId),
                     ),
                   ),
-                const Divider(height: 1),
+                const SizedBox(height: 4),
                 const SectionHeader(label: 'Việc con'),
                 if (pendingSubtasks.isEmpty &&
                     doneSubtasks.isEmpty &&
                     !_draftingSubtask)
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                    child: Text(
-                      'Chưa có việc con',
-                      style: TextStyle(color: secondary),
+                    padding: const EdgeInsets.fromLTRB(20, 0, 16, 12),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.account_tree_outlined,
+                          size: 18,
+                          color: secondary,
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Chưa có việc con',
+                          style: TextStyle(color: secondary),
+                        ),
+                      ],
                     ),
                   )
                 else
@@ -693,34 +700,50 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
                         _queueNextDraftAfterSave = true;
                       }
                     },
-                    child: OutlinedButton.icon(
+                    child: PrimaryButton(
+                      label: 'Thêm việc con',
+                      icon: Icons.add_rounded,
+                      variant: PrimaryButtonVariant.tonal,
                       onPressed: _addSubtask,
-                      icon: const Icon(Icons.add),
-                      label: const Text('Thêm việc con'),
                     ),
                   ),
                 ),
                 if (doneSubtasks.isNotEmpty) ...[
-                  SectionHeader(
-                    label: '✅ Đã xong (${doneSubtasks.length})',
-                    trailing: IconButton(
-                      icon: Icon(
-                        _doneSubtasksExpanded
-                            ? Icons.expand_less
-                            : Icons.expand_more,
-                      ),
-                      onPressed: () => setState(
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      AppHaptics.selection();
+                      setState(
                         () => _doneSubtasksExpanded = !_doneSubtasksExpanded,
+                      );
+                    },
+                    child: SectionHeader(
+                      label: 'Đã xong (${doneSubtasks.length})',
+                      leading: SectionHeader.dot(AppColors.success),
+                      trailing: AnimatedRotation(
+                        turns: _doneSubtasksExpanded ? 0.5 : 0,
+                        duration: AppMotion.normal,
+                        curve: AppMotion.curve,
+                        child: Icon(
+                          Icons.expand_more_rounded,
+                          color: secondary,
+                        ),
                       ),
                     ),
                   ),
-                  if (_doneSubtasksExpanded)
-                    _buildSubtaskReorderList(
-                      parentId: todo.id,
-                      subtasks: doneSubtasks,
-                      doneSection: true,
-                      depth: 0,
-                    ),
+                  AnimatedSize(
+                    duration: AppMotion.normal,
+                    curve: AppMotion.curve,
+                    alignment: Alignment.topCenter,
+                    child: _doneSubtasksExpanded
+                        ? _buildSubtaskReorderList(
+                            parentId: todo.id,
+                            subtasks: doneSubtasks,
+                            doneSection: true,
+                            depth: 0,
+                          )
+                        : const SizedBox(width: double.infinity),
+                  ),
                 ],
               ],
             ),
@@ -739,6 +762,7 @@ class _TodoDetailScreenState extends State<TodoDetailScreen> {
           child: ValueListenableBuilder<FocusSession?>(
             valueListenable: FocusSessionController.instance.session,
             builder: (context, session, _) {
+              if (todo.isDone) return const _DoneStatusBar();
               final resuming = session?.todo.id == todo.id;
               return PrimaryButton(
                 label: todo.isDone
@@ -988,9 +1012,7 @@ class _TodoFocusScreenState extends State<TodoFocusScreen> {
   void _showFocusError(ApiException e) {
     if (!mounted) return;
     setState(() => _completing = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(e.vnMessage), backgroundColor: AppColors.danger),
-    );
+    showAppSnack(context, e.vnMessage, isError: true);
   }
 
   /// Kết thúc phiên. Vẫn dọn controller dù màn hình đã bị đóng giữa chừng
@@ -1036,6 +1058,7 @@ class _TodoFocusScreenState extends State<TodoFocusScreen> {
           ),
           FilledButton(
             key: const ValueKey('focus-leave-back'),
+            style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
             onPressed: () => Navigator.of(ctx).pop(_FocusLeaveChoice.back),
             child: const Text('Trở lại'),
           ),
@@ -1092,10 +1115,7 @@ class _TodoFocusScreenState extends State<TodoFocusScreen> {
     final session = _lastSession;
     if (session == null) return const Scaffold(body: SizedBox.shrink());
     final current = _currentTaskOf(session);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final secondary = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
+    final secondary = context.appTextSecondary;
     return Scaffold(
       appBar: AppBar(
         leadingWidth: 96,
@@ -1129,7 +1149,10 @@ class _TodoFocusScreenState extends State<TodoFocusScreen> {
           behavior: HitTestBehavior.opaque,
           onDoubleTap: current == null || _completing
               ? null
-              : _completeCurrentTask,
+              : () {
+                  AppHaptics.medium();
+                  _completeCurrentTask();
+                },
           child: AnimatedSwitcher(
             duration: const Duration(milliseconds: 240),
             switchInCurve: Curves.easeOutCubic,
@@ -1199,73 +1222,93 @@ class _FocusSessionPane extends StatelessWidget {
           return Column(
             children: [
               Expanded(
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _CurrentFocusTaskHeader(
-                        parentChain: parentChain,
-                        current: current,
-                        secondary: secondary,
-                        textPrimary: textPrimary,
-                      ),
-                      const SizedBox(height: 24),
-                      SizedBox.square(
-                        dimension: ringSize,
-                        child: Stack(
-                          alignment: Alignment.center,
+                // Màn thấp / chữ hệ thống lớn: phần giữa cuộn được thay vì tràn.
+                child: LayoutBuilder(
+                  builder: (context, box) => SingleChildScrollView(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(minHeight: box.maxHeight),
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            Positioned.fill(
-                              child: CircularProgressIndicator(
-                                value: progress.clamp(0, 1).toDouble(),
-                                strokeWidth: 10,
-                                backgroundColor: secondary.withValues(
-                                  alpha: 0.14,
-                                ),
-                                valueColor: AlwaysStoppedAnimation(ringColor),
-                              ),
+                            _CurrentFocusTaskHeader(
+                              parentChain: parentChain,
+                              current: current,
+                              secondary: secondary,
+                              textPrimary: textPrimary,
                             ),
-                            Text(
-                              formatFocusDuration(remaining),
-                              style: TextStyle(
-                                fontSize: 34,
-                                fontWeight: FontWeight.w800,
-                                color: textPrimary,
-                                fontFeatures: const [
-                                  FontFeature.tabularFigures(),
+                            const SizedBox(height: 24),
+                            SizedBox.square(
+                              dimension: ringSize,
+                              child: Stack(
+                                alignment: Alignment.center,
+                                children: [
+                                  Positioned.fill(
+                                    child: CircularProgressIndicator(
+                                      value: progress.clamp(0, 1).toDouble(),
+                                      strokeWidth: 10,
+                                      backgroundColor: secondary.withValues(
+                                        alpha: 0.14,
+                                      ),
+                                      valueColor: AlwaysStoppedAnimation(
+                                        ringColor,
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(
+                                    width: ringSize * 0.7,
+                                    child: FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: Text(
+                                        formatFocusDuration(remaining),
+                                        style: TextStyle(
+                                          fontSize: 34,
+                                          fontWeight: FontWeight.w800,
+                                          color: textPrimary,
+                                          fontFeatures: const [
+                                            FontFeature.tabularFigures(),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
                                 ],
                               ),
+                            ),
+                            const SizedBox(height: 16),
+                            AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 180),
+                              child: completing
+                                  ? SizedBox(
+                                      key: const ValueKey('saving'),
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation(
+                                          secondary.withValues(alpha: 0.72),
+                                        ),
+                                      ),
+                                    )
+                                  : Text(
+                                      key: const ValueKey('status'),
+                                      isOver
+                                          ? 'Hết giờ'
+                                          : 'Thời gian tập trung',
+                                      style: TextStyle(
+                                        color: isOver
+                                            ? AppColors.danger.withValues(
+                                                alpha: 0.76,
+                                              )
+                                            : secondary,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 16),
-                      AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 180),
-                        child: completing
-                            ? SizedBox(
-                                key: const ValueKey('saving'),
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation(
-                                    secondary.withValues(alpha: 0.72),
-                                  ),
-                                ),
-                              )
-                            : Text(
-                                key: const ValueKey('status'),
-                                isOver ? 'Hết giờ' : 'Thời gian tập trung',
-                                style: TextStyle(
-                                  color: isOver
-                                      ? AppColors.danger.withValues(alpha: 0.76)
-                                      : secondary,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -1357,10 +1400,12 @@ class _ParentTaskTrail extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
+      decoration: ShapeDecoration(
         color: secondary.withValues(alpha: isDark ? 0.08 : 0.07),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: border.withValues(alpha: 0.82)),
+        shape: AppShape.squircle(
+          AppRadius.sm,
+          side: BorderSide(color: border.withValues(alpha: 0.82)),
+        ),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1627,13 +1672,8 @@ class _TitleRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textPrimary = isDark
-        ? AppColors.textPrimaryDark
-        : AppColors.textPrimary;
-    final textSecondary = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
+    final textPrimary = context.appTextPrimary;
+    final textSecondary = context.appTextSecondary;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 12, 16, 12),
@@ -1641,14 +1681,26 @@ class _TitleRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           InkWell(
-            onTap: onToggle,
+            onTap: () {
+              if (!todo.isDone) AppHaptics.medium();
+              onToggle();
+            },
             customBorder: const CircleBorder(),
             child: Padding(
               padding: const EdgeInsets.all(10),
-              child: Icon(
-                todo.isDone ? Icons.check_circle : Icons.radio_button_unchecked,
-                size: 28,
-                color: todo.isDone ? AppColors.primary : textSecondary,
+              child: AnimatedSwitcher(
+                duration: AppMotion.normal,
+                switchInCurve: Curves.easeOutBack,
+                transitionBuilder: (child, animation) =>
+                    ScaleTransition(scale: animation, child: child),
+                child: Icon(
+                  todo.isDone
+                      ? Icons.check_circle_rounded
+                      : Icons.radio_button_unchecked,
+                  key: ValueKey(todo.isDone),
+                  size: 28,
+                  color: todo.isDone ? context.appPrimary : textSecondary,
+                ),
               ),
             ),
           ),
@@ -1741,18 +1793,13 @@ class _DraftSubtaskRowState extends State<_DraftSubtaskRow> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textPrimary = isDark
-        ? AppColors.textPrimaryDark
-        : AppColors.textPrimary;
-    final textSecondary = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
-    final divider = isDark ? AppColors.dividerDark : AppColors.divider;
+    final textPrimary = context.appTextPrimary;
+    final textSecondary = context.appTextSecondary;
+    final divider = context.appDivider;
 
     return Container(
       decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: divider)),
+        border: Border(bottom: BorderSide(color: divider, width: 0.5)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
@@ -1793,11 +1840,7 @@ class _DraftSubtaskRowState extends State<_DraftSubtaskRow> {
           if (widget.saving)
             const Padding(
               padding: EdgeInsets.symmetric(horizontal: 18),
-              child: SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
+              child: AppSpinner(radius: 8, centered: false),
             )
           else
             const SizedBox(width: 54),
@@ -1835,25 +1878,26 @@ class _SubtaskRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textPrimary = isDark
-        ? AppColors.textPrimaryDark
-        : AppColors.textPrimary;
-    final textSecondary = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
-    final divider = isDark ? AppColors.dividerDark : AppColors.divider;
+    final textPrimary = context.appTextPrimary;
+    final textSecondary = context.appTextSecondary;
+    final divider = context.appDivider;
+    final primary = context.appPrimary;
 
     return Container(
       decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: divider)),
+        border: Border(bottom: BorderSide(color: divider, width: 0.5)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           SizedBox(width: 8 + depth * 20),
           InkWell(
-            onTap: hasChildren ? onToggleExpand : onToggle,
+            onTap: hasChildren
+                ? onToggleExpand
+                : () {
+                    if (!subtask.isDone) AppHaptics.medium();
+                    onToggle();
+                  },
             customBorder: const CircleBorder(),
             child: Padding(
               padding: const EdgeInsets.all(12),
@@ -1866,27 +1910,32 @@ class _SubtaskRow extends StatelessWidget {
                               ? Icons.keyboard_arrow_down_rounded
                               : Icons.chevron_right_rounded,
                           size: 22,
-                          color: subtask.isDone
-                              ? AppColors.primary
-                              : textSecondary,
+                          color: subtask.isDone ? primary : textSecondary,
                         ),
                         if (subtask.isDone)
-                          const Padding(
-                            padding: EdgeInsets.only(left: 2),
+                          Padding(
+                            padding: const EdgeInsets.only(left: 2),
                             child: Icon(
-                              Icons.check_circle,
+                              Icons.check_circle_rounded,
                               size: 14,
-                              color: AppColors.primary,
+                              color: primary,
                             ),
                           ),
                       ],
                     )
-                  : Icon(
-                      subtask.isDone
-                          ? Icons.check_circle
-                          : Icons.radio_button_unchecked,
-                      size: 22,
-                      color: subtask.isDone ? AppColors.primary : textSecondary,
+                  : AnimatedSwitcher(
+                      duration: AppMotion.normal,
+                      switchInCurve: Curves.easeOutBack,
+                      transitionBuilder: (child, animation) =>
+                          ScaleTransition(scale: animation, child: child),
+                      child: Icon(
+                        subtask.isDone
+                            ? Icons.check_circle_rounded
+                            : Icons.radio_button_unchecked,
+                        key: ValueKey(subtask.isDone),
+                        size: 22,
+                        color: subtask.isDone ? primary : textSecondary,
+                      ),
                     ),
             ),
           ),
@@ -1910,20 +1959,28 @@ class _SubtaskRow extends StatelessWidget {
               index: dragIndex,
               child: Padding(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
+                  horizontal: 12,
                   vertical: 16,
                 ),
-                child: Icon(Icons.drag_handle, size: 20, color: textSecondary),
+                child: Icon(
+                  Icons.drag_indicator_rounded,
+                  size: 20,
+                  color: textSecondary.withValues(alpha: 0.8),
+                ),
               ),
             )
           else
-            const SizedBox(width: 40),
+            const SizedBox(width: 44),
           // Chevron với vùng nhấn rộng để dễ tap mở chi tiết
           InkWell(
             onTap: onOpenDetail,
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              child: Icon(Icons.chevron_right, size: 22, color: textSecondary),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+              child: Icon(
+                Icons.chevron_right_rounded,
+                size: 22,
+                color: textSecondary.withValues(alpha: 0.7),
+              ),
             ),
           ),
         ],
@@ -2013,6 +2070,38 @@ class _InlineEditableTitleState extends State<_InlineEditableTitle> {
         isDense: true,
       ),
       onSubmitted: (_) => _focus.unfocus(),
+    );
+  }
+}
+
+/// Thanh trạng thái thay cho nút chính khi việc đã hoàn thành.
+class _DoneStatusBar extends StatelessWidget {
+  const _DoneStatusBar();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 50,
+      alignment: Alignment.center,
+      decoration: ShapeDecoration(
+        color: context.appSuccessSoft,
+        shape: AppShape.squircle(AppRadius.md),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.check_circle_rounded, color: AppColors.success, size: 22),
+          SizedBox(width: 8),
+          Text(
+            'Đã hoàn thành',
+            style: TextStyle(
+              color: AppColors.success,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

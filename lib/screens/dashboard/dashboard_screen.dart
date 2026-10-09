@@ -8,13 +8,18 @@ import '../../data/habits_repository.dart';
 import '../../models/dashboard.dart';
 import '../../models/habit.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
+import '../../utils/app_snack.dart';
 import '../../utils/dashboard_habit_visibility.dart';
 import '../../utils/dashboard_local_events.dart';
 import '../../utils/date_utils.dart';
 import '../../utils/habit_streak_utils.dart';
 import '../../utils/quadrant_utils.dart';
+import '../../widgets/app_state_views.dart';
+import '../../widgets/app_surface.dart';
 import '../../widgets/dashboard_habit_card.dart';
 import '../../widgets/eisenhower_grid.dart';
+import '../../widgets/habit_log_sheet.dart';
 import '../../widgets/score_ring.dart';
 import '../../widgets/section_header.dart';
 import '../todos/todo_detail_screen.dart';
@@ -87,22 +92,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       });
       _maybeCelebrateExceptionalScore(snapshot.score);
     } on ApiException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.vnMessage),
-            backgroundColor: AppColors.danger,
-          ),
-        );
-      }
+      if (mounted) showAppSnack(context, e.vnMessage, isError: true);
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Không tải được dashboard'),
-            backgroundColor: AppColors.danger,
-          ),
-        );
+        showAppSnack(context, 'Không tải được dashboard', isError: true);
       }
     } finally {
       if (mounted && seq == _refreshSeq) setState(() => _loading = false);
@@ -141,7 +134,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void _showExceptionalScoreCelebration() {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Trên cả tuyệt vời'),
+        content: Text(
+          'Trên cả tuyệt vời',
+          style: TextStyle(
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
         backgroundColor: AppColors.warning,
         duration: Duration(seconds: 2),
       ),
@@ -166,21 +165,49 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
-  Future<void> _toggleHabit(Habit habit) async {
+  /// Chạm vào một thói quen: KHÔNG tick ngay mà mở bảng xác nhận (lịch 28 ngày +
+  /// "Hoàn thành" / "Bỏ lỡ") để tránh bấm nhầm. Chỉ ghi log khi người dùng chọn.
+  Future<void> _openHabitLog(Habit habit) async {
+    final completedByDate = <DateTime, bool>{
+      for (final entry in _todayCal.entries)
+        if (entry.value.containsKey(habit.id))
+          AppDateUtils.dateOnly(entry.key): entry.value[habit.id]!,
+    };
+    final completed = await showHabitLogSheet(
+      context,
+      habit: habit,
+      completedByDate: completedByDate,
+    );
+    if (completed == null || !mounted) return;
+    await _logHabit(habit, completed);
+  }
+
+  /// Đặt trạng thái hôm nay của [habitId] trong bản đồ lịch (null = xoá log).
+  /// Phải gọi trong `setState`.
+  void _putTodayLog(DateTime day, String habitId, bool? completed) {
+    final dayMap = Map<String, bool>.from(_todayCal[day] ?? const {});
+    if (completed == null) {
+      dayMap.remove(habitId);
+    } else {
+      dayMap[habitId] = completed;
+    }
+    _todayCal = {..._todayCal, day: dayMap};
+  }
+
+  Future<void> _logHabit(Habit habit, bool completed) async {
     final today = AppDateUtils.dateOnly(DateTime.now());
-    final current = _todayCal[today]?[habit.id] ?? false;
-    final next = !current;
+    final previous = _todayCal[today]?[habit.id];
+    // Số thói quen hoàn thành chỉ đổi khi trạng thái "hoàn thành" thay đổi.
+    final delta = (completed ? 1 : 0) - (previous == true ? 1 : 0);
     setState(() {
-      final dayMap = Map<String, bool>.from(_todayCal[today] ?? const {});
-      dayMap[habit.id] = next;
-      _todayCal = {..._todayCal, today: dayMap};
-      _snapshot = _snapshotWithHabitCompletion(next ? 1 : -1);
+      _putTodayLog(today, habit.id, completed);
+      if (delta != 0) _snapshot = _snapshotWithHabitCompletion(delta);
     });
     try {
       final result = await HabitsRepository.instance.logHabit(
         habit.id,
         logDate: today,
-        completed: next,
+        completed: completed,
       );
       if (!mounted) return;
       setState(() {
@@ -198,14 +225,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } on ApiException catch (e) {
       if (mounted) {
         setState(() {
-          final dayMap = Map<String, bool>.from(_todayCal[today] ?? const {});
-          dayMap[habit.id] = current;
-          _todayCal = {..._todayCal, today: dayMap};
-          _snapshot = _snapshotWithHabitCompletion(next ? -1 : 1);
+          _putTodayLog(today, habit.id, previous);
+          if (delta != 0) _snapshot = _snapshotWithHabitCompletion(-delta);
         });
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(e.vnMessage)));
+        showAppSnack(context, e.vnMessage, isError: true);
       }
     }
   }
@@ -229,18 +252,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading && _snapshot == null) {
-      return const Center(child: CircularProgressIndicator());
+      return const AppSpinner();
     }
     if (_snapshot == null) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Không tải được dashboard'),
-            const SizedBox(height: 8),
-            TextButton(onPressed: _refresh, child: const Text('Thử lại')),
-          ],
-        ),
+      return AppErrorState(
+        message: 'Không tải được dashboard',
+        onRetry: _refresh,
       );
     }
     final snap = _snapshot!;
@@ -256,10 +273,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         padding: const EdgeInsets.only(bottom: 96),
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            padding: const EdgeInsets.fromLTRB(20, 8, 16, 4),
             child: Text(
               AppDateUtils.formatDashboardTitle(snap.date),
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+              style: Theme.of(context).textTheme.titleLarge,
             ),
           ),
           const SizedBox(height: 8),
@@ -274,19 +291,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
             previews: _eisenhower?.byQuadrant,
             onTap: _openQuadrant,
           ),
-          SectionHeader(
-            label:
-                'Bạn còn ${remainingHabits.length} thói quen cho ngày hôm nay',
-          ),
-          if (remainingHabits.isNotEmpty)
+          if (remainingHabits.isNotEmpty) ...[
+            SectionHeader(
+              label:
+                  'Bạn còn ${remainingHabits.length} thói quen cho ngày hôm nay',
+            ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: _HabitChipGrid(
                 habits: remainingHabits,
                 completedByHabitId: _todayCal[today] ?? const {},
-                onToggle: _toggleHabit,
+                onHabitTap: _openHabitLog,
               ),
             ),
+          ] else if (_habits.isNotEmpty) ...[
+            const SectionHeader(label: 'Thói quen hôm nay'),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: _AllHabitsDoneTile(),
+            ),
+          ],
         ],
       ),
     );
@@ -376,28 +400,30 @@ class _ScoreCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isDark = context.isDark;
     final exceptional = snapshot.score > 100;
     final belowMinimumGate =
         snapshot.score == 0 &&
         (snapshot.todosTotal < 3 || snapshot.todosDone < 3);
     final bg = exceptional
         ? AppColors.warning.withValues(alpha: isDark ? 0.18 : 0.12)
-        : isDark
-        ? AppColors.primarySoftDark
-        : AppColors.primarySoft;
+        : context.appPrimarySoft;
     final borderColor = exceptional
         ? AppColors.warning.withValues(alpha: 0.75)
         : Colors.transparent;
+    // Chữ huy hiệu "vượt mốc": vàng đậm hơn ở light mode để đủ tương phản.
+    final badgeText = isDark ? AppColors.warning : const Color(0xFFB45309);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Container(
         padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
+        decoration: ShapeDecoration(
           color: bg,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: borderColor, width: exceptional ? 1.4 : 0),
-          boxShadow: exceptional
+          shape: AppShape.squircle(
+            AppRadius.xl,
+            side: BorderSide(color: borderColor, width: exceptional ? 1.4 : 0),
+          ),
+          shadows: exceptional
               ? [
                   BoxShadow(
                     color: AppColors.warning.withValues(alpha: 0.16),
@@ -431,18 +457,18 @@ class _ScoreCard extends StatelessWidget {
                     const SizedBox(height: 6),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
+                        horizontal: 10,
                         vertical: 3,
                       ),
-                      decoration: BoxDecoration(
-                        color: AppColors.warning.withValues(alpha: 0.16),
-                        borderRadius: BorderRadius.circular(8),
+                      decoration: ShapeDecoration(
+                        color: AppColors.warning.withValues(alpha: 0.2),
+                        shape: AppShape.pill,
                       ),
                       child: Text(
                         '+${snapshot.score - 100} vượt mốc',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: AppColors.warning,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: badgeText,
                           fontWeight: FontWeight.w800,
                         ),
                       ),
@@ -453,9 +479,7 @@ class _ScoreCard extends StatelessWidget {
                     'Việc: ${snapshot.todosDone}/${snapshot.todosTotal} · Thói quen: ${snapshot.habitsCompleted}/${snapshot.habitsTotal}',
                     style: TextStyle(
                       fontSize: 13,
-                      color: isDark
-                          ? AppColors.textSecondaryDark
-                          : AppColors.textSecondary,
+                      color: context.appTextSecondary,
                     ),
                   ),
                   if (belowMinimumGate) ...[
@@ -464,9 +488,7 @@ class _ScoreCard extends StatelessWidget {
                       'Cần ít nhất 3 việc hoàn thành để tính điểm',
                       style: TextStyle(
                         fontSize: 12,
-                        color: isDark
-                            ? AppColors.textSecondaryDark
-                            : AppColors.textSecondary,
+                        color: context.appTextSecondary,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -630,10 +652,11 @@ class _FrogCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final statusColor = frog.isDone ? AppColors.success : context.appPrimary;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
+      child: AppSurface(
+        clipBehavior: Clip.antiAlias,
         onTap: () async {
           await Navigator.of(context).push(
             MaterialPageRoute(
@@ -642,60 +665,70 @@ class _FrogCard extends StatelessWidget {
           );
           onRefresh();
         },
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardTheme.color,
-            borderRadius: BorderRadius.circular(16),
-            border: const Border(
-              left: BorderSide(color: AppColors.frog, width: 4),
+        child: Stack(
+          children: [
+            const Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 4,
+              child: ColoredBox(color: AppColors.frog),
             ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: const [
-                  Icon(Icons.eco, color: AppColors.frog, size: 18),
-                  SizedBox(width: 6),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.eco_rounded, color: AppColors.frog, size: 18),
+                      SizedBox(width: 6),
+                      Text(
+                        'ƯU TIÊN HÔM NAY',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                          color: AppColors.frog,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
                   Text(
-                    'ƯU TIÊN HÔM NAY',
+                    frog.title,
                     style: TextStyle(
-                      fontSize: 11,
+                      fontSize: 17,
                       fontWeight: FontWeight.w600,
-                      letterSpacing: 1.5,
-                      color: AppColors.frog,
+                      letterSpacing: -0.2,
+                      decoration: frog.isDone
+                          ? TextDecoration.lineThrough
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 3,
+                    ),
+                    decoration: ShapeDecoration(
+                      color: statusColor.withValues(alpha: 0.14),
+                      shape: AppShape.pill,
+                    ),
+                    child: Text(
+                      frog.isDone ? 'Hoàn thành' : 'Mở',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: statusColor,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
-              Text(
-                frog.title,
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w600,
-                  decoration: frog.isDone ? TextDecoration.lineThrough : null,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                decoration: BoxDecoration(
-                  color: AppColors.q1.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  frog.isDone ? 'Hoàn thành' : 'Mở',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AppColors.q1,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -705,12 +738,12 @@ class _FrogCard extends StatelessWidget {
 class _HabitChipGrid extends StatelessWidget {
   final List<Habit> habits;
   final Map<String, bool> completedByHabitId;
-  final ValueChanged<Habit> onToggle;
+  final ValueChanged<Habit> onHabitTap;
 
   const _HabitChipGrid({
     required this.habits,
     required this.completedByHabitId,
-    required this.onToggle,
+    required this.onHabitTap,
   });
 
   @override
@@ -719,24 +752,73 @@ class _HabitChipGrid extends StatelessWidget {
       builder: (context, constraints) {
         final columns = constraints.maxWidth < 360 ? 2 : 3;
         const spacing = 8.0;
-        final itemWidth =
-            (constraints.maxWidth - spacing * (columns - 1)) / columns;
-        return Wrap(
-          spacing: spacing,
-          runSpacing: spacing,
-          children: [
-            for (final habit in habits)
-              SizedBox(
-                width: itemWidth,
-                child: DashboardHabitCard(
-                  habit: habit,
-                  completed: completedByHabitId[habit.id] ?? false,
-                  onToggle: () => onToggle(habit),
-                ),
+        // Mỗi hàng cao bằng thẻ cao nhất (tên 1 dòng / 2 dòng không còn lệch).
+        final rows = <Widget>[];
+        for (var start = 0; start < habits.length; start += columns) {
+          final slice = habits.skip(start).take(columns).toList();
+          rows.add(
+            IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (var i = 0; i < columns; i++) ...[
+                    if (i > 0) const SizedBox(width: spacing),
+                    Expanded(
+                      child: i < slice.length
+                          ? DashboardHabitCard(
+                              habit: slice[i],
+                              completed:
+                                  completedByHabitId[slice[i].id] ?? false,
+                              onTap: () => onHabitTap(slice[i]),
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
+                ],
               ),
+            ),
+          );
+        }
+        return Column(
+          children: [
+            for (var i = 0; i < rows.length; i++) ...[
+              if (i > 0) const SizedBox(height: spacing),
+              rows[i],
+            ],
           ],
         );
       },
+    );
+  }
+}
+
+/// Hiện khi người dùng đã hoàn thành mọi thói quen trong ngày.
+class _AllHabitsDoneTile extends StatelessWidget {
+  const _AllHabitsDoneTile();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: ShapeDecoration(
+        color: context.appSuccessSoft,
+        shape: AppShape.squircle(AppRadius.lg),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.check_circle_rounded, color: AppColors.success),
+          SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Bạn đã hoàn thành tất cả thói quen hôm nay',
+              style: TextStyle(
+                color: AppColors.success,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

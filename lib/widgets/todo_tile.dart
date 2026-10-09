@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import '../models/todo.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_tokens.dart';
+import '../utils/app_haptics.dart';
 import '../utils/date_utils.dart';
 import 'duration_picker_sheet.dart';
 import 'habit_link_chip.dart';
 import 'tag_chip.dart';
 import 'todo_timed_title.dart';
 
-/// 1 hàng todo theo style Microsoft To Do.
+/// 1 hàng todo theo style Microsoft To Do / Reminders của iOS.
 class TodoTile extends StatelessWidget {
   final Todo todo;
   final VoidCallback? onTap;
@@ -24,14 +26,9 @@ class TodoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textPrimary = isDark
-        ? AppColors.textPrimaryDark
-        : AppColors.textPrimary;
-    final textSecondary = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
-    final divider = isDark ? AppColors.dividerDark : AppColors.divider;
+    final textPrimary = context.appTextPrimary;
+    final textSecondary = context.appTextSecondary;
+    final divider = context.appDivider;
     final done = todo.isDone;
 
     final subtitleChips = <Widget>[];
@@ -39,7 +36,7 @@ class TodoTile extends StatelessWidget {
       subtitleChips.add(_chip(Icons.eco, 'Frog', AppColors.frog));
     }
     if (todo.isImportant == true) {
-      subtitleChips.add(_chip(Icons.star, 'Quan trọng', Colors.amber));
+      subtitleChips.add(_chip(Icons.star, 'Quan trọng', AppColors.warning));
     }
     final displayDate = todo.scheduledDate ?? todo.dueAt;
     if (displayDate != null) {
@@ -64,8 +61,8 @@ class TodoTile extends StatelessWidget {
       subtitleChips.add(
         _chip(
           Icons.repeat,
-          todo.isRecurrenceTemplate ? todo.recurrenceLabel : 'Lặp lại',
-          AppColors.primary,
+          todo.hasRecurrenceRule ? todo.recurrenceLabel : 'Lặp lại',
+          context.appPrimary,
         ),
       );
     }
@@ -77,43 +74,64 @@ class TodoTile extends StatelessWidget {
       onTap: onTap,
       child: Container(
         padding: EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: compact ? 8 : 12,
+          horizontal: 12,
+          vertical: compact ? 6 : 10,
         ),
         decoration: BoxDecoration(
-          border: Border(bottom: BorderSide(color: divider)),
+          border: Border(bottom: BorderSide(color: divider, width: 0.5)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             InkWell(
-              onTap: onToggleDone,
+              onTap: onToggleDone == null
+                  ? null
+                  : () {
+                      if (!done) AppHaptics.medium();
+                      onToggleDone!();
+                    },
               customBorder: const CircleBorder(),
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: Icon(
-                  done ? Icons.check_circle : Icons.radio_button_unchecked,
-                  size: 24,
-                  color: done ? AppColors.primary : textSecondary,
+              child: SizedBox(
+                width: 44,
+                height: 44,
+                child: Center(
+                  child: AnimatedSwitcher(
+                    duration: AppMotion.normal,
+                    switchInCurve: Curves.easeOutBack,
+                    transitionBuilder: (child, animation) =>
+                        ScaleTransition(scale: animation, child: child),
+                    child: Icon(
+                      done
+                          ? Icons.check_circle_rounded
+                          : Icons.radio_button_unchecked,
+                      key: ValueKey(done),
+                      size: 26,
+                      color: done ? context.appPrimary : textSecondary,
+                    ),
+                  ),
                 ),
               ),
             ),
-            const SizedBox(width: 4),
+            const SizedBox(width: 2),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  TodoTimedTitle(
-                    title: todo.title,
-                    time: todo.time,
-                    scheduledDate: todo.scheduledDate,
+                  AnimatedDefaultTextStyle(
+                    duration: AppMotion.normal,
                     style: TextStyle(
-                      fontSize: 16,
                       color: done ? textSecondary : textPrimary,
                       decoration: done ? TextDecoration.lineThrough : null,
+                      decorationColor: textSecondary,
                     ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                    child: TodoTimedTitle(
+                      title: todo.title,
+                      time: todo.time,
+                      scheduledDate: todo.scheduledDate,
+                      style: const TextStyle(fontSize: 16),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                   if (subtitleChips.isNotEmpty) ...[
                     const SizedBox(height: 4),
@@ -126,7 +144,11 @@ class TodoTile extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(Icons.chevron_right, color: textSecondary, size: 20),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: textSecondary.withValues(alpha: 0.6),
+              size: 22,
+            ),
           ],
         ),
       ),
@@ -139,7 +161,15 @@ class TodoTile extends StatelessWidget {
       children: [
         Icon(icon, size: 14, color: color),
         const SizedBox(width: 4),
-        Text(label, style: TextStyle(fontSize: 12, color: color)),
+        // Nhãn dài / chữ lớn: cắt "…" thay vì tràn khỏi hàng chip.
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, color: color),
+          ),
+        ),
       ],
     );
   }

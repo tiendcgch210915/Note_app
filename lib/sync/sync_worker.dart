@@ -554,7 +554,10 @@ class SyncWorker {
                 ?.map((e) => e as String)
                 .toList() ??
             const <String>[];
-        await _db.todosDao.setTodoTags(localEntityId, tagIds);
+        // When the server answers with another row (an occurrence conflict),
+        // the local id was just purged: writing its junctions would leave
+        // orphans and the adopted row would get no tags at all.
+        await _db.todosDao.setTodoTags(serverId ?? localEntityId, tagIds);
         break;
 
       case 'note':

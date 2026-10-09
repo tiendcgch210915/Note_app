@@ -1,6 +1,10 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
+import '../theme/app_tokens.dart';
+import '../utils/app_haptics.dart';
 
 class TodoSwipeActions extends StatefulWidget {
   final Widget child;
@@ -12,6 +16,10 @@ class TodoSwipeActions extends StatefulWidget {
   final TodoSwipeDirection direction;
   final TodoSwipeActionAlignment actionAlignment;
 
+  /// Màu nền phủ phía sau/trên hàng khi vuốt (mặc định: màu nền màn hình).
+  /// Đặt bằng màu của thẻ chứa khi hàng nằm trong một thẻ có nền riêng.
+  final Color? backgroundColor;
+
   const TodoSwipeActions({
     super.key,
     required this.child,
@@ -22,6 +30,7 @@ class TodoSwipeActions extends StatefulWidget {
     this.enabled = true,
     this.direction = TodoSwipeDirection.left,
     this.actionAlignment = TodoSwipeActionAlignment.center,
+    this.backgroundColor,
   });
 
   @override
@@ -34,17 +43,29 @@ enum TodoSwipeActionAlignment { center, top }
 
 class _TodoSwipeActionsState extends State<TodoSwipeActions> {
   static final ValueNotifier<Object?> _openToken = ValueNotifier<Object?>(null);
-  static const double _actionSize = 36;
+  static const double _actionSize = 44;
   static const Duration _snapDuration = Duration(milliseconds: 160);
 
   final Object _token = Object();
   double _reveal = 0;
   bool _dragging = false;
+  bool _pastDetent = false;
+
+  int get _actionCount {
+    if (widget.direction == TodoSwipeDirection.right) {
+      return 1 + (widget.onEdit != null ? 1 : 0);
+    }
+    return (widget.onPickDate != null ? 1 : 0) +
+        1 +
+        (widget.onDelete != null ? 1 : 0);
+  }
 
   double get _maxReveal =>
-      _actions.length * _actionSize + (_actions.length - 1) * 10 + 32;
+      _actionCount * _actionSize + (_actionCount - 1) * 10 + 32;
 
-  List<_SwipeActionSpec> get _actions {
+  List<_SwipeActionSpec> _buildActions(BuildContext context) {
+    final primary = context.appPrimary;
+    final primarySoft = context.appPrimarySoft;
     if (widget.direction == TodoSwipeDirection.right) {
       return [
         _SwipeActionSpec(
@@ -58,8 +79,8 @@ class _TodoSwipeActionsState extends State<TodoSwipeActions> {
           _SwipeActionSpec(
             tooltip: 'Chỉnh sửa',
             icon: Icons.edit_rounded,
-            backgroundColor: AppColors.primarySoft,
-            iconColor: AppColors.primary,
+            backgroundColor: primarySoft,
+            iconColor: primary,
             onPressed: widget.onEdit!,
           ),
       ];
@@ -69,8 +90,8 @@ class _TodoSwipeActionsState extends State<TodoSwipeActions> {
         _SwipeActionSpec(
           tooltip: 'Đổi ngày',
           icon: Icons.calendar_today_rounded,
-          backgroundColor: AppColors.primarySoft,
-          iconColor: AppColors.primary,
+          backgroundColor: primarySoft,
+          iconColor: primary,
           onPressed: widget.onPickDate!,
         ),
       _SwipeActionSpec(
@@ -113,11 +134,15 @@ class _TodoSwipeActionsState extends State<TodoSwipeActions> {
     if (reveal > _actionSize && _openToken.value != _token) {
       _openToken.value = _token;
     }
+    final pastDetent = reveal > _maxReveal * 0.35;
+    if (_dragging && pastDetent != _pastDetent) AppHaptics.selection();
+    _pastDetent = pastDetent;
     setState(() => _reveal = reveal);
   }
 
   void _close() {
     if (_reveal == 0) return;
+    _pastDetent = false;
     setState(() {
       _dragging = false;
       _reveal = 0;
@@ -131,9 +156,10 @@ class _TodoSwipeActionsState extends State<TodoSwipeActions> {
 
   @override
   Widget build(BuildContext context) {
-    final background = Theme.of(context).scaffoldBackgroundColor;
+    final background =
+        widget.backgroundColor ?? Theme.of(context).scaffoldBackgroundColor;
     final canTapActions = widget.enabled && _reveal > _actionSize;
-    final actions = _actions;
+    final actions = _buildActions(context);
     final isRight = widget.direction == TodoSwipeDirection.right;
     final alignTop = widget.actionAlignment == TodoSwipeActionAlignment.top;
     final actionAlignment = switch (widget.actionAlignment) {
@@ -267,21 +293,31 @@ class _CircleActionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: backgroundColor,
-        shape: const CircleBorder(),
-        child: InkWell(
-          customBorder: const CircleBorder(),
-          onTap: onPressed,
-          child: SizedBox(
-            width: _TodoSwipeActionsState._actionSize,
-            height: _TodoSwipeActionsState._actionSize,
-            child: Icon(icon, color: iconColor, size: 18),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Thẻ thấp (vd. todo đã xong trong timeline) -> thu nút cho vừa chiều cao.
+        const full = _TodoSwipeActionsState._actionSize;
+        final side = constraints.maxHeight.isFinite
+            ? math.min(full, constraints.maxHeight)
+            : full;
+        final shape = AppShape.squircle(AppRadius.md);
+        return Tooltip(
+          message: tooltip,
+          child: Material(
+            color: backgroundColor,
+            shape: shape,
+            child: InkWell(
+              customBorder: shape,
+              onTap: onPressed,
+              child: SizedBox(
+                width: full,
+                height: side,
+                child: Icon(icon, color: iconColor, size: 20),
+              ),
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

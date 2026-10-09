@@ -315,6 +315,61 @@ transaction. Autosave content luôn đọc relation thật từ Drift trước k
 enqueue nên không gửi các relation arrays rỗng ngoài ý muốn. Create rồi delete
 trước lần push đầu sẽ loại operation khỏi outbox.
 
+### Thông báo đẩy FCM (chỉ Android, đã nối đăng ký thiết bị với back-end)
+
+Code ở `lib/push/`. `main()` gọi `Firebase.initializeApp` rồi
+`PushNotificationService.init()`; lỗi ở bước này chỉ tắt thông báo, không được
+chặn app mở.
+
+- **Định danh thiết bị là FCM token, không phải FID**: `firebase_messaging
+  16.7.0` chưa có `onRegistered()`/`register()`. `PushRegistrationService` dùng
+  `getToken()` + `onTokenRefresh` (lắng nghe làm mới *trước* khi gọi `getToken`)
+  và phát `PushRegistrationId(value, kind: token)` qua `registrationIds`.
+  Chỉ dùng qua stream này / `current`, đừng thêm nơi gọi `getToken()` thứ hai.
+  Token chỉ được in ra khi `kDebugMode`.
+- **Đăng nhập/đăng xuất** nhận biết qua `AuthStorage.instance.authenticated`
+  (đổi ở `init`/`saveToken`/`clear`, nên đường 401 cũng được phủ). Đăng nhập →
+  lấy định danh và xin quyền thông báo **một lần** (chỉ khi trạng thái là
+  `notDetermined`, và chỉ sau khi `PushNavigation.appReady`). Đăng xuất → chỉ
+  `stop()`, không gọi `deleteToken()` (bản ghi trên server được xóa bằng
+  `DELETE /devices`, xem dưới).
+- **Đăng ký thiết bị với back-end** ở `lib/push/push_device_registrar.dart`
+  (hợp đồng: repo back-end `Todo_Note`, `src/routes/api/v1/devices.ts`).
+  `POST /api/v1/devices` `{registrationId, kind, platform:"android"}` chạy mỗi
+  khi `PushRegistrationService` phát một định danh — gồm cả "sau đăng nhập",
+  "token được làm mới" và "mỗi lần mở app khi đã đăng nhập" (server cập nhật
+  `last_seen_at` ở mỗi lần gọi). Lỗi tạm thời (mất mạng, timeout, 429, 5xx,
+  `response_parse_error` = Render đang thức dậy) được thử lại tối đa
+  `maxAttempts` lần theo `backoff` ở nền; hết lượt thì chờ có mạng lại. 4xx khác
+  408/425/429 không thử lại. `DELETE /api/v1/devices` nhận id trong **body JSON**,
+  không đưa vào URL (`ApiClient` in URL cả ở bản release). Cả hai lời gọi dùng
+  `PushDevicesApi.requestTimeout` (75 giây) qua tham số mới `timeout:` của
+  `ApiClient.post/delete`; các lời gọi khác vẫn không có timeout.
+- **Thứ tự khi đăng xuất rất quan trọng**: `AuthRepository.logout()` chạy các
+  hook `addBeforeLogoutHook` *trước* `AuthStorage.clear()`. `unregisterCurrent()`
+  của registrar phát `DELETE` đồng bộ (để `ApiClient` gắn JWT khi token còn),
+  chỉ chờ tối đa `logoutWait` (3 giây) và không bao giờ ném lỗi, nên mất mạng,
+  server chậm hay lỗi đều không chặn đăng xuất. Đường 401 không hủy đăng ký được
+  (JWT đã hỏng); server tự chuyển bản ghi sang người dùng đăng ký kế tiếp và tự
+  dọn bản ghi chết/quá cũ. Còn một race hiếm: `POST` đang bay lúc đăng xuất có
+  thể tới sau `DELETE`.
+- **Chạm vào thông báo** luôn đi qua `PushNavigation.handle(PushTarget)`. Đích
+  đến nhận trước `markAppReady()` (khởi động nguội) thì chờ; nhận lúc chưa đăng
+  nhập thì bỏ. **Thêm `type` mới ở `switch` của `openPushTarget()`** trong
+  `push_navigation.dart` (type cần `id` mà thiếu `id` thì trả `false`). Đã nối sẵn:
+  `example`, `todo`, `note`, `habit`, `checklist_run`, `checklist_template`.
+- Android với `firebase_messaging 16.7.0` **không** gọi `onMessageOpenedApp` khi
+  chạm thông báo làm app khởi động nguội → dùng `getInitialMessage()` (tin FCM)
+  và `getNotificationAppLaunchDetails()` (thông báo cục bộ).
+- Tin FCM khi app đang mở được hiện lại bằng thông báo cục bộ trên kênh
+  `general_notifications` (phải khớp meta-data `default_notification_channel_id`
+  trong manifest). Tin chỉ có `data` khi app đang mở bị bỏ qua; không đăng ký
+  `onBackgroundMessage` vì tin có `notification` do hệ điều hành tự hiện.
+- Yêu cầu build kéo theo: Java 17, core library desugaring, `minSdk` ≥ 23, và
+  `res/raw/keep.xml` giữ `@drawable/ic_stat_notification` để R8 không xóa icon ở
+  bản release. `flutter_local_notifications 20.x` dùng tham số **có tên**
+  (`initialize(settings:)`, `show(id:, title:, body:, notificationDetails:, payload:)`).
+
 ### Focus session (đồng hồ tập trung)
 
 - State của phiên nằm ở singleton `FocusSessionController`
@@ -338,10 +393,43 @@ trước lần push đầu sẽ loại operation khỏi outbox.
   pull): todo bị xóa/hoàn thành ở nơi khác thì phiên ngầm tự kết thúc; tránh
   `completeLocalFirst` trên snapshot cũ (sẽ sinh occurrence recurrence thừa).
 - Mở màn hình bằng `openTodoFocusScreen()` / `resumeFocusSession()` (đặt cờ
-  `focusScreenOpen`), không `Navigator.push` trực tiếp. Bắt đầu việc khác khi
-  đang có phiên phải xin xác nhận trước khi gọi `start()` (thay thế phiên cũ).
+  `focusScreenOpen`), không `Navigator.push` trực tiếp.
+- Chỉ một phiên tại một thời điểm (xem "Checklist session" bên dưới):
+  `start()` trả về `false` khi đang có phiên khác, không còn thay thế phiên cũ.
+  Caller gọi `ensureNoActiveSession(context)` trước để báo người dùng.
 - Test: `test/focus_session_controller_test.dart`,
   `test/focus_session_ui_test.dart`.
+
+### Checklist session (đang làm một checklist) và luật "một việc một lúc"
+
+- "Bắt đầu" một checklist tạo run (như trước) và đăng ký nó làm phiên ở
+  singleton `ChecklistSessionController`
+  (`lib/utils/checklist_session_controller.dart`). Khác todo (đếm ngược theo ước
+  lượng), checklist **đếm xuôi** từ `startedAt` của run theo wall-clock, nên
+  khớp với đồng hồ trên `RunDetailScreen` và `duration_ms` khi hoàn tất; tick
+  canh theo giây tròn của run nên không nhảy cóc. Chỉ lưu in-memory (run vẫn
+  nằm trong Drift/sync); bị hủy khi logout/401 qua `cancelAllSessions()`.
+- Rời `RunDetailScreen` bằng nút back **không** kết thúc run: banner toàn app
+  (`FocusSessionBannerHost`, dùng chung với todo) hiện đồng hồ + tiến độ
+  `x/y bước`, chạm để quay lại (`resumeChecklistSession()`). Chỉ "Hoàn tất" hoặc
+  "Hủy bỏ" (nút X trên màn run, hoặc nút dừng của banner → run thành "Đã hủy")
+  mới kết thúc phiên. Banner ẩn khi màn hình của đúng run đó đang mở.
+- Controller đối chiếu Drift mỗi khi `ChecklistLocalEvents` đổi (sync pull) và
+  sau mỗi lần ghi bước (`refreshFromLocal()`): run bị xóa/hoàn tất/hủy ở nơi
+  khác thì phiên tự kết thúc; tên và tiến độ được cập nhật.
+- **Một việc một lúc:** `ActiveSessionLock` (`lib/utils/active_session_lock.dart`)
+  là khóa dùng chung của todo và checklist. Cả hai controller xin khóa trong
+  `start()` (trả về `false` nếu bị từ chối) và trả khóa khi kết thúc, nên không
+  thể có hai todo, hai checklist hay một todo + một checklist cùng chạy. Phải
+  hoàn thành hoặc hủy phiên đang chạy trước khi làm việc khác.
+- Điểm vào phải đi qua các hàm dùng chung thay vì tự gọi `startRun`/
+  `Navigator.push`: `beginChecklistRun()` (nút "Bắt đầu"; bắt đầu lại đúng
+  checklist đang chạy thì tiếp tục run cũ), `openChecklistRun()` (mở run từ danh
+  sách; run đã xong luôn mở được), `openRunDetail()` (đặt cờ "đang mở" trước
+  khi push để banner ẩn ngay) và `ensureNoActiveSession()` (hộp thoại chặn).
+  Chạm một run "Đang chạy" bất kỳ mà chưa có phiên sẽ đưa nó vào phiên.
+- Test: `test/checklist_session_controller_test.dart`,
+  `test/checklist_session_ui_test.dart`.
 
 ### Recurrence todos
 
@@ -369,6 +457,51 @@ Recurrence dùng mô hình one-actionable-occurrence:
   cây server qua pull.
 - Tombstone của occurrence là recurrence exception; repair không được tạo lại
   ngày đã xóa. Scoped delete dùng `this`, `future`, hoặc `all`.
+- Occurrence thật (kể cả occurrence kế tiếp) giữ nguyên `recurrence_*` của series
+  và thêm `recurrence_template_id`, nên `Todo.hasRecurrenceRule` đúng cho cả
+  template lẫn occurrence. Hàng "Lặp lại" dùng `Todo.repeatRowValue`: hiện luật
+  ("Mỗi ngày", "T3"...) cho mọi row có luật; "Theo lịch lặp gốc" chỉ dành cho
+  legacy projection (có template id nhưng không có luật).
+- Bỏ hoàn thành (`uncompleteLocalFirst`) một occurrence đang done sẽ "đỗ" (park)
+  occurrence kế tiếp mà lần complete đó sinh ra: đặt `status = archived`, KHÔNG
+  xóa, vì tombstone là exception và ngày đó sẽ bị bỏ qua. Chỉ đỗ occurrence ngay
+  sau và chỉ khi nó còn `open`. Lần complete sau dùng lại đúng row đó (hồi sinh,
+  và dời sang ngày kế tiếp mới nếu lịch đã đổi); nếu series đã có sẵn một
+  occurrence mở ở phía sau (người dùng tự dời) thì dùng nó thay vì tạo thêm.
+  Mọi thao tác materialize/park chạy qua `_withSeriesLock` theo series và
+  `completeLocalFirst` đọc lại trạng thái đã lưu thay vì tin snapshot của UI.
+  Backend làm cùng quy tắc (xem `MOBILE_RECURRING_TODO_CONTRACT.md` ở repo
+  backend) và trả `conflict` khi create trùng (series, ngày).
+- **Row đỗ phải ẩn ở mọi nơi.** `GET /todos` và `GET /todos/day/:date` của
+  backend KHÔNG lọc `archived` (chỉ dashboard/calendar/daily-log/notification
+  lọc), nên `TodosRepository.list()` và `getDay()` tự bỏ row đỗ khỏi kết quả
+  (trừ khi gọi `list(status: archived)`) nhưng vẫn cache chúng vào Drift để lần
+  complete sau hồi sinh đúng row. Các nguồn đọc Drift (`listLocal`,
+  `listByHabitLocal`, trigger candidates, điểm ngày, calendar/dashboard cục bộ)
+  đã lọc sẵn. Thêm nguồn đọc todo mới thì phải lọc `archived`.
+- **Ngày kế tiếp khớp backend.** `RecurrenceHelper.nextDateAfterCompletedTodo`
+  phải ra cùng ngày với `nextRecurrenceDate` (`src/services/todos.ts` backend),
+  nếu không hai phía tạo hai slot khác nhau. `Todo.activeDaysOfWeek` và
+  `RepeatSettings.activeDays` đọc `recurrence_days_of_week` giống
+  `parseWeekdays` của backend (bỏ rác, bỏ trùng, sắp xếp). Bảng đối chiếu và
+  quét chéo nằm ở `test/recurrence_helper_test.dart`.
+- **Conflict của occurrence.** Khi `create` bị `conflict` với id khác,
+  `_applyServerVersion` purge cả cây cục bộ rồi ghi tag cho **id của row
+  server** (không phải id cục bộ đã purge); các op con trả `applied` nên không
+  để lại op mồ côi. Nếu bản chính tắc của server là row đỗ mà occurrence trước
+  đã done, repair sau pull (`ensureAllRecurrenceInstances`) hồi sinh đúng row đó.
+  Test: `test/todo_recurrence_sync_test.dart` (có server giả mô phỏng backend).
+- Xóa "chỉ lần này" (`scope: this`) khi B đang đỗ: Mobile hồi sinh B cục bộ và
+  KHÔNG enqueue update (`syncCreate: false`) vì backend tự roll forward khi xử lý
+  lệnh delete; nếu `create` của B còn chờ, hai thứ tự xử lý đều hội tụ về đúng
+  một occurrence mở (xem test trên).
+- `TodosRepository.complete()/uncomplete()/deleteTodoRemote()` (REST) hiện
+  không có màn hình nào gọi; luồng thật là local-first + sync. Nếu dùng lại
+  `uncomplete()` REST thì cần cập nhật cache cục bộ của occurrence mà server đỗ.
+- Kiểm thử tích hợp với backend thật: `test/e2e/recurring_backend_e2e_test.dart`
+  (tự bỏ qua nếu không có `--dart-define=TODO_NOTE_E2E_BASE_URL=...`). Luôn chạy
+  backend trên DB cô lập (`TURSO_DATABASE_URL=file:<đường dẫn tạm>`), không dùng
+  DB thật vì test tự đăng ký user và tạo todo.
 
 ## Quy ước code
 

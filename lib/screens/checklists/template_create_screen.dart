@@ -4,8 +4,16 @@ import '../../data/api_exception.dart';
 import '../../data/checklists_repository.dart';
 import '../../models/checklist_category.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
+import '../../utils/app_haptics.dart';
+import '../../utils/app_snack.dart';
 import '../../utils/checklist_step_text_utils.dart';
+import '../../widgets/app_list_section.dart';
+import '../../widgets/app_state_views.dart';
+import '../../widgets/app_surface.dart';
+import '../../widgets/checklist_category_picker.dart';
 import '../../widgets/checklist_paste_steps_sheet.dart';
+import '../../widgets/pressable.dart';
 import '../../widgets/primary_button.dart';
 
 class _DraftItem {
@@ -27,6 +35,7 @@ class _TemplateCreateScreenState extends State<TemplateCreateScreen> {
   List<ChecklistCategory> _categories = [];
   String? _categoryId;
   bool _saving = false;
+  String? _titleError;
 
   final List<_DraftItem> _items = [
     _DraftItem(title: ''),
@@ -67,17 +76,16 @@ class _TemplateCreateScreenState extends State<TemplateCreateScreen> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     if (_title.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng nhập tên template')),
-      );
+      AppHaptics.heavy();
+      setState(() => _titleError = 'Vui lòng nhập tên template');
       return;
     }
     final validItems = _items.where((i) => i.title.trim().isNotEmpty).toList();
     if (validItems.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Vui lòng nhập ít nhất 1 bước')),
-      );
+      AppHaptics.heavy();
+      showAppSnack(context, 'Vui lòng nhập ít nhất 1 bước', isError: true);
       return;
     }
     setState(() => _saving = true);
@@ -93,10 +101,9 @@ class _TemplateCreateScreenState extends State<TemplateCreateScreen> {
         items: items,
       );
       if (!mounted) return;
+      AppHaptics.medium();
       Navigator.of(context).pop(true);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Đã tạo template')));
+      showAppSnack(context, 'Đã tạo template');
     } on ApiException catch (e) {
       if (mounted) _showError(e.vnMessage);
     } catch (_) {
@@ -119,6 +126,7 @@ class _TemplateCreateScreenState extends State<TemplateCreateScreen> {
   }
 
   void _removeStep(int index) {
+    AppHaptics.light();
     setState(() {
       _items.removeAt(index);
       _itemControllers.removeAt(index).dispose();
@@ -188,139 +196,279 @@ class _TemplateCreateScreenState extends State<TemplateCreateScreen> {
   }
 
   void _showError(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: AppColors.danger),
-    );
+    showAppSnack(context, msg, isError: true);
   }
 
   @override
   Widget build(BuildContext context) {
+    // Ẩn thanh nút dưới khi bàn phím mở để danh sách bước không bị ép bẹp.
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Template mới'),
         actions: [
           TextButton(
             onPressed: _saving ? null : _save,
-            child: _saving
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text(
-                    'Lưu',
-                    style: TextStyle(
-                      color: AppColors.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+            child: SizedBox(
+              width: 36,
+              child: Center(
+                child: _saving
+                    ? const AppSpinner(radius: 9, centered: false)
+                    : const Text(
+                        'Lưu',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+              ),
+            ),
           ),
+          const SizedBox(width: 4),
         ],
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                TextField(
-                  controller: _title,
-                  decoration: const InputDecoration(hintText: 'Tên template'),
-                ),
-                const SizedBox(height: 12),
-                _CategoryPickerTile(
-                  categories: _categories,
-                  selectedId: _categoryId,
-                  onSelected: (id) => setState(() => _categoryId = id),
-                ),
-              ],
-            ),
-          ),
-          const Divider(height: 1),
-          Padding(
-            padding: EdgeInsets.fromLTRB(16, 12, 16, 0),
-            child: Row(
-              children: [
-                const Text(
-                  'Các bước',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
-                ),
-                const Spacer(),
-                TextButton.icon(
-                  onPressed: _showPasteStepsSheet,
-                  icon: const Icon(Icons.content_paste_outlined, size: 18),
-                  label: const Text('Dán bước'),
-                ),
-              ],
-            ),
-          ),
+          // Toàn bộ nội dung (thẻ tên, tiêu đề "CÁC BƯỚC", danh sách bước, nút
+          // "Thêm bước") nằm trong MỘT vùng cuộn: màn thấp, chữ lớn hay bàn
+          // phím mở đều không gây tràn đáy.
           Expanded(
             child: ReorderableListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+              buildDefaultDragHandles: false,
               itemCount: _items.length,
               onReorder: _reorderSteps,
+              onReorderStart: (_) => AppHaptics.medium(),
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              proxyDecorator: (child, index, animation) => Material(
+                color: Colors.transparent,
+                elevation: 6,
+                shadowColor: Colors.black.withValues(alpha: 0.25),
+                shape: AppShape.squircle(AppRadius.md),
+                child: child,
+              ),
+              header: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 8),
+                  AppSurface(
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: TextField(
+                            controller: _title,
+                            textInputAction: TextInputAction.next,
+                            onChanged: (_) {
+                              if (_titleError != null) {
+                                setState(() => _titleError = null);
+                              }
+                            },
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            decoration: InputDecoration(
+                              hintText: 'Tên template',
+                              errorText: _titleError,
+                              border: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              errorBorder: InputBorder.none,
+                              focusedErrorBorder: InputBorder.none,
+                              filled: false,
+                              contentPadding: const EdgeInsets.symmetric(
+                                vertical: 14,
+                              ),
+                            ),
+                          ),
+                        ),
+                        Divider(height: 0.5, color: context.appDivider),
+                        _CategoryPickerTile(
+                          categories: _categories,
+                          selectedId: _categoryId,
+                          onSelected: (id) => setState(() => _categoryId = id),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 16, 0, 4),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'CÁC BƯỚC',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.6,
+                              color: context.appTextSecondary,
+                            ),
+                          ),
+                        ),
+                        TextButton.icon(
+                          onPressed: _showPasteStepsSheet,
+                          icon: const Icon(
+                            Icons.content_paste_rounded,
+                            size: 18,
+                          ),
+                          label: const Text('Dán bước'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              footer: PrimaryButton(
+                label: 'Thêm bước',
+                icon: Icons.add_rounded,
+                variant: PrimaryButtonVariant.tonal,
+                onPressed: _addStep,
+              ),
               itemBuilder: (ctx, i) {
                 final item = _items[i];
                 return Padding(
                   key: ValueKey(item),
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 4,
-                    horizontal: 8,
-                  ),
-                  child: Row(
-                    children: [
-                      ReorderableDragStartListener(
-                        index: i,
-                        child: const Padding(
-                          padding: EdgeInsets.all(4),
-                          child: Icon(Icons.drag_handle),
-                        ),
-                      ),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _itemControllers[i],
-                          focusNode: _itemFocusNodes[i],
-                          onChanged: (v) => item.title = v,
-                          decoration: InputDecoration(
-                            hintText: 'Bước ${i + 1}',
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: AppSurface(
+                    radius: AppRadius.md,
+                    showShadow: false,
+                    padding: const EdgeInsets.fromLTRB(4, 6, 4, 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ReorderableDragStartListener(
+                          index: i,
+                          child: SizedBox.square(
+                            dimension: 44,
+                            child: Center(
+                              child: Icon(
+                                Icons.drag_indicator_rounded,
+                                color: ctx.appTextSecondary.withValues(
+                                  alpha: 0.7,
+                                ),
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                      Checkbox(
-                        value: item.isRequired,
-                        onChanged: (v) =>
-                            setState(() => item.isRequired = v ?? true),
-                      ),
-                      const Text('Bắt buộc', style: TextStyle(fontSize: 12)),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline, size: 20),
-                        onPressed: () => _removeStep(i),
-                      ),
-                    ],
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              TextFormField(
+                                controller: _itemControllers[i],
+                                focusNode: _itemFocusNodes[i],
+                                onChanged: (v) => item.title = v,
+                                decoration: InputDecoration(
+                                  hintText: 'Bước ${i + 1}',
+                                  isDense: true,
+                                  filled: false,
+                                  border: InputBorder.none,
+                                  enabledBorder: InputBorder.none,
+                                  focusedBorder: InputBorder.none,
+                                  contentPadding: const EdgeInsets.symmetric(
+                                    vertical: 10,
+                                  ),
+                                ),
+                              ),
+                              _RequiredToggle(
+                                required: item.isRequired,
+                                onTap: () => setState(
+                                  () => item.isRequired = !item.isRequired,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: 'Xóa bước',
+                          icon: Icon(
+                            Icons.delete_outline_rounded,
+                            size: 22,
+                            color: ctx.appTextSecondary,
+                          ),
+                          onPressed: () => _removeStep(i),
+                        ),
+                      ],
+                    ),
                   ),
                 );
               },
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: OutlinedButton.icon(
-              onPressed: _addStep,
-              icon: const Icon(Icons.add),
-              label: const Text('Thêm bước'),
-            ),
-          ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: PrimaryButton(
-                label: 'Tạo template',
-                icon: Icons.check,
-                onPressed: _save,
+          if (!keyboardOpen)
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: PrimaryButton(
+                  label: 'Tạo template',
+                  icon: Icons.check_rounded,
+                  loading: _saving,
+                  onPressed: _save,
+                ),
               ),
             ),
-          ),
         ],
+      ),
+    );
+  }
+}
+
+/// Viên thuốc bật/tắt "Bắt buộc" của một bước (chạm cả nhãn để đổi).
+class _RequiredToggle extends StatelessWidget {
+  final bool required;
+  final VoidCallback onTap;
+
+  const _RequiredToggle({required this.required, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = required ? context.appPrimary : context.appTextSecondary;
+    return Pressable(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          AppHaptics.selection();
+          onTap();
+        },
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 2),
+          child: AnimatedContainer(
+            duration: AppMotion.normal,
+            curve: AppMotion.curve,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: ShapeDecoration(
+              color: color.withValues(alpha: 0.14),
+              shape: AppShape.pill,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  required
+                      ? Icons.check_circle_rounded
+                      : Icons.radio_button_unchecked,
+                  size: 14,
+                  color: color,
+                ),
+                const SizedBox(width: 5),
+                Flexible(
+                  child: Text(
+                    'Bắt buộc',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: color,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -346,55 +494,21 @@ class _CategoryPickerTile extends StatelessWidget {
         break;
       }
     }
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(
-        selected == null
-            ? Icons.category_outlined
-            : ChecklistCategory.iconFor(selected.icon),
-        color: selected?.color ?? AppColors.textSecondary,
-      ),
-      title: const Text('Danh mục'),
-      subtitle: Text(selected?.name ?? 'Chưa phân loại'),
-      trailing: const Icon(Icons.chevron_right),
+    return AppListTile(
+      icon: selected == null
+          ? Icons.category_rounded
+          : ChecklistCategory.iconFor(selected.icon),
+      iconColor: selected?.color ?? AppColors.tagSlate,
+      title: 'Danh mục',
+      value: selected?.name ?? 'Chưa phân loại',
       onTap: () async {
-        final picked = await showModalBottomSheet<String>(
-          context: context,
-          showDragHandle: true,
-          builder: (ctx) => SafeArea(
-            child: ListView(
-              shrinkWrap: true,
-              children: [
-                ListTile(
-                  title: const Text('Chưa phân loại'),
-                  leading: const Icon(Icons.block_outlined),
-                  trailing: selectedId == null
-                      ? const Icon(Icons.check, color: AppColors.primary)
-                      : null,
-                  onTap: () => Navigator.of(ctx).pop('__uncategorized__'),
-                ),
-                ...categories.map(
-                  (category) => ListTile(
-                    title: Text(category.name),
-                    subtitle: category.isSystem
-                        ? const Text('Hệ thống')
-                        : const Text('Của tôi'),
-                    leading: Icon(
-                      ChecklistCategory.iconFor(category.icon),
-                      color: category.color,
-                    ),
-                    trailing: selectedId == category.id
-                        ? const Icon(Icons.check, color: AppColors.primary)
-                        : null,
-                    onTap: () => Navigator.of(ctx).pop(category.id),
-                  ),
-                ),
-              ],
-            ),
-          ),
+        final picked = await showChecklistCategorySheet(
+          context,
+          categories: categories,
+          selectedId: selectedId,
         );
         if (picked == null) return;
-        final next = picked == '__uncategorized__' ? null : picked;
+        final next = picked == kUncategorizedCategory ? null : picked;
         if (next != selectedId) onSelected(next);
       },
     );

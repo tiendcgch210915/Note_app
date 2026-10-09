@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_colors.dart';
+import '../theme/app_tokens.dart';
+import '../utils/app_haptics.dart';
+import 'pressable.dart';
 
 class TodoFlagButton extends StatelessWidget {
   final bool selected;
@@ -24,16 +27,11 @@ class TodoFlagButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final disabledBackground = isDark
-        ? AppColors.dividerDark
-        : const Color(0xFFF3F4F6);
-    final disabledForeground = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
+    final secondary = context.appTextSecondary;
+    final idleBackground = secondary.withValues(alpha: 0.12);
     final foreground = selected
         ? (selectedForeground ?? Colors.white)
-        : disabledForeground;
+        : secondary;
     final enabled = onTap != null;
 
     return Semantics(
@@ -43,43 +41,58 @@ class TodoFlagButton extends StatelessWidget {
       label: label,
       child: Opacity(
         opacity: enabled ? 1 : 0.62,
-        child: Material(
-          color: selected ? selectedColor : disabledBackground,
-          borderRadius: BorderRadius.circular(8),
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(8),
-            child: AspectRatio(
-              aspectRatio: 1,
-              child: Padding(
-                padding: const EdgeInsets.all(10),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    if (emoji != null)
-                      Opacity(
-                        opacity: selected ? 1 : 0.35,
-                        child: Text(
-                          emoji!,
-                          style: const TextStyle(fontSize: 32, height: 1),
+        child: Pressable(
+          enabled: enabled,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onTap == null
+                ? null
+                : () {
+                    AppHaptics.selection();
+                    onTap!();
+                  },
+            child: AnimatedContainer(
+              duration: AppMotion.normal,
+              curve: AppMotion.curve,
+              decoration: ShapeDecoration(
+                color: selected ? selectedColor : idleBackground,
+                shape: AppShape.squircle(AppRadius.sm),
+              ),
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: Padding(
+                  padding: const EdgeInsets.all(10),
+                  // Ô vuông có kích thước cố định: chữ hệ thống lớn / màn hẹp
+                  // thì thu nhỏ cả khối thay vì tràn đáy.
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (emoji != null)
+                          AnimatedOpacity(
+                            duration: AppMotion.normal,
+                            opacity: selected ? 1 : 0.35,
+                            child: Text(
+                              emoji!,
+                              style: const TextStyle(fontSize: 32, height: 1),
+                            ),
+                          )
+                        else
+                          Icon(icon, size: 32, color: foreground),
+                        const SizedBox(height: 8),
+                        Text(
+                          label,
+                          maxLines: 1,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: foreground,
+                          ),
                         ),
-                      )
-                    else
-                      Icon(icon, size: 32, color: foreground),
-                    const SizedBox(height: 8),
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Text(
-                        label,
-                        maxLines: 1,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: foreground,
-                        ),
-                      ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),

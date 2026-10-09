@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Giữ icon thông báo khi R8/resource shrinking chạy ở bản release.
+     Icon chỉ được tham chiếu theo tên (từ Dart và từ meta-data của FCM) nên
+     nếu không khai báo ở đây, shrinker sẽ coi là không dùng và xóa mất. -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_stat_notification" />

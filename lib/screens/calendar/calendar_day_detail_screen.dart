@@ -8,11 +8,18 @@ import '../../data/todos_repository.dart';
 import '../../models/dashboard.dart';
 import '../../models/todo.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
+import '../../utils/app_haptics.dart';
+import '../../utils/app_snack.dart';
 import '../../utils/date_utils.dart';
 import '../../utils/habit_stacking_dialog.dart';
 import '../../utils/todo_local_events.dart';
 import '../../utils/todo_time_utils.dart';
+import '../../widgets/app_state_views.dart';
+import '../../widgets/app_surface.dart';
 import '../../widgets/calendar_day_timeline.dart';
+import '../../widgets/pressable.dart';
+import '../../widgets/todo_time_action_sheet.dart';
 import '../todos/todo_create_screen.dart';
 import '../todos/todo_detail_screen.dart';
 import '../todos/todo_edit_screen.dart';
@@ -254,31 +261,10 @@ class _CalendarDayDetailScreenState extends State<CalendarDayDetailScreen> {
     }
     if (todo.id.isEmpty || _savingTodoIds.contains(todo.id)) return;
     final action = todo.time == null
-        ? 'pick'
-        : await showModalBottomSheet<String>(
-            context: context,
-            showDragHandle: true,
-            builder: (ctx) => SafeArea(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ListTile(
-                    leading: const Icon(Icons.schedule_rounded),
-                    title: const Text('Chọn giờ'),
-                    subtitle: Text('Hiện tại: ${todo.time}'),
-                    onTap: () => Navigator.of(ctx).pop('pick'),
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.close_rounded),
-                    title: const Text('Bỏ giờ'),
-                    onTap: () => Navigator.of(ctx).pop('clear'),
-                  ),
-                ],
-              ),
-            ),
-          );
+        ? todoTimeActionPick
+        : await showTodoTimeActionSheet(context, currentTime: todo.time!);
     if (action == null || !mounted) return;
-    if (action == 'clear') {
+    if (action == todoTimeActionClear) {
       await _changeTodoTimeLocalFirst(todo, null);
       return;
     }
@@ -552,9 +538,7 @@ class _CalendarDayDetailScreenState extends State<CalendarDayDetailScreen> {
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: AppColors.danger),
-    );
+    showAppSnack(context, message, isError: true);
   }
 
   bool _isPastDate(DateTime date) {
@@ -573,8 +557,11 @@ class _CalendarDayDetailScreenState extends State<CalendarDayDetailScreen> {
         actions: [
           IconButton(
             tooltip: 'Hôm nay',
-            onPressed: () => unawaited(_selectDate(DateTime.now())),
-            icon: const Icon(Icons.today_outlined),
+            onPressed: () {
+              AppHaptics.selection();
+              unawaited(_selectDate(DateTime.now()));
+            },
+            icon: const Icon(Icons.today_rounded),
           ),
           IconButton(
             tooltip: 'Thêm việc',
@@ -583,51 +570,58 @@ class _CalendarDayDetailScreenState extends State<CalendarDayDetailScreen> {
           ),
         ],
       ),
-      body: detail == null && _loading
-          ? const Center(child: CircularProgressIndicator())
-          : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                children: [
-                  _Header(
-                    date: detail?.date ?? _selectedDate,
-                    totals: detail?.totals,
-                  ),
-                  if (detail != null)
-                    _WeekStrip(
-                      week: detail.week,
-                      onSelectDate: _selectDate,
-                      onShiftWeek: _shiftWeek,
-                    )
-                  else
-                    const SizedBox(height: 8),
-                  if (_loading)
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
-                      child: LinearProgressIndicator(minHeight: 2),
+      // Đổi ngày: nội dung cũ mờ đi, nội dung mới hiện dần (mỗi lần là một
+      // cây widget mới nên timeline vẫn tự cuộn tới vạch đỏ khi về hôm nay).
+      body: AnimatedSwitcher(
+        duration: AppMotion.normal,
+        child: detail == null && _loading
+            ? const AppSpinner(key: ValueKey('calendar-day-loading'))
+            : RefreshIndicator(
+                key: const ValueKey('calendar-day-content'),
+                onRefresh: _load,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: [
+                    _Header(
+                      date: detail?.date ?? _selectedDate,
+                      totals: detail?.totals,
                     ),
-                  if (_error != null)
-                    _ErrorBanner(
-                      message: _error!,
-                      onRetry: () => unawaited(_load()),
-                    ),
-                  if (detail != null)
-                    CalendarDayTimeline(
-                      key: const ValueKey('calendar-day-timeline'),
-                      centerCurrentTimeOnShow: true,
-                      detail: detail,
-                      now: _clock,
-                      onTodoTap: _openTodo,
-                      onTodoComplete: _completeTodo,
-                      onTodoPickTime: _pickTodoTime,
-                      onTodoEdit: _openTodoEdit,
-                    )
-                  else if (_error != null)
-                    const SizedBox(height: 320),
-                ],
+                    if (detail != null)
+                      _WeekStrip(
+                        week: detail.week,
+                        onSelectDate: (date) {
+                          AppHaptics.selection();
+                          _selectDate(date);
+                        },
+                        onShiftWeek: _shiftWeek,
+                      )
+                    else
+                      const SizedBox(height: 8),
+                    if (_loading)
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+                        child: LinearProgressIndicator(minHeight: 2),
+                      ),
+                    if (_error != null)
+                      _ErrorBanner(
+                        message: _error!,
+                        onRetry: () => unawaited(_load()),
+                      ),
+                    if (detail != null)
+                      CalendarDayTimeline(
+                        key: const ValueKey('calendar-day-timeline'),
+                        centerCurrentTimeOnShow: true,
+                        detail: detail,
+                        now: _clock,
+                        onTodoTap: _openTodo,
+                        onTodoComplete: _completeTodo,
+                        onTodoPickTime: _pickTodoTime,
+                        onTodoEdit: _openTodoEdit,
+                      ),
+                  ],
+                ),
               ),
-            ),
+      ),
     );
   }
 }
@@ -640,28 +634,77 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final secondary = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
     final title = AppDateUtils.formatDashboardTitle(date);
-    final totalLabel = totals == null
-        ? ''
-        : '${totals!.doneTodos}/${totals!.totalTodos} xong · ${totals!.timedTodos} có giờ · ${totals!.untimedTodos} không giờ';
+    final t = totals;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
+      padding: const EdgeInsets.fromLTRB(20, 8, 16, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(title, style: Theme.of(context).textTheme.headlineSmall),
-          if (totalLabel.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(
-              totalLabel,
-              style: TextStyle(color: secondary, fontWeight: FontWeight.w600),
+          if (t != null) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                _StatPill(
+                  icon: Icons.check_circle_rounded,
+                  label: '${t.doneTodos}/${t.totalTodos} xong',
+                  color: AppColors.success,
+                ),
+                _StatPill(
+                  icon: Icons.schedule_rounded,
+                  label: '${t.timedTodos} có giờ',
+                  color: context.appPrimary,
+                ),
+                _StatPill(
+                  icon: Icons.all_inclusive_rounded,
+                  label: '${t.untimedTodos} không giờ',
+                  color: context.appTextSecondary,
+                ),
+              ],
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class _StatPill extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  const _StatPill({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: ShapeDecoration(
+        color: color.withValues(alpha: 0.12),
+        shape: AppShape.pill,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
         ],
       ),
     );
@@ -681,10 +724,6 @@ class _WeekStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final surface = isDark ? AppColors.surfaceDark : AppColors.surface;
-    final border = isDark ? AppColors.dividerDark : AppColors.divider;
-
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
       child: GestureDetector(
@@ -693,43 +732,38 @@ class _WeekStrip extends StatelessWidget {
           if (velocity < -120) onShiftWeek(1);
           if (velocity > 120) onShiftWeek(-1);
         },
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: surface,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: border),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            child: Row(
-              children: [
-                IconButton(
-                  tooltip: 'Tuần trước',
-                  onPressed: () => onShiftWeek(-1),
-                  icon: const Icon(Icons.chevron_left),
-                  visualDensity: VisualDensity.compact,
-                ),
-                Expanded(
-                  child: Row(
-                    children: [
-                      for (final day in week.days)
-                        Expanded(
-                          child: _WeekDayButton(
-                            day: day,
-                            onTap: () => onSelectDate(day.date),
-                          ),
+        child: AppSurface(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: 'Tuần trước',
+                onPressed: () => onShiftWeek(-1),
+                icon: const Icon(Icons.chevron_left_rounded),
+                constraints: const BoxConstraints(minWidth: 40, minHeight: 44),
+                padding: EdgeInsets.zero,
+              ),
+              Expanded(
+                child: Row(
+                  children: [
+                    for (final day in week.days)
+                      Expanded(
+                        child: _WeekDayButton(
+                          day: day,
+                          onTap: () => onSelectDate(day.date),
                         ),
-                    ],
-                  ),
+                      ),
+                  ],
                 ),
-                IconButton(
-                  tooltip: 'Tuần sau',
-                  onPressed: () => onShiftWeek(1),
-                  icon: const Icon(Icons.chevron_right),
-                  visualDensity: VisualDensity.compact,
-                ),
-              ],
-            ),
+              ),
+              IconButton(
+                tooltip: 'Tuần sau',
+                onPressed: () => onShiftWeek(1),
+                icon: const Icon(Icons.chevron_right_rounded),
+                constraints: const BoxConstraints(minWidth: 40, minHeight: 44),
+                padding: EdgeInsets.zero,
+              ),
+            ],
           ),
         ),
       ),
@@ -745,30 +779,32 @@ class _WeekDayButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final primary = isDark ? AppColors.primaryDark : AppColors.primary;
-    final secondary = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
-    final selectedText = isDark ? AppColors.textPrimaryDark : Colors.white;
+    final primary = context.appPrimary;
+    final secondary = context.appTextSecondary;
+    // Ngày đang chọn: nền đậm + chữ trắng (đủ tương phản cả light/dark).
     final background = day.isSelected
-        ? primary
+        ? AppColors.accentFill
         : day.isToday
         ? primary.withValues(alpha: 0.13)
         : Colors.transparent;
-    final foreground = day.isSelected ? selectedText : null;
+    final foreground = day.isSelected ? Colors.white : null;
+    final subForeground = day.isSelected
+        ? Colors.white.withValues(alpha: 0.85)
+        : secondary;
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(8),
+    return Pressable(
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
         onTap: onTap,
-        child: Container(
+        child: AnimatedContainer(
+          duration: AppMotion.normal,
+          curve: AppMotion.curve,
           constraints: const BoxConstraints(minHeight: 66),
+          margin: const EdgeInsets.symmetric(horizontal: 1),
           padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 7),
-          decoration: BoxDecoration(
+          decoration: ShapeDecoration(
             color: background,
-            borderRadius: BorderRadius.circular(8),
+            shape: AppShape.squircle(AppRadius.sm),
           ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -778,7 +814,7 @@ class _WeekDayButton extends StatelessWidget {
                 maxLines: 1,
                 style: TextStyle(
                   fontSize: 11,
-                  color: foreground ?? secondary,
+                  color: subForeground,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -794,7 +830,7 @@ class _WeekDayButton extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 5),
-              _MiniDotCount(day: day, color: foreground ?? secondary),
+              _MiniDotCount(day: day, color: subForeground),
             ],
           ),
         ),
@@ -818,7 +854,7 @@ class _MiniDotCount extends StatelessWidget {
       '${day.doneTodos}/${day.totalTodos}',
       maxLines: 1,
       style: TextStyle(
-        fontSize: 10,
+        fontSize: 11,
         color: color,
         fontWeight: FontWeight.w700,
         height: 1.1,
@@ -837,30 +873,30 @@ class _ErrorBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: AppColors.danger.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.danger.withValues(alpha: 0.25)),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+        decoration: ShapeDecoration(
+          color: context.appDangerSoft,
+          shape: AppShape.squircle(
+            AppRadius.md,
+            side: BorderSide(color: AppColors.danger.withValues(alpha: 0.25)),
+          ),
         ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
-          child: Row(
-            children: [
-              const Icon(Icons.error_outline, color: AppColors.danger),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  message,
-                  style: const TextStyle(
-                    color: AppColors.danger,
-                    fontWeight: FontWeight.w600,
-                  ),
+        child: Row(
+          children: [
+            const Icon(Icons.error_outline_rounded, color: AppColors.danger),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  color: AppColors.danger,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
-              TextButton(onPressed: onRetry, child: const Text('Thử lại')),
-            ],
-          ),
+            ),
+            TextButton(onPressed: onRetry, child: const Text('Thử lại')),
+          ],
         ),
       ),
     );

@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import '../data/habits_repository.dart';
 import '../models/habit.dart';
 import '../theme/app_colors.dart';
+import '../theme/app_tokens.dart';
+import 'app_sheet.dart';
+import 'app_state_views.dart';
 
 class HabitSelection {
   final Habit? habit;
@@ -14,10 +17,8 @@ Future<HabitSelection?> showHabitSelectorSheet(
   BuildContext context, {
   String? selectedHabitId,
 }) {
-  return showModalBottomSheet<HabitSelection>(
+  return showAppSheet<HabitSelection>(
     context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
     builder: (_) => _HabitSelectorSheet(selectedHabitId: selectedHabitId),
   );
 }
@@ -77,6 +78,8 @@ class _HabitSelectorSheetState extends State<_HabitSelectorSheet> {
   @override
   Widget build(BuildContext context) {
     final selectedId = widget.selectedHabitId;
+    final accent = context.appPrimary;
+    final check = Icon(Icons.check_circle_rounded, color: accent);
     return SafeArea(
       child: ConstrainedBox(
         constraints: BoxConstraints(
@@ -85,46 +88,36 @@ class _HabitSelectorSheetState extends State<_HabitSelectorSheet> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-              child: Row(
-                children: [
-                  const Expanded(
-                    child: Text(
-                      'Liên kết habit',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () =>
-                        Navigator.of(context).pop(const HabitSelection(null)),
-                    child: const Text('Không liên kết'),
-                  ),
-                ],
-              ),
-            ),
+            const AppSheetHeader(title: 'Liên kết habit'),
             ListTile(
-              leading: const Icon(Icons.link_off_rounded),
+              leading: Container(
+                width: 38,
+                height: 38,
+                decoration: ShapeDecoration(
+                  color: context.appTextSecondary.withValues(alpha: 0.14),
+                  shape: AppShape.squircle(AppRadius.sm),
+                ),
+                child: Icon(
+                  Icons.link_off_rounded,
+                  size: 20,
+                  color: context.appTextSecondary,
+                ),
+              ),
               title: const Text('Không liên kết'),
-              trailing: selectedId == null
-                  ? const Icon(Icons.check, color: AppColors.primary)
-                  : null,
+              trailing: selectedId == null ? check : null,
               onTap: () =>
                   Navigator.of(context).pop(const HabitSelection(null)),
             ),
-            const Divider(height: 1),
+            Divider(height: 0.5, indent: 70, color: context.appDivider),
             if (_loading && _habits.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: CircularProgressIndicator(),
-              )
+              const Padding(padding: EdgeInsets.all(24), child: AppSpinner())
             else if (_habits.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(24),
-                child: Text('Chưa có habit để liên kết'),
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'Chưa có habit để liên kết',
+                  style: TextStyle(color: context.appTextSecondary),
+                ),
               )
             else
               Flexible(
@@ -135,19 +128,24 @@ class _HabitSelectorSheetState extends State<_HabitSelectorSheet> {
                     final habit = _habits[index];
                     final selected = habit.id == selectedId;
                     return ListTile(
-                      leading: CircleAvatar(
-                        radius: 18,
-                        backgroundColor: habit.color.withValues(alpha: 0.14),
-                        foregroundColor: habit.color,
-                        child: Icon(habit.icon ?? Icons.flag, size: 20),
+                      leading: Container(
+                        width: 38,
+                        height: 38,
+                        decoration: ShapeDecoration(
+                          color: habit.color.withValues(alpha: 0.14),
+                          shape: AppShape.squircle(AppRadius.sm),
+                        ),
+                        child: Icon(
+                          habit.icon ?? Icons.flag,
+                          size: 20,
+                          color: habit.color,
+                        ),
                       ),
                       title: Text(habit.title),
                       subtitle: habit.isArchived
                           ? const Text('Đã lưu trữ')
                           : null,
-                      trailing: selected
-                          ? const Icon(Icons.check, color: AppColors.primary)
-                          : null,
+                      trailing: selected ? check : null,
                       onTap: () =>
                           Navigator.of(context).pop(HabitSelection(habit)),
                     );

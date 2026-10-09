@@ -582,6 +582,7 @@ class _NoteLinkDialogState extends State<_NoteLinkDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      scrollable: true,
       title: const Text('Thêm liên kết'),
       content: Column(
         mainAxisSize: MainAxisSize.min,

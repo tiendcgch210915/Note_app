@@ -6,17 +6,19 @@ import '../data/api_exception.dart';
 import '../data/tags_repository.dart';
 import '../models/tag.dart';
 import '../theme/app_colors.dart';
+import '../utils/app_snack.dart';
 import '../utils/featured_todo_tags.dart';
+import 'app_sheet.dart';
+import 'app_state_views.dart';
+import 'primary_button.dart';
 import 'tag_chip.dart';
 
 Future<List<Tag>?> showTodoTagSelectorSheet(
   BuildContext context, {
   required List<Tag> initialTags,
 }) {
-  return showModalBottomSheet<List<Tag>>(
+  return showAppSheet<List<Tag>>(
     context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
     builder: (ctx) => TodoTagSelectorSheet(initialTags: initialTags),
   );
 }
@@ -178,28 +180,16 @@ class _TodoTagSelectorSheetState extends State<TodoTagSelectorSheet> {
     final tagsToDelete = _deletableSelectedTags;
     if (tagsToDelete.isEmpty || _deleting) return;
 
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Xóa tag?'),
-        content: Text(
-          tagsToDelete.length == 1
-              ? 'Xóa tag "${tagsToDelete.single.name}" khỏi tài khoản của bạn?'
-              : 'Xóa ${tagsToDelete.length} tag đã chọn khỏi tài khoản của bạn?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Hủy'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Xóa', style: TextStyle(color: AppColors.danger)),
-          ),
-        ],
-      ),
+    final confirm = await showAppConfirmDialog(
+      context,
+      title: 'Xóa tag?',
+      message: tagsToDelete.length == 1
+          ? 'Xóa tag "${tagsToDelete.single.name}" khỏi tài khoản của bạn?'
+          : 'Xóa ${tagsToDelete.length} tag đã chọn khỏi tài khoản của bạn?',
+      confirmLabel: 'Xóa',
+      destructive: true,
     );
-    if (confirm != true || !mounted) return;
+    if (!confirm || !mounted) return;
 
     setState(() => _deleting = true);
     try {
@@ -234,10 +224,7 @@ class _TodoTagSelectorSheetState extends State<TodoTagSelectorSheet> {
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.of(context).viewInsets.bottom;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final secondary = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
+    final secondary = context.appTextSecondary;
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.fromLTRB(16, 0, 16, 16 + bottom),
@@ -246,36 +233,31 @@ class _TodoTagSelectorSheetState extends State<TodoTagSelectorSheet> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  const Text(
-                    'Tags',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
-                  ),
-                  const Spacer(),
-                  if (_deletableSelectedTags.isNotEmpty)
+              AppSheetHeader(
+                title: 'Tags',
+                padding: const EdgeInsets.fromLTRB(4, 0, 0, 8),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_deletableSelectedTags.isNotEmpty)
+                      TextButton(
+                        onPressed: _deleting ? null : _deleteSelectedCustomTags,
+                        child: _deleting
+                            ? const AppSpinner(radius: 8, centered: false)
+                            : const Text(
+                                'Xóa',
+                                style: TextStyle(color: AppColors.danger),
+                              ),
+                      ),
                     TextButton(
-                      onPressed: _deleting ? null : _deleteSelectedCustomTags,
-                      child: _deleting
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Text(
-                              'Xóa',
-                              style: TextStyle(color: AppColors.danger),
-                            ),
+                      onPressed: _selected.isEmpty
+                          ? null
+                          : () => setState(() => _selected = []),
+                      child: const Text('Bỏ chọn'),
                     ),
-                  TextButton(
-                    onPressed: _selected.isEmpty
-                        ? null
-                        : () => setState(() => _selected = []),
-                    child: const Text('Clear'),
-                  ),
-                ],
+                  ],
+                ),
               ),
-              const SizedBox(height: 8),
               TextField(
                 controller: _search,
                 focusNode: _focus,
@@ -304,9 +286,9 @@ class _TodoTagSelectorSheetState extends State<TodoTagSelectorSheet> {
                       ? const SizedBox(
                           width: 24,
                           height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: AppSpinner(radius: 9, centered: false),
                         )
-                      : const Icon(Icons.add_circle_outline),
+                      : const Icon(Icons.add_circle_outline_rounded),
                   title: Text(
                     'Tạo "${TagsRepository.normalizeTagName(_search.text)}"',
                   ),
@@ -333,7 +315,7 @@ class _TodoTagSelectorSheetState extends State<TodoTagSelectorSheet> {
               const SizedBox(height: 12),
               Expanded(
                 child: _loading && _items.isEmpty
-                    ? const Center(child: CircularProgressIndicator())
+                    ? const AppSpinner()
                     : _normalItems.isEmpty
                     ? Center(
                         child: Text(
@@ -374,13 +356,10 @@ class _TodoTagSelectorSheetState extends State<TodoTagSelectorSheet> {
                       ),
               ),
               const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: () => Navigator.of(context).pop(_selected),
-                  icon: const Icon(Icons.check),
-                  label: const Text('Áp dụng'),
-                ),
+              PrimaryButton(
+                label: 'Áp dụng',
+                icon: Icons.check_rounded,
+                onPressed: () => Navigator.of(context).pop(_selected),
               ),
             ],
           ),
@@ -390,9 +369,7 @@ class _TodoTagSelectorSheetState extends State<TodoTagSelectorSheet> {
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: AppColors.danger),
-    );
+    showAppSnack(context, message, isError: true);
   }
 
   List<Tag> _dedupe(List<Tag> tags) {
@@ -487,6 +464,7 @@ class _FeaturedTagButton extends StatelessWidget {
                 ),
               )
             : Icon(preset.icon, size: 16, color: preset.color),
+        showCheckmark: false,
         label: Text(preset.name, maxLines: 1, overflow: TextOverflow.ellipsis),
         labelStyle: TextStyle(
           color: selected ? preset.color : null,

@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 
+import 'app_sheet.dart';
+import 'primary_button.dart';
+
 Future<String?> showChecklistPasteStepsSheet(
   BuildContext context, {
   String initialText = '',
 }) {
-  return showModalBottomSheet<String>(
+  return showAppSheet<String>(
     context: context,
-    isScrollControlled: true,
-    showDragHandle: true,
     builder: (_) => _ChecklistPasteStepsSheet(initialText: initialText),
   );
 }
@@ -37,17 +38,18 @@ class _ChecklistPasteStepsSheetState extends State<_ChecklistPasteStepsSheet> {
   Widget build(BuildContext context) {
     final bottom = MediaQuery.viewInsetsOf(context).bottom;
     return SafeArea(
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(20, 8, 20, 20 + bottom),
+      // Cuộn được để khi bàn phím mở trên màn thấp, sheet không bị tràn đáy.
+      child: SingleChildScrollView(
+        padding: EdgeInsets.fromLTRB(20, 0, 20, 20 + bottom),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Dán nhiều bước',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            const AppSheetHeader(
+              title: 'Dán nhiều bước',
+              subtitle: 'Mỗi dòng sẽ trở thành một bước',
+              padding: EdgeInsets.only(bottom: 12),
             ),
-            const SizedBox(height: 12),
             TextField(
               controller: _controller,
               autofocus: true,
@@ -59,14 +61,10 @@ class _ChecklistPasteStepsSheetState extends State<_ChecklistPasteStepsSheet> {
               ),
             ),
             const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              height: 46,
-              child: ElevatedButton.icon(
-                onPressed: () => Navigator.of(context).pop(_controller.text),
-                icon: const Icon(Icons.content_paste_go_outlined),
-                label: const Text('Thêm vào checklist'),
-              ),
+            PrimaryButton(
+              label: 'Thêm vào checklist',
+              icon: Icons.content_paste_go_outlined,
+              onPressed: () => Navigator.of(context).pop(_controller.text),
             ),
           ],
         ),

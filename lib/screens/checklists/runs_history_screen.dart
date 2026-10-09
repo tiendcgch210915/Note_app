@@ -8,7 +8,10 @@ import '../../models/run.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/checklist_local_events.dart';
 import '../../utils/date_utils.dart';
+import '../../widgets/app_state_views.dart';
+import '../../widgets/app_surface.dart';
 import '../../widgets/empty_state.dart';
+import '../../widgets/run_status_chip.dart';
 import 'run_detail_screen.dart';
 
 /// Standalone screen liệt kê toàn bộ runs (entry từ ngoài ChecklistsScreen).
@@ -133,7 +136,7 @@ class _RunsHistoryScreenState extends State<RunsHistoryScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Lịch sử run')),
       body: !_localLoaded || (_refreshing && _runs.isEmpty)
-          ? const Center(child: CircularProgressIndicator())
+          ? const AppSpinner()
           : _runs.isEmpty
           ? const EmptyState(icon: Icons.history, title: 'Chưa có run nào')
           : RefreshIndicator(
@@ -148,60 +151,54 @@ class _RunsHistoryScreenState extends State<RunsHistoryScreen> {
                 child: ListView.separated(
                   padding: const EdgeInsets.all(16),
                   itemCount: _runs.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
                   itemBuilder: (ctx, i) {
                     final r = _runs[i];
-                    return Container(
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).cardTheme.color,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: ListTile(
-                        leading: const Icon(Icons.checklist),
-                        title: Text(r.displayName),
-                        subtitle: Text(_runSubtitle(r)),
-                        trailing: _chip(r.status),
-                        onTap: () async {
-                          await Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => RunDetailScreen(runId: r.id),
+                    return AppSurface(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+                      onTap: () async {
+                        await openChecklistRun(context, r);
+                        _refresh();
+                      },
+                      onLongPress: () => _deleteRun(r),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.checklist_rounded,
+                            color: context.appPrimary,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  r.displayName,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  _runSubtitle(r),
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: context.appTextSecondary,
+                                  ),
+                                ),
+                              ],
                             ),
-                          );
-                          _refresh();
-                        },
-                        onLongPress: () => _deleteRun(r),
+                          ),
+                          const SizedBox(width: 8),
+                          RunStatusChip(status: r.status),
+                        ],
                       ),
                     );
                   },
                 ),
               ),
             ),
-    );
-  }
-
-  Widget _chip(RunStatus s) {
-    Color c;
-    switch (s) {
-      case RunStatus.inProgress:
-        c = AppColors.success;
-        break;
-      case RunStatus.completed:
-        c = AppColors.textSecondary;
-        break;
-      case RunStatus.abandoned:
-        c = AppColors.warning;
-        break;
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: c.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        s.label,
-        style: TextStyle(fontSize: 11, color: c, fontWeight: FontWeight.w600),
-      ),
     );
   }
 }

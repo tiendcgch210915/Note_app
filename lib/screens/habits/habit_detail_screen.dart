@@ -6,8 +6,18 @@ import '../../models/habit.dart';
 import '../../models/habit_log.dart';
 import '../../models/todo.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
+import '../../utils/app_haptics.dart';
+import '../../utils/app_snack.dart';
 import '../../utils/date_utils.dart';
 import '../../utils/habit_streak_utils.dart';
+import '../../widgets/app_list_section.dart';
+import '../../widgets/habit_calendar_grid.dart';
+import '../../widgets/habit_today_log_panel.dart';
+import '../../widgets/app_sheet.dart';
+import '../../widgets/app_state_views.dart';
+import '../../widgets/app_surface.dart';
+import '../../widgets/empty_state.dart';
 import '../../widgets/section_header.dart';
 import '../../widgets/todo_tile.dart';
 import 'habit_edit_screen.dart';
@@ -31,6 +41,7 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
   List<Todo> _relatedTodos = [];
   bool _loading = false;
   bool _logging = false;
+  String? _loadError;
 
   DateTime get _today => AppDateUtils.dateOnly(DateTime.now());
 
@@ -41,7 +52,10 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
   }
 
   Future<void> _load() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
     try {
       final detailFut = HabitsRepository.instance.getDetail(widget.habitId);
       final logsFut = HabitsRepository.instance.getLogs(
@@ -67,7 +81,12 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
       });
       await _loadRelatedTodos();
     } on ApiException catch (e) {
-      if (mounted) _showError(e.vnMessage);
+      if (!mounted) return;
+      if (_habit == null) {
+        setState(() => _loadError = e.vnMessage);
+      } else {
+        _showError(e.vnMessage);
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -131,12 +150,15 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
         _habit = _copyHabitWithStreak(res.currentStreak, res.longestStreak);
       });
       if (res.log.completed) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('+1 streak! 🔥 (${res.currentStreak} ngày)'),
-            duration: const Duration(seconds: 1),
-          ),
-        );
+        AppHaptics.medium();
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text('+1 streak! 🔥 (${res.currentStreak} ngày)'),
+              duration: const Duration(seconds: 1),
+            ),
+          );
       }
     } on ApiException catch (e) {
       if (mounted) {
@@ -163,10 +185,9 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
           : await HabitsRepository.instance.archive(widget.habitId);
       if (!mounted) return;
       setState(() => _habit = updated);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(updated.isArchived ? 'Đã lưu trữ' : 'Đã bỏ lưu trữ'),
-        ),
+      showAppSnack(
+        context,
+        updated.isArchived ? 'Đã lưu trữ' : 'Đã bỏ lưu trữ',
       );
       if (updated.isArchived) Navigator.of(context).pop();
     } on ApiException catch (e) {
@@ -175,24 +196,14 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
   }
 
   Future<void> _confirmDelete() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Xóa thói quen?'),
-        content: const Text('Tất cả log sẽ không truy cập được nữa.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Hủy'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Xóa', style: TextStyle(color: AppColors.danger)),
-          ),
-        ],
-      ),
+    final confirm = await showAppConfirmDialog(
+      context,
+      title: 'Xóa thói quen?',
+      message: 'Tất cả log sẽ không truy cập được nữa.',
+      confirmLabel: 'Xóa',
+      destructive: true,
     );
-    if (confirm != true) return;
+    if (!confirm || !mounted) return;
     try {
       await HabitsRepository.instance.delete(widget.habitId);
       if (mounted) Navigator.of(context).pop();
@@ -204,42 +215,45 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
   // EXP 6
   Future<void> _onLongPressCell(DateTime date, HabitLog? log) async {
     if (date.isAfter(_today)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Không thể log ngày tương lai')),
-      );
+      showAppSnack(context, 'Không thể log ngày tương lai');
       return;
     }
-    final action = await showModalBottomSheet<String>(
+    AppHaptics.medium();
+    final action = await showAppSheet<String>(
       context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+      builder: (ctx) => AppSheetScaffold(
+        title: AppDateUtils.formatDate(date),
+        child: AppListSection(
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          dividerIndent: AppListSection.iconIndent,
           children: [
-            ListTile(
-              leading: const Icon(Icons.check_circle_outline),
-              title: const Text('Đánh dấu hoàn thành'),
+            AppListTile(
+              icon: Icons.check_circle_rounded,
+              iconColor: AppColors.success,
+              title: 'Đánh dấu hoàn thành',
+              showChevron: false,
               onTap: () => Navigator.of(ctx).pop('done'),
             ),
-            ListTile(
-              leading: const Icon(Icons.cancel_outlined),
-              title: const Text('Đánh dấu chưa làm'),
+            AppListTile(
+              icon: Icons.cancel_rounded,
+              iconColor: AppColors.tagSlate,
+              title: 'Đánh dấu chưa làm',
+              showChevron: false,
               onTap: () => Navigator.of(ctx).pop('undone'),
             ),
-            ListTile(
-              leading: const Icon(Icons.note_outlined),
-              title: const Text('Thêm/sửa ghi chú'),
+            AppListTile(
+              icon: Icons.sticky_note_2_rounded,
+              iconColor: AppColors.tagAmber,
+              title: 'Thêm/sửa ghi chú',
+              showChevron: false,
               onTap: () => Navigator.of(ctx).pop('note'),
             ),
             if (log != null)
-              ListTile(
-                leading: const Icon(
-                  Icons.delete_outline,
-                  color: AppColors.danger,
-                ),
-                title: const Text(
-                  'Xóa log',
-                  style: TextStyle(color: AppColors.danger),
-                ),
+              AppListTile(
+                icon: Icons.delete_rounded,
+                title: 'Xóa log',
+                destructive: true,
+                showChevron: false,
                 onTap: () => Navigator.of(ctx).pop('delete'),
               ),
           ],
@@ -318,10 +332,12 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
     final newNote = await showDialog<String?>(
       context: context,
       builder: (ctx) => AlertDialog(
+        scrollable: true,
         title: Text('Ghi chú · ${AppDateUtils.formatDate(date)}'),
         content: TextField(
           controller: ctrl,
           maxLines: 3,
+          maxLength: 1000,
           decoration: const InputDecoration(
             hintText: 'Ghi chú (tối đa 1000 ký tự)',
           ),
@@ -445,29 +461,26 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
   }
 
   void _showError(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg), backgroundColor: AppColors.danger),
-    );
+    showAppSnack(context, msg, isError: true);
   }
 
   @override
   Widget build(BuildContext context) {
     if (_loading && _habit == null) {
-      return Scaffold(
-        appBar: AppBar(),
-        body: const Center(child: CircularProgressIndicator()),
-      );
+      return Scaffold(appBar: AppBar(), body: const AppSpinner());
     }
     if (_habit == null) {
       return Scaffold(
         appBar: AppBar(),
-        body: const Center(child: Text('Không tìm thấy habit')),
+        body: _loadError != null
+            ? AppErrorState(message: _loadError!, onRetry: _load)
+            : const EmptyState(
+                icon: Icons.search_off_rounded,
+                title: 'Không tìm thấy thói quen',
+              ),
       );
     }
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final textSecondary = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
+    final textSecondary = context.appTextSecondary;
     final habit = _habit!;
     final logsByDate = <DateTime, HabitLog>{
       for (final l in _calendarLogs) AppDateUtils.dateOnly(l.logDate): l,
@@ -492,6 +505,10 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
         .length;
     final todayLog = _logForDate(_today);
     final notesLogs = _recentLogs.where((l) => l.note != null).take(5).toList();
+    // Chữ huy hiệu "kỷ lục": vàng đậm hơn ở light mode để đủ tương phản.
+    final recordText = context.isDark
+        ? AppColors.streakGold
+        : const Color(0xFFB45309);
 
     return Scaffold(
       appBar: AppBar(
@@ -499,11 +516,12 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
         backgroundColor: habit.color.withValues(alpha: 0.12),
         actions: [
           IconButton(
-            icon: const Icon(Icons.edit_outlined),
+            icon: const Icon(Icons.edit_rounded),
             tooltip: 'Chỉnh sửa',
             onPressed: _openEdit,
           ),
           PopupMenuButton<String>(
+            icon: const Icon(Icons.more_horiz_rounded),
             onSelected: (v) {
               if (v == 'archive') {
                 _toggleArchive();
@@ -514,11 +532,32 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
             itemBuilder: (_) => [
               PopupMenuItem(
                 value: 'archive',
-                child: Text(habit.isArchived ? 'Bỏ lưu trữ' : 'Lưu trữ'),
+                child: Row(
+                  children: [
+                    Icon(
+                      habit.isArchived
+                          ? Icons.unarchive_outlined
+                          : Icons.archive_outlined,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 12),
+                    Text(habit.isArchived ? 'Bỏ lưu trữ' : 'Lưu trữ'),
+                  ],
+                ),
               ),
               const PopupMenuItem(
                 value: 'delete',
-                child: Text('Xóa', style: TextStyle(color: AppColors.danger)),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.delete_outline_rounded,
+                      size: 20,
+                      color: AppColors.danger,
+                    ),
+                    SizedBox(width: 12),
+                    Text('Xóa', style: TextStyle(color: AppColors.danger)),
+                  ],
+                ),
               ),
             ],
           ),
@@ -537,7 +576,7 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
                 gradient: LinearGradient(
                   colors: [
                     habit.color.withValues(alpha: 0.18),
-                    Colors.transparent,
+                    habit.color.withValues(alpha: 0),
                   ],
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
@@ -545,13 +584,21 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
               ),
               child: Column(
                 children: [
-                  Text(
-                    '${habit.currentStreak}',
-                    style: const TextStyle(
-                      fontSize: 72,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -2,
-                      height: 1,
+                  AnimatedSwitcher(
+                    duration: AppMotion.normal,
+                    transitionBuilder: (child, animation) => FadeTransition(
+                      opacity: animation,
+                      child: ScaleTransition(scale: animation, child: child),
+                    ),
+                    child: Text(
+                      '${habit.currentStreak}',
+                      key: ValueKey(habit.currentStreak),
+                      style: const TextStyle(
+                        fontSize: 72,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -2,
+                        height: 1,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -559,7 +606,7 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       const Icon(
-                        Icons.local_fire_department,
+                        Icons.local_fire_department_rounded,
                         color: AppColors.streakGold,
                       ),
                       const SizedBox(width: 6),
@@ -575,16 +622,16 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
                       horizontal: 12,
                       vertical: 4,
                     ),
-                    decoration: BoxDecoration(
-                      color: AppColors.streakGold.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(20),
+                    decoration: ShapeDecoration(
+                      color: AppColors.streakGold.withValues(alpha: 0.18),
+                      shape: AppShape.pill,
                     ),
                     child: Text(
                       'Kỷ lục: ${habit.longestStreak} ngày',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
-                        color: AppColors.streakGold,
-                        fontWeight: FontWeight.w600,
+                        color: recordText,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
@@ -595,64 +642,25 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
             // Today CTA
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: Container(
+              child: AppSurface(
                 padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).cardTheme.color,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Column(
-                  children: [
-                    Text(
-                      todayLog == null
-                          ? 'Đã hoàn thành hôm nay chưa?'
-                          : todayLog.completed
-                          ? 'Bạn đã hoàn thành hôm nay'
-                          : 'Bạn đã đánh dấu bỏ lỡ hôm nay',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _TodayLogButton(
-                            label: 'Hoàn thành',
-                            icon: Icons.check_rounded,
-                            color: AppColors.success,
-                            selected: todayLog?.completed == true,
-                            onPressed: _logging
-                                ? null
-                                : () => _setTodayLog(true),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _TodayLogButton(
-                            label: 'Bỏ lỡ',
-                            icon: Icons.close_rounded,
-                            color: AppColors.danger,
-                            selected: todayLog?.completed == false,
-                            onPressed: _logging
-                                ? null
-                                : () => _setTodayLog(false),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                child: HabitTodayLogPanel(
+                  completed: todayLog?.completed,
+                  busy: _logging,
+                  onLog: _setTodayLog,
                 ),
               ),
             ),
 
-            const SectionHeader(label: '28 ngày gần đây (long-press để sửa)'),
-            _CalendarGrid(
+            const SectionHeader(label: '28 ngày gần đây (nhấn giữ để sửa)'),
+            HabitCalendarGrid(
               habit: habit,
-              logsByDate: logsByDate,
+              completedByDate: {
+                for (final entry in logsByDate.entries)
+                  entry.key: entry.value.completed,
+              },
               today: _today,
-              onLongPress: _onLongPressCell,
+              onLongPress: (date) => _onLongPressCell(date, logsByDate[date]),
             ),
             const SizedBox(height: 16),
 
@@ -681,29 +689,45 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
             ),
             if (notesLogs.isNotEmpty) ...[
               const SectionHeader(label: 'Ghi chú gần đây'),
-              ...notesLogs.map(
-                (l) => ListTile(
-                  leading: Icon(Icons.note_outlined, color: textSecondary),
-                  title: Text(l.note ?? ''),
-                  subtitle: Text(AppDateUtils.formatDate(l.logDate)),
-                ),
+              AppListSection(
+                margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                dividerIndent: AppListSection.iconIndent,
+                children: [
+                  for (final l in notesLogs)
+                    AppListTile(
+                      icon: Icons.sticky_note_2_rounded,
+                      iconColor: AppColors.tagAmber,
+                      title: l.note ?? '',
+                      subtitle: AppDateUtils.formatDate(l.logDate),
+                    ),
+                ],
               ),
             ],
             const SectionHeader(label: 'Todos liên quan'),
             if (_relatedTodos.isEmpty)
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                padding: const EdgeInsets.fromLTRB(20, 0, 16, 12),
                 child: Text(
                   'Chưa có todo liên kết',
                   style: TextStyle(color: textSecondary),
                 ),
               )
             else
-              ..._relatedTodos.map(
-                (todo) => TodoTile(
-                  todo: todo,
-                  compact: true,
-                  onTap: () => _openTodo(todo),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: AppSurface(
+                  clipBehavior: Clip.antiAlias,
+                  showShadow: false,
+                  child: Column(
+                    children: [
+                      for (final todo in _relatedTodos)
+                        TodoTile(
+                          todo: todo,
+                          compact: true,
+                          onTap: () => _openTodo(todo),
+                        ),
+                    ],
+                  ),
                 ),
               ),
           ],
@@ -713,322 +737,19 @@ class _HabitDetailScreenState extends State<HabitDetailScreen> {
   }
 
   Widget _statCard(String label, String value, Color secondary) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardTheme.color,
-        borderRadius: BorderRadius.circular(12),
-      ),
+    return AppSurface(
+      padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: TextStyle(fontSize: 11, color: secondary)),
+          Text(label, style: TextStyle(fontSize: 12, color: secondary)),
           const SizedBox(height: 4),
           Text(
             value,
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
           ),
         ],
       ),
     );
-  }
-}
-
-class _TodayLogButton extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final Color color;
-  final bool selected;
-  final VoidCallback? onPressed;
-
-  const _TodayLogButton({
-    required this.label,
-    required this.icon,
-    required this.color,
-    required this.selected,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final foreground = selected ? Colors.white : color;
-    return SizedBox(
-      height: 48,
-      child: ElevatedButton.icon(
-        onPressed: onPressed,
-        icon: Icon(icon, size: 20),
-        label: Text(label),
-        style: ElevatedButton.styleFrom(
-          elevation: selected ? 1 : 0,
-          backgroundColor: selected ? color : color.withValues(alpha: 0.12),
-          foregroundColor: foreground,
-          disabledBackgroundColor: color.withValues(alpha: 0.08),
-          disabledForegroundColor: color.withValues(alpha: 0.45),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-            side: BorderSide(color: color.withValues(alpha: 0.55)),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CalendarGrid extends StatelessWidget {
-  final Habit habit;
-  final Map<DateTime, HabitLog> logsByDate;
-  final DateTime today;
-  final void Function(DateTime, HabitLog?) onLongPress;
-
-  const _CalendarGrid({
-    required this.habit,
-    required this.logsByDate,
-    required this.today,
-    required this.onLongPress,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final secondary = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
-    final surface = isDark ? AppColors.surfaceDark : AppColors.surface;
-    final borderColor = isDark
-        ? AppColors.dividerDark.withValues(alpha: 0.95)
-        : AppColors.divider;
-    final headerColor = isDark
-        ? AppColors.backgroundDark.withValues(alpha: 0.65)
-        : AppColors.background;
-    final todayOnly = AppDateUtils.dateOnly(today);
-    final habitStart = AppDateUtils.dateOnly(habit.startDate);
-    final todayWeekStart = todayOnly.subtract(
-      Duration(days: todayOnly.weekday - DateTime.monday),
-    );
-    final defaultGridStart = todayWeekStart.subtract(const Duration(days: 14));
-    final gridStart = habitStart.isAfter(defaultGridStart)
-        ? habitStart
-        : defaultGridStart;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: surface,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: borderColor, width: 1),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: Column(
-            children: [
-              Row(
-                children: List.generate(7, (index) {
-                  final weekday = ((gridStart.weekday - 1 + index) % 7) + 1;
-                  return Expanded(
-                    child: Container(
-                      height: 30,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: headerColor,
-                        border: Border.all(
-                          color: borderColor.withValues(alpha: 0.75),
-                          width: 0.6,
-                        ),
-                      ),
-                      child: Text(
-                        AppDateUtils.weekdayShort(weekday),
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: secondary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  );
-                }),
-              ),
-              GridView.builder(
-                itemCount: 28,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 7,
-                  mainAxisSpacing: 0,
-                  crossAxisSpacing: 0,
-                  childAspectRatio: 0.72,
-                ),
-                itemBuilder: (context, index) {
-                  final date = gridStart.add(Duration(days: index));
-                  final log = logsByDate[date];
-                  final isToday = AppDateUtils.isSameDay(date, today);
-                  return _CalendarCell(
-                    date: date,
-                    log: log,
-                    surface: surface,
-                    secondary: secondary,
-                    borderColor: borderColor,
-                    accent: habit.color,
-                    isToday: isToday,
-                    onLongPress: () => onLongPress(date, log),
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CalendarCell extends StatelessWidget {
-  final DateTime date;
-  final HabitLog? log;
-  final Color surface;
-  final Color secondary;
-  final Color borderColor;
-  final Color accent;
-  final bool isToday;
-  final VoidCallback onLongPress;
-
-  const _CalendarCell({
-    required this.date,
-    required this.log,
-    required this.surface,
-    required this.secondary,
-    required this.borderColor,
-    required this.accent,
-    required this.isToday,
-    required this.onLongPress,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final labelColor = isToday ? accent : secondary;
-    return GestureDetector(
-      onLongPress: onLongPress,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 6),
-        decoration: BoxDecoration(
-          color: isToday
-              ? Color.alphaBlend(accent.withValues(alpha: 0.14), surface)
-              : surface,
-          border: Border.all(
-            color: isToday ? accent : borderColor.withValues(alpha: 0.75),
-            width: isToday ? 1.4 : 0.6,
-          ),
-          boxShadow: isToday
-              ? [
-                  BoxShadow(
-                    color: accent.withValues(alpha: 0.18),
-                    blurRadius: 10,
-                    offset: const Offset(0, 2),
-                  ),
-                ]
-              : null,
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            SizedBox(
-              height: 30,
-              child: Center(
-                child: log?.completed == true
-                    ? _FlameIcon(completed: true, size: isToday ? 28 : 24)
-                    : log == null
-                    ? const SizedBox.shrink()
-                    : _FlameIcon(completed: false, size: isToday ? 28 : 24),
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '${date.day}/${date.month}',
-              maxLines: 1,
-              overflow: TextOverflow.clip,
-              style: TextStyle(
-                fontSize: 10,
-                height: 1,
-                color: labelColor,
-                fontWeight: isToday ? FontWeight.w800 : FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _FlameIcon extends StatelessWidget {
-  final bool completed;
-  final double size;
-
-  const _FlameIcon({required this.completed, required this.size});
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(
-      size: Size.square(size),
-      painter: _FlamePainter(completed: completed),
-    );
-  }
-}
-
-class _FlamePainter extends CustomPainter {
-  final bool completed;
-
-  const _FlamePainter({required this.completed});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width;
-    final h = size.height;
-    final outerPath = Path()
-      ..moveTo(w * 0.58, h * 0.02)
-      ..cubicTo(w * 0.34, h * 0.19, w * 0.43, h * 0.37, w * 0.36, h * 0.49)
-      ..cubicTo(w * 0.28, h * 0.39, w * 0.28, h * 0.29, w * 0.18, h * 0.22)
-      ..cubicTo(w * 0.21, h * 0.41, w * 0.08, h * 0.50, w * 0.08, h * 0.68)
-      ..cubicTo(w * 0.08, h * 0.88, w * 0.27, h * 0.99, w * 0.46, h * 0.98)
-      ..cubicTo(w * 0.34, h * 0.89, w * 0.39, h * 0.74, w * 0.49, h * 0.64)
-      ..cubicTo(w * 0.54, h * 0.76, w * 0.67, h * 0.83, w * 0.58, h * 0.98)
-      ..cubicTo(w * 0.78, h * 0.94, w * 0.93, h * 0.79, w * 0.90, h * 0.59)
-      ..cubicTo(w * 0.88, h * 0.42, w * 0.76, h * 0.32, w * 0.78, h * 0.18)
-      ..cubicTo(w * 0.66, h * 0.25, w * 0.65, h * 0.38, w * 0.58, h * 0.02)
-      ..close();
-
-    final outerColors = completed
-        ? const [Color(0xFFFF2D14), Color(0xFFFF7A18), Color(0xFFFFE45C)]
-        : const [Color(0xFF0B6DFF), Color(0xFF1688FF), Color(0xFF74D2FF)];
-    final outerPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: outerColors,
-      ).createShader(Offset.zero & size);
-    canvas.drawPath(outerPath, outerPaint);
-
-    final innerPath = Path()
-      ..moveTo(w * 0.50, h * 0.96)
-      ..cubicTo(w * 0.33, h * 0.86, w * 0.39, h * 0.70, w * 0.50, h * 0.59)
-      ..cubicTo(w * 0.57, h * 0.71, w * 0.72, h * 0.79, w * 0.62, h * 0.96)
-      ..cubicTo(w * 0.58, h * 0.99, w * 0.53, h * 0.99, w * 0.50, h * 0.96)
-      ..close();
-    final innerColors = completed
-        ? const [Color(0xFFFFFFFF), Color(0xFFFFF46A), Color(0xFFFFB23F)]
-        : const [Color(0xFFE8F7FF), Color(0xFF7DDCFF), Color(0xFF1E9BFF)];
-    final innerPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.bottomCenter,
-        end: Alignment.topCenter,
-        colors: innerColors,
-      ).createShader(Offset.zero & size);
-    canvas.drawPath(innerPath, innerPaint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _FlamePainter oldDelegate) {
-    return oldDelegate.completed != completed;
   }
 }

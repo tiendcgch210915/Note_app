@@ -24,7 +24,28 @@
       "Bash(gh auth *)",
       "Read(//c/Program Files/Java/jdk-24/bin/**)",
       "Read(//c/flutter/bin/cache/artifacts/engine/android-arm64-release//**)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(grep -v \"^\\\\s*$\")",
+      "Bash(cp lib/utils/active_session_lock.dart /tmp/active_session_lock.bak)",
+      "Bash(sed -i 's#bool isFreeFor\\(ActiveSessionRef ref\\) => _holder == null || _holder == ref;#bool isFreeFor\\(ActiveSessionRef ref\\) => true;#' lib/utils/active_session_lock.dart)",
+      "Bash(grep -n \"Future<\\({Todo reopened, String parkedId}\\)> parkOne\" -B3 -A 18 test/todo_recurrence_parked_visibility_test.dart)",
+      "Bash(sed -i 's#if \\(unlessAsking == TodoStatus.archived\\) return todos;#return todos;#' lib/data/todos_repository.dart)",
+      "Bash(perl -0pi -e 's/return result\\\\r?\\\\n\\\\s*\\\\.where\\\\\\(\\\\\\(item\\\\\\) => item\\\\.todo\\\\.status != TodoStatus\\\\.archived\\\\\\)\\\\r?\\\\n\\\\s*\\\\.toList\\\\\\(\\\\\\);/return result;/' lib/data/todos_repository.dart)",
+      "Bash(java -version)",
+      "Bash(tasklist)",
+      "Bash(cp test/todo_recurrence_sync_test.dart /tmp/sync_test.bak)",
+      "Bash(sed -i \"s#if \\(options.path.endsWith\\('/sync/push'\\)\\) {#print\\('PATH=\\\\${options.path} URI=\\\\${options.uri}'\\); if \\(options.path.endsWith\\('/sync/push'\\)\\) {#\" test/todo_recurrence_sync_test.dart)",
+      "Bash(sed -i \"s#options.path.endsWith\\('/sync/push'\\)#options.path.contains\\('sync/push'\\)#\" test/todo_recurrence_sync_test.dart)",
+      "Bash(flutter build *)",
+      "Bash(echo \"EXIT=$?\")",
+      "Read(//tmp/**)",
+      "Bash(sleep 45; cat /tmp/fcm_build_release.log 2>/dev/null | tail -6)",
+      "Bash(sed -i 's#^ }, skip: skip != null\\);# }\\);#' test/e2e/recurring_backend_e2e_test.dart)",
+      "Bash(sed -i 's#^ setUpAll\\(\\(\\) async {# setUpAll\\(\\(\\) async {\\\\n if \\(skip != null\\) return;#' test/e2e/recurring_backend_e2e_test.dart)",
+      "Bash(break)",
+      "Bash(netstat -ano)",
+      "Bash(awk '{print $NF}')",
+      "Bash(awk '{print $6, $7}')"
     ]
   }
 }

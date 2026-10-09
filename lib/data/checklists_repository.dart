@@ -528,6 +528,15 @@ class ChecklistsRepository {
     }
   }
 
+  /// Chỉ đọc Drift, không gọi mạng; `null` nếu run chưa có trong cache hoặc đã
+  /// bị xóa. Khác [getRun], run chưa có bước nào vẫn được trả về.
+  Future<({Run run, List<RunItem> items})?> getRunLocal(String id) async {
+    final row = await _db.checklistsDao.getRunById(id);
+    if (row == null) return null;
+    final items = await _db.checklistsDao.getItemsForRun(id);
+    return (run: _runRowToModel(row), items: await _runItemRowsToModels(items));
+  }
+
   /// F-C12 Get run detail. Ưu tiên bản trong Drift; chỉ gọi server khi chưa
   /// có cache. Dùng [refreshRun] để làm mới bản đã có.
   Future<({Run run, List<RunItem> items})> getRun(String id) async {

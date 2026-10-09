@@ -73,13 +73,37 @@ void main() {
   });
 
   group('lifecycle', () {
-    testWidgets('start replaces a running session', (tester) async {
-      controller.start(_detail(_todo('a')), const Duration(minutes: 5));
-      controller.start(_detail(_todo('b')), const Duration(minutes: 25));
+    testWidgets('start is refused while another todo is running', (
+      tester,
+    ) async {
+      expect(
+        controller.start(_detail(_todo('a')), const Duration(minutes: 5)),
+        isTrue,
+      );
+      expect(
+        controller.start(_detail(_todo('b')), const Duration(minutes: 25)),
+        isFalse,
+      );
 
-      expect(controller.isActiveFor('a'), isFalse);
+      // Phiên đang chạy giữ nguyên, không bị thay thế hay reset.
+      expect(controller.isActiveFor('a'), isTrue);
+      expect(controller.isActiveFor('b'), isFalse);
+      expect(controller.session.value!.total, const Duration(minutes: 5));
+
+      controller.cancel();
+    });
+
+    testWidgets('a new todo can start once the previous one finished', (
+      tester,
+    ) async {
+      controller.start(_detail(_todo('a')), const Duration(minutes: 5));
+      controller.finish(completedAll: true);
+
+      expect(
+        controller.start(_detail(_todo('b')), const Duration(minutes: 25)),
+        isTrue,
+      );
       expect(controller.isActiveFor('b'), isTrue);
-      expect(controller.session.value!.total, const Duration(minutes: 25));
 
       controller.cancel();
     });

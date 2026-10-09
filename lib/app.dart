@@ -9,11 +9,16 @@ import 'data/todos_repository.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/shell/home_shell.dart';
 import 'data/remote/api_client_dio.dart';
+import 'push/push_navigation.dart';
 import 'sync/connectivity_sync.dart';
 import 'sync/sync_worker.dart';
+import 'theme/app_colors.dart';
+import 'theme/app_scroll_behavior.dart';
 import 'theme/app_theme.dart';
+import 'theme/app_tokens.dart';
 import 'utils/app_navigator.dart';
-import 'utils/focus_session_controller.dart';
+import 'utils/active_session_guard.dart';
+import 'widgets/app_state_views.dart';
 import 'widgets/focus_session_banner.dart';
 import 'widgets/frog_completion_celebration.dart';
 
@@ -89,6 +94,9 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       _isAuthenticated = isAuth;
       _isReady = true;
     });
+    // Cho thông báo đẩy biết màn hình đầu tiên đã có: từ đây mới mở được đích
+    // đến của thông báo đã chạm lúc khởi động nguội.
+    PushNavigation.instance.markAppReady();
 
     // 5. Start connectivity listener (will trigger sync on reconnect)
     await ConnectivitySync.instance.init();
@@ -101,7 +109,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
     // 6. Listen for 401 → force back to login
     needsReLoginNotifier.stream.listen((_) {
-      FocusSessionController.instance.cancel();
+      cancelAllSessions();
       if (mounted) {
         setState(() {
           _isAuthenticated = false;
@@ -146,14 +154,20 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             theme: AppTheme.light(),
             darkTheme: AppTheme.dark(),
             themeMode: mode,
+            scrollBehavior: const AppScrollBehavior(),
             builder: (context, child) => FrogCompletionCelebrationHost(
               child: FocusSessionBannerHost(
                 child: child ?? const SizedBox.shrink(),
               ),
             ),
-            home: _isReady
-                ? (_isAuthenticated ? const HomeShell() : const LoginScreen())
-                : const _BootstrapLoading(),
+            home: AnimatedSwitcher(
+              duration: AppMotion.slow,
+              child: !_isReady
+                  ? const _BootstrapLoading(key: ValueKey('bootstrap'))
+                  : _isAuthenticated
+                  ? const HomeShell(key: ValueKey('home-shell'))
+                  : const LoginScreen(key: ValueKey('login')),
+            ),
           );
         },
       ),
@@ -162,19 +176,32 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 }
 
 class _BootstrapLoading extends StatelessWidget {
-  const _BootstrapLoading();
+  const _BootstrapLoading({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
+    return Scaffold(
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.task_alt, size: 56, color: Color(0xFF4F46E5)),
-            SizedBox(height: 16),
-            CircularProgressIndicator(),
+            Container(
+              width: 76,
+              height: 76,
+              decoration: ShapeDecoration(
+                color: AppColors.accentFill,
+                shape: AppShape.squircle(AppRadius.xl + 4),
+                shadows: AppShadows.card(context.isDark),
+              ),
+              child: const Icon(
+                Icons.task_alt_rounded,
+                size: 42,
+                color: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 28),
+            const AppSpinner(centered: false),
           ],
         ),
       ),

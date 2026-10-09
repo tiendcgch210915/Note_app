@@ -7,6 +7,8 @@ import '../../data/notes_repository.dart';
 import '../../models/note.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/note_local_events.dart';
+import '../../widgets/app_segmented_control.dart';
+import '../../widgets/app_state_views.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/note_card.dart';
 import 'note_detail_screen.dart';
@@ -131,51 +133,50 @@ class _NotesListScreenState extends State<NotesListScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final background = isDark
-        ? AppColors.noteBackgroundDark
-        : AppColors.noteBackground;
     return ColoredBox(
-      color: background,
+      color: context.appNoteBackground,
       child: Column(
         children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Notes',
-                style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
-              ),
-            ),
-          ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
-            child: TextField(
-              controller: _search,
-              onChanged: _handleSearch,
-              decoration: const InputDecoration(
-                hintText: 'Tìm trong Notes',
-                prefixIcon: Icon(Icons.search, size: 20),
-                isDense: true,
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+            child: ValueListenableBuilder<TextEditingValue>(
+              valueListenable: _search,
+              builder: (context, value, _) => TextField(
+                controller: _search,
+                onChanged: _handleSearch,
+                textInputAction: TextInputAction.search,
+                decoration: InputDecoration(
+                  hintText: 'Tìm trong Notes',
+                  prefixIcon: const Icon(Icons.search_rounded, size: 22),
+                  isDense: true,
+                  suffixIcon: value.text.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Xoá tìm kiếm',
+                          icon: const Icon(Icons.cancel_rounded, size: 18),
+                          onPressed: () {
+                            _search.clear();
+                            _handleSearch('');
+                          },
+                        ),
+                ),
               ),
             ),
           ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: SegmentedButton<String>(
+            child: AppSegmentedControl<String>(
+              value: _type?.backendValue ?? 'all',
+              onChanged: (value) =>
+                  _selectType(value == 'all' ? null : NoteType.parse(value)),
               segments: const [
-                ButtonSegment(value: 'all', label: Text('Tất cả')),
-                ButtonSegment(value: 'free', label: Text('Thường')),
-                ButtonSegment(value: 'cornell', label: Text('Cornell')),
+                AppSegment(value: 'all', label: 'Tất cả'),
+                AppSegment(value: 'free', label: 'Thường'),
+                AppSegment(value: 'cornell', label: 'Cornell'),
               ],
-              selected: {_type?.backendValue ?? 'all'},
-              onSelectionChanged: (selection) {
-                final value = selection.first;
-                _selectType(value == 'all' ? null : NoteType.parse(value));
-              },
             ),
           ),
+          const SizedBox(height: 4),
           if (_loading && _notes.isNotEmpty)
             const LinearProgressIndicator(minHeight: 2),
           Expanded(child: _buildBody()),
@@ -186,35 +187,37 @@ class _NotesListScreenState extends State<NotesListScreen> {
 
   Widget _buildBody() {
     if (_loading && _notes.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const AppSpinner();
     }
     if (_notes.isEmpty && _error != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(_error!, textAlign: TextAlign.center),
-              const SizedBox(height: 12),
-              TextButton(onPressed: _refresh, child: const Text('Thử lại')),
-            ],
-          ),
-        ),
-      );
+      return AppErrorState(message: _error!, onRetry: _refresh);
     }
     if (_notes.isEmpty) {
-      return RefreshIndicator(
-        onRefresh: _refresh,
-        child: ListView(
-          children: const [
-            SizedBox(height: 110),
-            EmptyState(
-              icon: Icons.sticky_note_2_outlined,
-              title: 'Chưa có note nào',
-              subtitle: 'Bấm dấu cộng để tạo note đầu tiên.',
+      final searching = _query.isNotEmpty;
+      // Vẫn cuộn được để kéo-làm-mới hoạt động ngay cả khi danh sách rỗng.
+      return LayoutBuilder(
+        builder: (context, constraints) => RefreshIndicator(
+          onRefresh: _refresh,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: constraints.maxHeight),
+              child: Center(
+                child: searching
+                    ? EmptyState(
+                        icon: Icons.search_off_rounded,
+                        title: 'Không tìm thấy note nào',
+                        subtitle: 'Không có note khớp với "$_query".',
+                      )
+                    : const EmptyState(
+                        icon: Icons.sticky_note_2_outlined,
+                        title: 'Chưa có note nào',
+                        subtitle:
+                            'Bấm nút bút ở góc dưới để tạo note đầu tiên.',
+                      ),
+              ),
             ),
-          ],
+          ),
         ),
       );
     }
@@ -222,6 +225,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
       onRefresh: _refresh,
       child: ListView.separated(
         controller: _scrollController,
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 14, 16, 96),
         itemCount: _notes.length + (_loadingMore ? 1 : 0),
         separatorBuilder: (_, _) => const SizedBox(height: 10),
@@ -229,7 +233,7 @@ class _NotesListScreenState extends State<NotesListScreen> {
           if (index == _notes.length) {
             return const Padding(
               padding: EdgeInsets.all(16),
-              child: Center(child: CircularProgressIndicator()),
+              child: AppSpinner(radius: 10),
             );
           }
           final note = _notes[index];

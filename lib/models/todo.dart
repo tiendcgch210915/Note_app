@@ -292,10 +292,38 @@ class Todo {
   /// True for both templates and instances.
   bool get isRecurring => isRecurrenceTemplate || isRecurrenceInstance;
 
-  /// Parsed list of ISO weekday ints (1=Mon … 7=Sun).
-  List<int> get activeDaysOfWeek => (recurrenceDaysOfWeek ?? '').isEmpty
-      ? []
-      : recurrenceDaysOfWeek!.split(',').map(int.parse).toList();
+  /// True when this row carries its own repeat rule. The template does, and so
+  /// does every real occurrence: completing a recurring todo creates the next
+  /// one with the same `recurrence_*` fields plus a template id. Only a legacy
+  /// projection (template id without a rule) has none.
+  bool get hasRecurrenceRule => recurrenceType != null;
+
+  /// Text for the "Lặp lại" row. A real occurrence shows its rule ("Mỗi ngày",
+  /// "T3"…) exactly like the original; "Theo lịch lặp gốc" is reserved for rows
+  /// that really have no rule of their own.
+  String get repeatRowValue {
+    if (hasRecurrenceRule) return recurrenceLabel;
+    if (isRecurrenceInstance) return 'Theo lịch lặp gốc';
+    return 'Không lặp lại';
+  }
+
+  /// Parsed list of ISO weekday ints (1=Mon … 7=Sun), sorted and de-duplicated.
+  ///
+  /// Mirrors the backend's `parseWeekdays`: junk entries ("x", "", "9") are
+  /// dropped instead of throwing, so both sides compute the same next date
+  /// from the same stored string.
+  List<int> get activeDaysOfWeek {
+    final raw = recurrenceDaysOfWeek;
+    if (raw == null || raw.isEmpty) return [];
+    final days = <int>{};
+    for (final part in raw.split(',')) {
+      final day = int.tryParse(part.trim());
+      if (day != null && day >= DateTime.monday && day <= DateTime.sunday) {
+        days.add(day);
+      }
+    }
+    return days.toList()..sort();
+  }
 
   /// Human-readable label for the recurrence pattern (Vietnamese).
   String get recurrenceLabel {

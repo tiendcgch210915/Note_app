@@ -24,22 +24,15 @@ class ScoreRing extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final ringColor =
-        color ?? (isDark ? AppColors.primaryDark : AppColors.primary);
-    final bgColor =
-        backgroundColor ?? (isDark ? AppColors.dividerDark : AppColors.divider);
-    final textColor = isDark
-        ? AppColors.textPrimaryDark
-        : AppColors.textPrimary;
+    final ringColor = color ?? context.appPrimary;
+    final bgColor = backgroundColor ?? context.appDivider;
+    final textColor = context.appTextPrimary;
     final displayScore = math.max(0, score);
     final exceptional = displayScore > 100;
     final progress = math.min(displayScore, 100) / 100;
     final effectiveRingColor =
         color ?? (exceptional ? AppColors.warning : ringColor);
-    final secondary = isDark
-        ? AppColors.textSecondaryDark
-        : AppColors.textSecondary;
+    final secondary = context.appTextSecondary;
 
     return SizedBox(
       width: size,
@@ -47,14 +40,20 @@ class ScoreRing extends StatelessWidget {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          CustomPaint(
-            size: Size.square(size),
-            painter: _RingPainter(
-              progress: progress,
-              color: effectiveRingColor,
-              backgroundColor: bgColor,
-              strokeWidth: strokeWidth,
-              overachieved: exceptional,
+          // Cung vòng quét mượt khi xuất hiện/đổi điểm (số hiển thị tức thì).
+          TweenAnimationBuilder<double>(
+            tween: Tween(begin: 0, end: progress),
+            duration: const Duration(milliseconds: 700),
+            curve: Curves.easeOutCubic,
+            builder: (context, value, _) => CustomPaint(
+              size: Size.square(size),
+              painter: _RingPainter(
+                progress: value,
+                color: effectiveRingColor,
+                backgroundColor: bgColor,
+                strokeWidth: strokeWidth,
+                overachieved: exceptional,
+              ),
             ),
           ),
           if (showLabel)

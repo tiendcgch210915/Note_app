@@ -9,7 +9,13 @@ import '../../data/notes_repository.dart';
 import '../../models/note.dart';
 import '../../models/tag.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/app_tokens.dart';
+import '../../utils/app_haptics.dart';
+import '../../utils/app_snack.dart';
 import '../../utils/note_delta_utils.dart';
+import '../../widgets/app_segmented_control.dart';
+import '../../widgets/app_sheet.dart';
+import '../../widgets/app_state_views.dart';
 import '../../widgets/cornell_note_layout.dart';
 import '../../widgets/note_quill_editor.dart';
 import '../../widgets/note_relation_pickers.dart';
@@ -402,31 +408,15 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
     await _reloadLocalDetail();
   }
 
-  Future<String?> _askLinkLabel() async {
-    final controller = TextEditingController();
-    final result = await showDialog<String?>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Nhãn liên kết'),
-        content: TextField(
-          controller: controller,
-          maxLength: 100,
-          decoration: const InputDecoration(hintText: 'Tùy chọn'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(null),
-            child: const Text('Bỏ qua'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('Thêm'),
-          ),
-        ],
-      ),
+  Future<String?> _askLinkLabel() {
+    return showAppTextInputDialog(
+      context,
+      title: 'Nhãn liên kết',
+      hintText: 'Tùy chọn',
+      confirmLabel: 'Thêm',
+      cancelLabel: 'Bỏ qua',
+      maxLength: 100,
     );
-    controller.dispose();
-    return result;
   }
 
   Future<void> _removeLink(OutgoingLink link) async {
@@ -515,18 +505,20 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
     _EditorSaveState.error => 'Lỗi đồng bộ',
   };
 
+  IconData get _saveIcon => switch (_saveState) {
+    _EditorSaveState.saved => Icons.check_circle_outline_rounded,
+    _EditorSaveState.saving => Icons.sync_rounded,
+    _EditorSaveState.pending => Icons.cloud_upload_outlined,
+    _EditorSaveState.error => Icons.error_outline_rounded,
+  };
+
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: AppColors.danger),
-    );
+    showAppSnack(context, message, isError: true);
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final background = isDark
-        ? AppColors.noteBackgroundDark
-        : AppColors.noteBackground;
+    final background = context.appNoteBackground;
     final activeController = _activeController;
     final bottomPadding = noteKeyboardAwareBottomPadding(
       viewportSize: MediaQuery.sizeOf(context),
@@ -538,7 +530,15 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
     if (_loading && _detail == null) {
       return Scaffold(
         backgroundColor: background,
-        body: const Center(child: CircularProgressIndicator()),
+        appBar: AppBar(
+          backgroundColor: background,
+          leading: IconButton(
+            tooltip: 'Quay lại',
+            onPressed: () => Navigator.of(context).maybePop(),
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
+          ),
+        ),
+        body: const AppSpinner(),
       );
     }
 
@@ -555,15 +555,37 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
           leading: IconButton(
             tooltip: 'Quay lại',
             onPressed: () => _handleBack(null),
-            icon: const Icon(Icons.arrow_back),
+            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
           ),
-          title: Text(
-            _saveLabel,
-            style: TextStyle(
-              fontSize: 13,
-              color: _saveState == _EditorSaveState.error
-                  ? AppColors.danger
-                  : null,
+          title: AnimatedSwitcher(
+            duration: AppMotion.normal,
+            child: Row(
+              key: ValueKey(_saveState),
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _saveIcon,
+                  size: 16,
+                  color: _saveState == _EditorSaveState.error
+                      ? AppColors.danger
+                      : context.appTextSecondary,
+                ),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    _saveLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: _saveState == _EditorSaveState.error
+                          ? AppColors.danger
+                          : null,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           actions: [
@@ -574,13 +596,24 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
               ),
             IconButton(
               tooltip: _pinned ? 'Bỏ ghim' : 'Ghim note',
-              onPressed: _togglePin,
-              icon: Icon(_pinned ? Icons.push_pin : Icons.push_pin_outlined),
+              onPressed: () {
+                AppHaptics.selection();
+                _togglePin();
+              },
+              icon: AnimatedSwitcher(
+                duration: AppMotion.fast,
+                transitionBuilder: (child, animation) =>
+                    ScaleTransition(scale: animation, child: child),
+                child: Icon(
+                  _pinned ? Icons.push_pin_rounded : Icons.push_pin_outlined,
+                  key: ValueKey(_pinned),
+                ),
+              ),
             ),
             IconButton(
               tooltip: 'Xóa note',
               onPressed: _delete,
-              icon: const Icon(Icons.delete_outline),
+              icon: const Icon(Icons.delete_outline_rounded),
             ),
           ],
         ),
@@ -605,22 +638,21 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                SegmentedButton<NoteType>(
+                AppSegmentedControl<NoteType>(
                   segments: const [
-                    ButtonSegment(
+                    AppSegment(
                       value: NoteType.free,
-                      icon: Icon(Icons.notes),
-                      label: Text('Ghi chú thường'),
+                      icon: Icons.notes_rounded,
+                      label: 'Ghi chú thường',
                     ),
-                    ButtonSegment(
+                    AppSegment(
                       value: NoteType.cornell,
-                      icon: Icon(Icons.view_column_outlined),
-                      label: Text('Cornell'),
+                      icon: Icons.view_column_rounded,
+                      label: 'Cornell',
                     ),
                   ],
-                  selected: {_type},
-                  onSelectionChanged: (selection) =>
-                      _changeType(selection.first),
+                  value: _type,
+                  onChanged: _changeType,
                 ),
                 const SizedBox(height: 20),
                 if (_type == NoteType.free)
@@ -669,13 +701,36 @@ class _NoteEditorScreenState extends State<NoteEditorScreen> {
                   ),
               ],
             ),
-            if (activeController != null)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: NoteQuillToolbar(controller: activeController),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: AnimatedSwitcher(
+                duration: AppMotion.normal,
+                switchInCurve: AppMotion.curve,
+                layoutBuilder: (current, previous) => Stack(
+                  fit: StackFit.passthrough,
+                  alignment: Alignment.bottomCenter,
+                  children: [...previous, ?current],
+                ),
+                transitionBuilder: (child, animation) => FadeTransition(
+                  opacity: animation,
+                  child: SlideTransition(
+                    position: Tween<Offset>(
+                      begin: const Offset(0, 0.6),
+                      end: Offset.zero,
+                    ).animate(animation),
+                    child: child,
+                  ),
+                ),
+                child: activeController != null
+                    ? NoteQuillToolbar(
+                        key: const ValueKey('note-toolbar'),
+                        controller: activeController,
+                      )
+                    : const SizedBox.shrink(key: ValueKey('note-no-toolbar')),
               ),
+            ),
           ],
         ),
       ),
